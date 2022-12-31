@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+mod disk;
 mod gdt;
 mod video;
 
@@ -65,6 +66,13 @@ pub extern "C" fn _start() -> ! {
     // map memory using BIOS interrupts
 
     // find the kernel file, and load it into memory
+    let (first_cluster, file_size) = match disk::find_root_dir_file("BOOT    BIN") {
+        Some(pair) => pair,
+        None => {
+            video::print_string("Kernel not found!");
+            loop  {}
+        },
+    };
 
     // enter protected mode, jump to 32-bit section of bootbin
     unsafe {
