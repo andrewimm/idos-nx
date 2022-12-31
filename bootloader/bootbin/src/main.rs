@@ -26,24 +26,47 @@ pub extern "C" fn _start() -> ! {
 
     video::print_string("= IDOS BOOTBIN =\r\n");    
 
-    // enter unreal mode
-
-    // map memory using BIOS interrupts
-
-    // find the kernel file, and load it into memory
-
-    // enter protected mode, jump to 32-bit section of bootbin
+    // disable interrupts, this is gonna get messy
     unsafe {
         asm!(
             "cli",
             options(nostack, nomem, preserves_flags),
         );
     }
-    let gdt_pointer = gdt::GdtPointer::new();
+
+    let gdt_pointer = gdt::GdtPointer::new(&gdt::INITIAL_GDT);
+    // enter unreal mode
     gdt_pointer.load();
+    unsafe {
+        asm!(
+            "push ds",
+            "push ax",
+            "push bx",
+            "mov eax, cr0",
+            "or eax, 1",
+            "mov cr0, eax",
+            "jmp 2f",
 
-    // TODO: set up empty IDT, too
+            "2:",
+            "mov bx, 0x10",
+            "mov ds, bx",
 
+            "and al, 0xfe",
+            "mov cr0, eax",
+            "jmp 3f",
+
+            "3:",
+            "pop bx",
+            "pop ax",
+            "pop ds",
+        );
+    }
+
+    // map memory using BIOS interrupts
+
+    // find the kernel file, and load it into memory
+
+    // enter protected mode, jump to 32-bit section of bootbin
     unsafe {
         asm!(
             "mov eax, cr0",

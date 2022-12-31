@@ -40,9 +40,9 @@ pub struct GdtPointer {
 }
 
 impl GdtPointer {
-    pub fn new() -> GdtPointer {
+    pub fn new(gdt: &GDT) -> GdtPointer {
         let limit = (core::mem::size_of::<GDT>() - 1) as u16;
-        let base = &INITIAL_GDT as *const GDT as u32;
+        let base = gdt as *const GDT as u32;
 
         GdtPointer {
             limit,
