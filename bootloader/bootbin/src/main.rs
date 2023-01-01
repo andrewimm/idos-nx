@@ -88,7 +88,17 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     write!(video::VideoWriter, "Disk No: {:#x}\r\n", disk_number);
     // only memory below 1MB is available to BIOS, so we need to first copy to
     // a lowmem buffer, and then copy that to higher memory when it's ready
+    // TODO: account for a kernel that is larger than 64KB
+    if kernel_sectors > 128 {
+        panic!("Cannot copy more than 64KB at a time");
+    }
     disk::read_sectors(disk_number, first_kernel_sector, 0x800, 0, kernel_sectors as u16); 
+    // copy from low memory buffer to 1MB mark
+    unsafe {
+        let src = 0x8000 as *const u8;
+        let dst = 0x100000 as *mut u8;
+        core::ptr::copy_nonoverlapping(src, dst, kernel_sectors as usize * 512);
+    }
 
     // enter protected mode, jump to 32-bit section of bootbin
     unsafe {
