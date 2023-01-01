@@ -19,3 +19,13 @@ pub fn print_string(s: &str) {
         print_char(ch);
     }
 }
+
+pub struct VideoWriter;
+
+impl Write for VideoWriter {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        print_string(s);
+        Ok(())
+    }
+}
+

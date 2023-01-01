@@ -1,3 +1,5 @@
+use core::arch::asm;
+
 #[repr(C, packed)]
 #[allow(dead_code)]
 pub struct FatHeader {
@@ -13,6 +15,14 @@ pub struct FatHeader {
     pub sectors_per_fat: u16,
     pub sectors_per_track: u16,
     pub head_count: u16,
+}
+
+#[repr(C, packed)]
+pub struct FatMetadata {
+    pub sectors_per_cluster: u16,
+    pub root_dir_sector: u16,
+    pub root_cluster_sector: u16,
+    pub disk_number: u8,
 }
 
 #[repr(C, packed)]
@@ -76,10 +86,46 @@ pub fn find_root_dir_file(name: &str) -> Option<(u16, u32)> {
             return None;
         }
         if name_slice == &entry.filename[0..to_check] {
-            crate::video::print_string("FOUND IT");
             return Some((entry.first_cluster, entry.file_size_bytes));
         }
     }
 
     None
+}
+
+#[repr(C, packed)]
+pub struct DiskAccessPacket {
+    pub packet_size: u8,
+    pub always_zero: u8,
+    pub sectors_to_transfer: u16,
+    pub transfer_buffer_offset: u16,
+    pub transfer_buffer_segment: u16,
+    pub lba_low: u32,
+    pub lba_high: u32,
+}
+
+pub fn read_sectors(disk_number: u8, lba: u16, dest_segment: u16, dest_offset: u16, count: u16) {
+    let packet = DiskAccessPacket {
+        packet_size: 16,
+        always_zero: 0,
+        sectors_to_transfer: count,
+        transfer_buffer_offset: dest_offset,
+        transfer_buffer_segment: dest_segment,
+        lba_low: lba as u32,
+        lba_high: 0,
+    };
+
+    let packet_address: u16 = &packet as *const DiskAccessPacket as u16;
+
+    unsafe {
+        asm!(
+            "push si",
+            "mov si, ax",
+            "mov ax, 0x4200",
+            "int 0x13",
+            "pop si",
+            in("ax") packet_address,
+            in("dx") disk_number as u16,
+        );
+    }
 }

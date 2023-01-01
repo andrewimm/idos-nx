@@ -47,11 +47,12 @@ pub extern "C" fn mbr_start(disk_number: u16) -> ! {
 
     fat::read_sectors(first_cluster_sector, 0x1000, boot_bin_sectors);
 
-    let boot_bin_start: extern "C" fn() = unsafe {
+    let boot_bin_start: extern "C" fn(fat_metadata: *const fat::FatMetadata) = unsafe {
         core::mem::transmute(0x1000 as *const ())
     };
 
-    boot_bin_start();
+    let fat_meta_ptr = unsafe { &fat::FAT_DATA as *const fat::FatMetadata };
+    boot_bin_start(fat_meta_ptr);
 
     loop {}
 }

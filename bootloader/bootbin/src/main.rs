@@ -6,10 +6,11 @@ mod gdt;
 mod video;
 
 use core::arch::asm;
+use core::fmt::Write;
 
 #[no_mangle]
 #[link_section = ".entry"]
-pub extern "C" fn _start() -> ! {
+pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     // enable A20 line
     unsafe {
         asm!(
@@ -51,7 +52,6 @@ pub extern "C" fn _start() -> ! {
             "2:",
             "mov bx, 0x10",
             "mov ds, bx",
-
             "and al, 0xfe",
             "mov cr0, eax",
             "jmp 3f",
@@ -66,6 +66,9 @@ pub extern "C" fn _start() -> ! {
     // map memory using BIOS interrupts
 
     // find the kernel file, and load it into memory
+    let disk_number: u8 = unsafe { (*fat_metadata).disk_number };
+    let root_data_sector: u16 = unsafe { (*fat_metadata).root_cluster_sector };
+    let sectors_per_cluster: u16 = unsafe { (*fat_metadata).sectors_per_cluster };
     let (first_cluster, file_size) = match disk::find_root_dir_file("BOOT    BIN") {
         Some(pair) => pair,
         None => {
@@ -73,6 +76,19 @@ pub extern "C" fn _start() -> ! {
             loop  {}
         },
     };
+    video::print_string("Kernel found, loading into memory.\r\n");
+    let mut kernel_sectors = file_size / 512;
+    if file_size & 511 != 0 {
+        kernel_sectors += 1;
+    }
+    let mut first_kernel_sector = root_data_sector;
+    first_kernel_sector += sectors_per_cluster * first_cluster;
+    first_kernel_sector -= sectors_per_cluster * 2;
+    write!(video::VideoWriter, "Kernel at sector {:#X}, {:#X} sectors long\r\n", first_kernel_sector, kernel_sectors);
+    write!(video::VideoWriter, "Disk No: {:#x}\r\n", disk_number);
+    // only memory below 1MB is available to BIOS, so we need to first copy to
+    // a lowmem buffer, and then copy that to higher memory when it's ready
+    disk::read_sectors(disk_number, first_kernel_sector, 0x800, 0, kernel_sectors as u16); 
 
     // enter protected mode, jump to 32-bit section of bootbin
     unsafe {
