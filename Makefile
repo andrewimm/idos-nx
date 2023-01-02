@@ -1,6 +1,7 @@
 diskimage := build/bootdisk.img
 bootsector := build/mbr.bin
 bootbin := build/boot.bin
+kernel := build/kernel.bin
 
 .PHONY: all, clean
 
@@ -13,9 +14,10 @@ $(diskimage):
 	@mkdir -p $(shell dirname $@)
 	@mkfs.msdos -C $(diskimage) 1440
 
-bootdisk: $(diskimage) $(bootsector) $(bootbin)
+bootdisk: $(diskimage) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
 	@mcopy -D o -i $(diskimage) $(bootbin) ::BOOT.BIN
+	@mcopy -D o -i $(diskimage) $(kernel) ::KERNEL.BIN
 
 $(bootsector):
 	@mkdir -p $(shell dirname $@)
@@ -28,3 +30,9 @@ $(bootbin):
 	@cd bootloader/bootbin && \
 	cargo build --release -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-bootbin.json
 	@objcopy -I elf32-i386 -O binary bootloader/bootbin/target/i386-bootbin/release/idos-bootbin $(bootbin)
+
+$(kernel):
+	@mkdir -p $(shell dirname $@)
+	@cd kernel && \
+	cargo build --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
+	@cp kernel/target/i386-kernel/release/idos_kernel $(kernel)

@@ -69,7 +69,7 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     let disk_number: u8 = unsafe { (*fat_metadata).disk_number };
     let root_data_sector: u16 = unsafe { (*fat_metadata).root_cluster_sector };
     let sectors_per_cluster: u16 = unsafe { (*fat_metadata).sectors_per_cluster };
-    let (first_cluster, file_size) = match disk::find_root_dir_file("BOOT    BIN") {
+    let (first_cluster, file_size) = match disk::find_root_dir_file("KERNEL  BIN") {
         Some(pair) => pair,
         None => {
             video::print_string("Kernel not found!");

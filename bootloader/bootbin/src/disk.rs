@@ -67,7 +67,7 @@ impl Iterator for DirectoryIterator {
         }
         let entry = unsafe {
             self.first_entry.offset(
-                (core::mem::size_of::<DirectoryEntry>() * self.next_entry) as isize
+                self.next_entry as isize
             )
         };
         self.next_entry += 1;
