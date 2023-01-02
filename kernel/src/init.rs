@@ -23,7 +23,7 @@ pub unsafe fn init_cpu_tables() {
     gdt_descriptor.point_to(gdt);
     gdt_descriptor.load();
 
-
+    crate::interrupts::idt::init_idt();
 }
 
 /// Initialize system memory, enabling virtual memory and paging.

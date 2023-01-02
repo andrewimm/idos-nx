@@ -1,8 +1,10 @@
 #![no_std]
 #![no_main]
+#![feature(abi_x86_interrupt)]
 
 pub mod arch;
 pub mod init;
+pub mod interrupts;
 pub mod io;
 pub mod log;
 pub mod panic;
