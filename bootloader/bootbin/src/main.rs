@@ -100,12 +100,18 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         core::ptr::copy_nonoverlapping(src, dst, kernel_sectors as usize * 512);
     }
 
+    // read the kernel ELF header to find relevant
+    let entry_addr: u32 = unsafe { *(0x100018 as *const u32) };
+
     // enter protected mode, jump to 32-bit section of bootbin
     unsafe {
         asm!(
+            "and esp, 0xfffffffc",
+            "push eax",
             "mov eax, cr0",
             "or eax, 1",
             "mov cr0, eax",
+            in("eax") entry_addr,
         );
         asm!(
             "ljmp $0x08, $2f",
@@ -120,8 +126,8 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
             "mov fs, ax",
             "mov gs, ax",
             "mov ss, ax",
-            "and esp, 0xfffffffc",
-            "hlt",
+            "pop eax",
+            "call eax",
         );
     }
 
