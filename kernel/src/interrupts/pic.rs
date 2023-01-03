@@ -121,5 +121,5 @@ pub extern "C" fn _handle_pic_interrupt(registers: SavedState, irq: u32, frame: 
 /// The PIT triggers at 100Hz, and is used to update the internal clock and the
 /// task scheduler.
 pub fn handle_pit_interrupt() {
-    
+    crate::time::system::tick();
 }

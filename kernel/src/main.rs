@@ -11,6 +11,7 @@ pub mod interrupts;
 pub mod io;
 pub mod log;
 pub mod panic;
+pub mod time;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
