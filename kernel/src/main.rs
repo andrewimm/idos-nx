@@ -2,7 +2,10 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 
+use core::arch::asm;
+
 pub mod arch;
+pub mod hardware;
 pub mod init;
 pub mod interrupts;
 pub mod io;
@@ -20,5 +23,14 @@ pub extern "C" fn _start() -> ! {
 
     kprint!("\nKernel Memory initialized.\n");
 
-    loop {}
+    init::init_hardware();
+
+    loop {
+        unsafe {
+            asm!(
+                "sti",
+                "hlt",
+            );
+        }
+    }
 }

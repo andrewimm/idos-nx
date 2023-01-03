@@ -1,5 +1,6 @@
 use core::arch::asm;
 use crate::arch::segment::SegmentSelector;
+use super::exceptions;
 use super::stack::StackFrame;
 
 // Flags used in IDT entries
@@ -9,6 +10,13 @@ pub const IDT_DESCRIPTOR_RING_3: u8 = 3 << 5;
 pub const IDT_GATE_TYPE_INT_32: u8 = 0xe;
 
 pub type HandlerFunction = unsafe extern "x86-interrupt" fn(StackFrame);
+pub type HandlerFunctionWithError = unsafe extern "x86-interrupt" fn(StackFrame, u32);
+
+extern "x86-interrupt" {
+    fn pic_irq_0(frame: StackFrame) -> ();
+    fn pic_irq_1(frame: StackFrame) -> ();
+    fn pic_irq_3(frame: StackFrame) -> ();
+}
 
 /// An IDT Entry tells the x86 CPU how to handle an interrupt.
 /// The entry attributes determine how the interrupt is entered, what permission
@@ -36,7 +44,12 @@ impl IdtEntry {
 
     /// Set the handler function for this entry. When this interrupt occurs,
     /// the CPU will attempt to enter this function.
-    pub fn set_handler_(&mut self, func: HandlerFunction) {
+    pub fn set_handler(&mut self, func: HandlerFunction) {
+        let offset = func as *const () as usize;
+        self.set_handler_at_offset(offset);
+    }
+
+    pub fn set_handler_with_error(&mut self, func: HandlerFunctionWithError) {
         let offset = func as *const () as usize;
         self.set_handler_at_offset(offset);
     }
@@ -103,7 +116,7 @@ pub unsafe fn init_idt() {
     // interrupts when triggered. If we make the kernel interrupt-safe, these
     // can be updated to tasks and made interruptable themselves.
    
-    // TODO: set handlers for 0x00..0x0f
+    IDT[0x0d].set_handler_with_error(exceptions::gpf);
 
     // Interrupts through 0x1f represent exceptions that we don't handle,
     // usually because they are deprecated or represent unsupported hardware.
@@ -121,7 +134,15 @@ pub unsafe fn init_idt() {
     // through a vector of installed hooks before returning to whatever code
     // was originally running before the interrupt.
 
-    // TODO: Set up hooks for installed handlers
+    // IRQ 0 is always the PIT timer chip
+    IDT[0x30].set_handler(pic_irq_0);
+    // IRQ 1 is the keyboard PS/2 controller
+    IDT[0x31].set_handler(pic_irq_1);
+    // IRQ 2 does not exist, since it is the cascade for the secondary PIC
+    // The remaining IRQs are a mix of standard connections and ISA interrupts.
+    // When PCI devices are available, their interrupts are exposed on unused
+    // lines.
+    IDT[0x33].set_handler(pic_irq_3);
 
     IDTR.load();
 }

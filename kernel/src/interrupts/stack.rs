@@ -9,3 +9,19 @@ pub struct StackFrame {
 
 impl StackFrame {
 }
+
+/// SavedState stashes the running state of a task when it is interrupted.
+/// Restoring these would allow the CPU to return to its pre-interrupt state
+/// without the task ever knowing.
+#[derive(Copy, Clone)]
+#[repr(C, packed)]
+pub struct SavedState {
+    edi: u32,
+    esi: u32,
+    ebp: u32,
+    ebx: u32,
+    edx: u32,
+    ecx: u32,
+    eax: u32,
+}
+

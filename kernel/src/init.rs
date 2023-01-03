@@ -1,3 +1,4 @@
+use crate::hardware::{pic::PIC, pit::PIT};
 
 extern {
     #[link_name = "__bss_start"]
@@ -31,6 +32,13 @@ pub unsafe fn init_cpu_tables() {
 /// need to be or-ed with 0xc0000000 so that they can correctly point to the
 /// kernel in all tasks.
 pub unsafe fn init_memory() {
+}
+
+/// Initialize the hardware necessary to run the PC architecture
+pub fn init_hardware() {
+    PIC::new().init();
+    // set the PIT interrupt to approximately 100Hz
+    PIT::new().set_divider(11932);
 }
 
 
