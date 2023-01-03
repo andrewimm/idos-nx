@@ -40,6 +40,7 @@ impl GdtEntry {
     }
 }
 
+#[repr(C, packed)]
 pub struct GdtDescriptor {
     pub size: u16,
     pub offset: u32,
