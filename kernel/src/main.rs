@@ -11,6 +11,7 @@ pub mod interrupts;
 pub mod io;
 pub mod log;
 pub mod panic;
+pub mod task;
 pub mod time;
 
 #[no_mangle]
