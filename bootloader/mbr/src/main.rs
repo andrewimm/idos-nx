@@ -38,17 +38,17 @@ pub extern "C" fn mbr_start(disk_number: u16) -> ! {
 
     print_string("Boot\r\n");
     // first file is BOOT.BIN
-    // read all sectors of the file to 0x1000
+    // read all sectors of the file to 0x2000
     let boot_bin_size_ptr: *const u16 = 0x7e1d as *const u16;
     let mut boot_bin_sectors = unsafe { *boot_bin_size_ptr } >> 1;
     boot_bin_sectors += 1;
 
     let first_cluster_sector = unsafe { fat::FAT_DATA.root_cluster_sector };
 
-    fat::read_sectors(first_cluster_sector, 0x1000, boot_bin_sectors);
+    fat::read_sectors(first_cluster_sector, 0x2000, boot_bin_sectors);
 
     let boot_bin_start: extern "C" fn(fat_metadata: *const fat::FatMetadata) = unsafe {
-        core::mem::transmute(0x1000 as *const ())
+        core::mem::transmute(0x2000 as *const ())
     };
 
     let fat_meta_ptr = unsafe { &fat::FAT_DATA as *const fat::FatMetadata };

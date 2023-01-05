@@ -64,6 +64,48 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     }
 
     // map memory using BIOS interrupts
+    
+    unsafe {
+        asm!(
+            "push esi",
+            "push edi",
+            "push eax",
+            "push ecx",
+            "push edx",
+            "push ebx",
+
+            "xor esi, esi",
+            "xor ebx, ebx",
+            "mov edi, 0x1004",
+
+            "2:",
+            "mov edx, 0x534d4150",
+            "mov eax, 0xe820",
+            "mov ecx, 24",
+            "int 0x15",
+            "jc 3f",
+            "cmp ebx, 0",
+            "je 3f",
+            "cmp eax, edx",
+            "jne 3f",
+
+            "add di, 24",
+            "inc esi",
+            // arbitrarily cap at 170, for a limit of 0x1000 bytes
+            "cmp esi, 170",
+            "jb 2b",
+
+            "3:",
+            "mov [0x1000], esi",
+
+            "pop ebx",
+            "pop edx",
+            "pop ecx",
+            "pop eax",
+            "pop edi",
+            "pop esi",
+        );
+    }
 
     // find the kernel file, and load it into memory
     let disk_number: u8 = unsafe { (*fat_metadata).disk_number };
