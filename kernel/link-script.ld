@@ -30,4 +30,6 @@ SECTIONS
 
     __bss_end = .;
   }
+
+  __kernel_end = .;
 }

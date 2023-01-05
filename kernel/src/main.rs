@@ -10,6 +10,7 @@ pub mod init;
 pub mod interrupts;
 pub mod io;
 pub mod log;
+pub mod memory;
 pub mod panic;
 pub mod task;
 pub mod time;

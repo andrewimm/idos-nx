@@ -1,10 +1,14 @@
 use crate::hardware::{pic::PIC, pit::PIT};
+use crate::memory::address::PhysicalAddress;
+use crate::memory::physical::{init_allocator};
 
 extern {
     #[link_name = "__bss_start"]
     static mut label_bss_start: u8;
     #[link_name = "__bss_end"]
     static label_bss_end: u8;
+    #[link_name = "__kernel_end"]
+    static label_kernel_end: ();
 }
 
 /// Zero out the .bss section. Code may assume this area starts as zeroes.
@@ -32,6 +36,9 @@ pub unsafe fn init_cpu_tables() {
 /// need to be or-ed with 0xc0000000 so that they can correctly point to the
 /// kernel in all tasks.
 pub unsafe fn init_memory() {
+    let allocator_location = &label_kernel_end as *const () as u32;
+    let bios_memmap = PhysicalAddress::new(0x1000);
+    init_allocator(PhysicalAddress::new(allocator_location), bios_memmap);
 }
 
 /// Initialize the hardware necessary to run the PC architecture
