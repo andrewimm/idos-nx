@@ -84,3 +84,9 @@ impl FrameBitmap {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{BitmapError, FrameBitmap, FrameRange, PhysicalAddress};
+
+}
+

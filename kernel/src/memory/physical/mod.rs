@@ -11,6 +11,7 @@ pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAdd
     let memory_map = load_memory_map(memory_map_address);
     let mut memory_end = 0;
     // The memory map from BIOS is not guaranteed to be in order
+    crate::kprint!("System Memory Map:\n");
     for entry in memory_map.iter() {
         let start = entry.base as usize;
         let end = start + (entry.length as usize);
@@ -20,8 +21,8 @@ pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAdd
         crate::kprint!("{:?}\n", entry);
     }
 
-    let mut bitmap = FrameBitmap::at_location(location, memory_end >> 12);
-    bitmap.initialize_from_memory_map(memory_map).unwrap();
+    //let mut bitmap = FrameBitmap::at_location(location, memory_end >> 12);
+    //bitmap.initialize_from_memory_map(memory_map).unwrap();
 }
 
 

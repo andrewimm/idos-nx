@@ -3,12 +3,18 @@ bootsector := build/mbr.bin
 bootbin := build/boot.bin
 kernel := build/kernel.bin
 
-.PHONY: all, clean
+kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
+
+
+.PHONY: all, clean, run
 
 all: bootdisk
 
 clean:
 	@rm -r build
+
+run: bootdisk
+	@qemu-system-i386 -m 8M -drive format=raw,file=$(diskimage) -serial stdio
 
 $(diskimage):
 	@mkdir -p $(shell dirname $@)
@@ -34,5 +40,10 @@ $(bootbin):
 $(kernel):
 	@mkdir -p $(shell dirname $@)
 	@cd kernel && \
-	cargo build --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
+	cargo build $(kernel_build_flags)
 	@cp kernel/target/i386-kernel/release/idos_kernel $(kernel)
+
+testkernel:
+	@mkdir -p build
+	@cd kernel && \
+	cargo test --no-run $(kernel_build_flags)

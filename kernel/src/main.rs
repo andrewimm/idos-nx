@@ -1,6 +1,10 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
+#![feature(custom_test_frameworks)]
+
+#![test_runner(crate::test_runner)]
+#![reexport_test_harness_main = "test_main"]
 
 use core::arch::asm;
 
@@ -28,6 +32,9 @@ pub extern "C" fn _start() -> ! {
 
     init::init_hardware();
 
+    #[cfg(test)]
+    test_main();
+
     loop {
         unsafe {
             asm!(
@@ -37,3 +44,16 @@ pub extern "C" fn _start() -> ! {
         }
     }
 }
+
+
+#[cfg(test)]
+fn test_runner(tests: &[&dyn Fn()]) {
+    kprint!("Running {} tests\n", tests.len());
+    for test in tests {
+        kprint!("... ");
+        test();
+        kprint!("[ok]\n");
+    }
+    loop {}
+}
+
