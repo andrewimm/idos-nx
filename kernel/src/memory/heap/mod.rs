@@ -37,13 +37,16 @@ unsafe impl GlobalAlloc for Allocator {
     }
 }
 
-pub const INITIAL_HEAP_SIZE: usize = 64;
+pub const INITIAL_HEAP_SIZE_FRAMES: usize = 64;
 
 #[global_allocator]
 static ALLOCATOR: Allocator = Allocator::new();
 
-pub fn init_allocator(location: usize, size: usize) {
-    ALLOCATOR.update_implementation(location, size);
+pub fn init_allocator(location: usize) {
+    // TODO: request enough physical frames for the allocator
+
+    let byte_size = INITIAL_HEAP_SIZE_FRAMES * 0x1000;
+    ALLOCATOR.update_implementation(location, byte_size);
 }
 
 #[alloc_error_handler]

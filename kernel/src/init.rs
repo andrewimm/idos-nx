@@ -1,6 +1,6 @@
 use crate::hardware::{pic::PIC, pit::PIT};
 use crate::memory::address::PhysicalAddress;
-use crate::memory::heap::{self, INITIAL_HEAP_SIZE};
+use crate::memory::heap;
 use crate::memory::physical::{init_allocator};
 
 extern {
@@ -45,8 +45,7 @@ pub unsafe fn init_memory() {
 
     // enable the heap, so that the alloc crate can be used
     let heap_location = 0x400000;
-    let heap_size = INITIAL_HEAP_SIZE * 0x1000;
-    heap::init_allocator(heap_location, heap_size);
+    heap::init_allocator(heap_location);
 
 }
 
