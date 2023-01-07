@@ -223,7 +223,24 @@ impl ListAllocator {
         self.merge_free_areas();
     }
 
+    /// Iterate over the linked list of free nodes. If two adjacent nodes are
+    /// free, merge them into a single free space.
     pub unsafe fn merge_free_areas(&mut self) {
-        // TODO: implement
+        let mut iter_addr = self.first_free;
+        while iter_addr != 0 {
+            let iter_ptr = iter_addr as *mut AllocNode;
+            let iter_node = &mut *iter_ptr;
+            let next_byte = iter_addr + iter_node.get_size();
+            let next_addr = iter_node.get_next();
+            if next_byte == next_addr {
+                // The two nodes are adjacent, and should be merged
+                let next_ptr = next_addr as *mut AllocNode;
+                let next_node = &mut *next_ptr;
+                iter_node.set_size(iter_node.get_size() + next_node.get_size());
+                iter_node.set_next(next_node.get_next());
+            } else {
+                iter_addr = next_addr;
+            }
+        }
     }
 }
