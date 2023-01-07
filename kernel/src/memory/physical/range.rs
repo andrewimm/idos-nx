@@ -1,5 +1,6 @@
 use super::super::address::PhysicalAddress;
 
+#[derive(Copy, Clone, Eq)]
 pub struct FrameRange {
     start: PhysicalAddress,
     length: u32,
@@ -35,6 +36,26 @@ impl FrameRange {
         let first = self.start;
         let last = self.get_final_address();
         first <= addr && addr <= last
+    }
+
+    pub fn size_in_bytes(&self) -> u32 {
+        self.length
+    }
+}
+
+impl PartialEq for FrameRange {
+    fn eq(&self, other: &Self) -> bool {
+        self.get_starting_address() == other.get_starting_address() &&
+        self.size_in_bytes() == other.size_in_bytes()
+    }
+}
+
+impl core::fmt::Debug for FrameRange {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("FrameRange")
+            .field(&self.get_starting_address())
+            .field(&self.get_final_address())
+            .finish()
     }
 }
 

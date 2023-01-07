@@ -4,6 +4,7 @@ pub mod range;
 
 use bios::load_memory_map;
 use bitmap::FrameBitmap;
+use range::FrameRange;
 use super::address::PhysicalAddress;
 
 pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAddress) {
@@ -21,8 +22,21 @@ pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAdd
         crate::kprint!("{:?}\n", entry);
     }
 
-    //let mut bitmap = FrameBitmap::at_location(location, memory_end >> 12);
-    //bitmap.initialize_from_memory_map(memory_map).unwrap();
+    let mut bitmap = FrameBitmap::at_location(location, memory_end >> 12);
+    bitmap.initialize_from_memory_map(memory_map).unwrap();
+
+    // Mark the frame bitmap itself as allocated, so that it won't be reused
+    let size_in_frames = bitmap.size_in_frames() as u32;
+    let own_range = FrameRange::new(location, size_in_frames * 0x1000);
+    bitmap.allocate_range(own_range).unwrap();
+    // Mark the first 0x1000 bytes as occupied, too. We may need the BIOS data
+    bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0), 0x1000)).unwrap();
+
+    crate::kprint!(
+        "Total Memory: {} KiB\nFree Memory: {} KiB\n",
+        bitmap.total_frame_count() * 4,
+        bitmap.get_free_frame_count() * 4,
+    );
 }
 
 
