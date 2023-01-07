@@ -1,5 +1,6 @@
 use crate::hardware::{pic::PIC, pit::PIT};
 use crate::memory::address::PhysicalAddress;
+use crate::memory::heap::{self, INITIAL_HEAP_SIZE};
 use crate::memory::physical::{init_allocator};
 
 extern {
@@ -39,6 +40,14 @@ pub unsafe fn init_memory() {
     let allocator_location = &label_kernel_end as *const () as u32;
     let bios_memmap = PhysicalAddress::new(0x1000);
     init_allocator(PhysicalAddress::new(allocator_location), bios_memmap);
+
+    // when paging is implemented, it should be activated here
+
+    // enable the heap, so that the alloc crate can be used
+    let heap_location = 0x400000;
+    let heap_size = INITIAL_HEAP_SIZE * 0x1000;
+    heap::init_allocator(heap_location, heap_size);
+
 }
 
 /// Initialize the hardware necessary to run the PC architecture

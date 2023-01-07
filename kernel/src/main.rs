@@ -1,12 +1,15 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
+#![feature(alloc_error_handler)]
 #![feature(custom_test_frameworks)]
 
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
 use core::arch::asm;
+
+extern crate alloc;
 
 pub mod arch;
 pub mod hardware;
@@ -34,6 +37,14 @@ pub extern "C" fn _start() -> ! {
 
     #[cfg(test)]
     test_main();
+
+    {
+        let mut b = alloc::vec::Vec::new();
+        for i in 0..5 {
+            b.push(i);
+        }
+        kprint!("Allocated: {}\n", b.len());
+    }
 
     loop {
         unsafe {
