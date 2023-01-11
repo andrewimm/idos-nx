@@ -2,11 +2,14 @@
 #![no_main]
 
 mod disk;
+mod elf;
 mod gdt;
 mod video;
 
 use core::arch::asm;
 use core::fmt::Write;
+
+use crate::elf::{ElfHeader, SectionHeader};
 
 #[no_mangle]
 #[link_section = ".entry"]
@@ -42,6 +45,7 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     unsafe {
         asm!(
             "push ds",
+            "push ss",
             "push ax",
             "push bx",
             "mov eax, cr0",
@@ -52,6 +56,7 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
             "2:",
             "mov bx, 0x10",
             "mov ds, bx",
+            "mov ss, bx",
             "and al, 0xfe",
             "mov cr0, eax",
             "jmp 3f",
@@ -59,6 +64,7 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
             "3:",
             "pop bx",
             "pop ax",
+            "pop ss",
             "pop ds",
         );
     }
@@ -135,6 +141,35 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         panic!("Cannot copy more than 64KB at a time");
     }
     disk::read_sectors(disk_number, first_kernel_sector, 0x800, 0, kernel_sectors as u16); 
+
+    // Read the ELF header after the first chunk is copied to memory
+    // If we do this after it's been copied to high memory, the compiler will
+    // do weird optimizations assuming that addresses can't be higher than 1MB
+    // and everything will break.
+    let sections_end = unsafe {
+        let elf_root_ptr = 0x8000 as *const ElfHeader;
+        let elf_root = &(*elf_root_ptr);
+        let mut section_header_addr = 0x8000 + elf_root.section_header_location;
+        let section_header_size = elf_root.section_header_entry_size as u32;
+        let mut section_header_count = elf_root.section_header_entry_count;
+
+        let mut sections_end: u32 = 0;
+        while section_header_count > 0 {
+            let section_header_ptr = section_header_addr as *const SectionHeader;
+            let header = &(*section_header_ptr);
+            let section_load_at = header.section_address;
+            let section_end_at = section_load_at + header.section_size;
+            if section_end_at > sections_end {
+                sections_end = section_end_at;
+            }
+            section_header_count -= 1;
+            section_header_addr += section_header_size;
+        }
+        sections_end
+    };
+
+    let entry_addr = unsafe { *(0x8018 as *const u32) };
+
     // copy from low memory buffer to 1MB mark
     unsafe {
         let src = 0x8000 as *const u8;
@@ -142,17 +177,16 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         core::ptr::copy_nonoverlapping(src, dst, kernel_sectors as usize * 512);
     }
 
-    // read the kernel ELF header to find relevant
-    let entry_addr: u32 = unsafe { *(0x100018 as *const u32) };
-
     // enter protected mode, jump to 32-bit section of bootbin
     unsafe {
         asm!(
-            "and esp, 0xfffffffc",
+            "mov esp, ecx",
+            "sub esp, 4",
             "push eax",
             "mov eax, cr0",
             "or eax, 1",
             "mov cr0, eax",
+            in("ecx") sections_end,
             in("eax") entry_addr,
         );
         asm!(
