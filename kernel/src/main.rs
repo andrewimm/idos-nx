@@ -2,6 +2,7 @@
 #![no_main]
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
+#![feature(const_btree_new)]
 #![feature(custom_test_frameworks)]
 
 #![test_runner(crate::test_runner)]
@@ -35,24 +36,35 @@ pub extern "C" fn _start() -> ! {
 
     init::init_hardware();
 
+    task::switching::init();
+
     #[cfg(test)]
     test_main();
 
     {
-        let mut b = alloc::vec::Vec::new();
-        for i in 0..5 {
-            b.push(i);
-        }
-        kprint!("Allocated: {}\n", b.len());
+        let task_id = task::switching::get_next_id();
+        let task_stack = task::stack::allocate_stack();
+        let mut other_task = task::state::Task::new(task_id, task_stack);
+        other_task.set_entry_point(other_task_body);
+        other_task.make_runnable();
+        task::switching::insert_task(other_task);
     }
 
     loop {
         unsafe {
+            asm!("cli");
+            task::switching::yield_coop();
             asm!(
                 "sti",
                 "hlt",
             );
         }
+    }
+}
+
+fn other_task_body() -> ! {
+    loop {
+        task::switching::yield_coop();
     }
 }
 

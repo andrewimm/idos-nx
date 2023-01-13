@@ -29,6 +29,14 @@ SECTIONS
     *(.bss*)
 
     __bss_end = .;
+
+    . = ALIGN(0x1000);
+
+    __stack_start = .;
+
+    . += 0x1000;
+    
+    __stack_end = .;
   }
 
   __kernel_end = .;

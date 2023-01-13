@@ -1,10 +1,125 @@
+use alloc::boxed::Box;
 use super::id::TaskID;
+use super::stack::free_stack;
 
 pub struct Task {
     /// The unique identifier for this Task
     pub id: TaskID,
     /// Represents the current execution state of the task
     pub state: RunState,
+
+    /// A Box pointing to the kernel stack for this task. This stack will be
+    /// used when the task is executing kernel-mode code. 
+    /// The stack Box is wrapped in an Option so that we can replace it with
+    /// None before the Task struct is dropped. If any code attempts to drop
+    /// the stack Box, it will panic because it was not created by the global
+    /// allocator.
+    pub kernel_stack: Option<Box<[u8]>>,
+    /// Stores the kernel stack pointer when the task is swapped out. When the
+    /// task is resumed by the scheduler, this address will be placed in $esp.
+    /// Registers will be popped off the stack to resume the execution state
+    /// of the task.
+    pub stack_pointer: usize,
+}
+
+impl Task {
+    pub fn new(id: TaskID, stack: Box<[u8]>) -> Self {
+        let stack_pointer = (stack.as_ptr() as usize) + stack.len() - core::mem::size_of::<u32>();
+        Self {
+            id,
+            state: RunState::Uninitialized,
+            kernel_stack: Some(stack),
+            stack_pointer,
+        }
+    }
+
+    pub fn create_initial_task() -> Self {
+        let id = TaskID::new(0);
+        let stack = super::stack::create_initial_stack();
+        let mut task = Self::new(id, stack);
+        task.make_runnable();
+        task
+    }
+
+    pub fn get_kernel_stack(&self) -> &Box<[u8]> {
+        match &self.kernel_stack {
+            Some(stack) => stack,
+            None => panic!("Task does not have a stack"),
+        }
+    }
+
+    pub fn get_kernel_stack_mut(&mut self) -> &mut Box<[u8]> {
+        match &mut self.kernel_stack {
+            Some(stack) => stack,
+            None => panic!("Task does not have a stack"),
+        }
+    }
+
+    pub fn reset_stack_pointer(&mut self) {
+        let stack = self.get_kernel_stack_mut();
+        let pointer = (stack.as_ptr() as usize) + stack.len() - core::mem::size_of::<u32>();
+        self.stack_pointer = pointer;
+    }
+
+    /// Push a u8 value onto the kernel stack
+    pub fn stack_push_u8(&mut self, value: u8) {
+        self.stack_pointer -= 1;
+        let esp = self.stack_pointer;
+        let stack = self.get_kernel_stack_mut();
+        let stack_start = stack.as_ptr() as usize;
+        let offset = esp - stack_start;
+        stack[offset] = value;
+    }
+
+    pub fn stack_push_u32(&mut self, value: u32) {
+        self.stack_pointer -= 4;
+        let esp = self.stack_pointer;
+        let stack = self.get_kernel_stack_mut();
+        let stack_start = stack.as_ptr() as usize;
+        let offset = esp - stack_start;
+        stack[offset + 0] = ((value & 0x000000ff) >> 0) as u8;
+        stack[offset + 1] = ((value & 0x0000ff00) >> 8) as u8;
+        stack[offset + 2] = ((value & 0x00ff0000) >> 16) as u8;
+        stack[offset + 3] = ((value & 0xff000000) >> 24) as u8;
+    }
+
+    pub fn initialize_registers(&mut self) {
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+    }
+
+    pub fn set_entry_point(&mut self, f: fn() -> !) {
+        self.initialize_registers();
+        self.stack_push_u32(f as *const () as u32);
+    }
+
+    /// Determine if the scheduler can re-enter this task
+    pub fn can_resume(&self) -> bool {
+        match self.state {
+            RunState::Running => true,
+            _ => false,
+        }
+    }
+
+    pub fn make_runnable(&mut self) {
+        if let RunState::Uninitialized = self.state {
+            self.state = RunState::Running;
+        }
+    }
+}
+
+impl Drop for Task {
+    fn drop(&mut self) {
+        let stack = self.kernel_stack.take();
+        if let Some(b) = stack {
+            free_stack(b);
+        }
+    }
 }
 
 /// RunState represents the current state of the task, and determines how the
