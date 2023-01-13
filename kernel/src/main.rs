@@ -64,7 +64,8 @@ pub extern "C" fn _start() -> ! {
 
 fn other_task_body() -> ! {
     loop {
-        task::switching::yield_coop();
+        task::sleep(1000);
+        kprint!("TICK\n");
     }
 }
 

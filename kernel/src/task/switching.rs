@@ -93,6 +93,15 @@ pub fn insert_task(task: Task) {
     }
 }
 
+pub fn update_timeouts(ms: u32) {
+    let map = TASK_MAP.read();
+    for (_, lock) in map.iter() {
+        if let Some(mut task) = lock.try_write() {
+            task.update_timeout(ms);
+        }
+    }
+}
+
 /// Execute a context switch to another task. If that task does not exist, the
 /// method will panic.
 /// In addition to updating relevant pointers to the new Task's ID, the actual

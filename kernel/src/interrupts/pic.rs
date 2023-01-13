@@ -122,4 +122,5 @@ pub extern "C" fn _handle_pic_interrupt(registers: SavedState, irq: u32, frame: 
 /// task scheduler.
 pub fn handle_pit_interrupt() {
     crate::time::system::tick();
+    crate::task::switching::update_timeouts(crate::time::system::MS_PER_TICK);
 }

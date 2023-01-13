@@ -111,6 +111,27 @@ impl Task {
             self.state = RunState::Running;
         }
     }
+
+    pub fn update_timeout(&mut self, ms: u32) {
+        match self.state {
+            RunState::Blocked(Some(t), block_type) => {
+                self.state = if t <= ms {
+                    RunState::Running
+                } else {
+                    RunState::Blocked(Some(t - ms), block_type)
+                };
+            },
+            _ => (),
+        }
+    }
+
+    pub fn sleep(&mut self, timeout_ms: u32) {
+        if let RunState::Running = self.state {
+            self.state = RunState::Blocked(Some(timeout_ms), BlockType::Sleep);
+        } else {
+            panic!("Cannot sleep a non-running task");
+        }
+    }
 }
 
 impl Drop for Task {
@@ -154,11 +175,12 @@ pub enum RunState {
     /// The Task has ended, but still needs to be cleaned up
     Terminated,
     /// The Task is blocked on some condition, with an optional timeout
-    Blocked(Option<usize>, BlockType),
+    Blocked(Option<u32>, BlockType),
 }
 
 /// A task may block on a variety of hardware or software conditions. The
 /// BlockType describes why the task is blocked, and how it can be resumed.
+#[derive(Copy, Clone)]
 pub enum BlockType {
     /// The Task is sleeping for a fixed period of time, stored in the timeout
     Sleep,
