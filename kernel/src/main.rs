@@ -63,8 +63,8 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn task_a_body() -> ! {
+    let b_id = task::switching::get_next_id();
     {
-        let b_id = task::switching::get_next_id();
         let stack = task::stack::allocate_stack();
         let mut task_b = task::state::Task::new(b_id, stack);
         task_b.set_entry_point(task_b_body);
@@ -72,16 +72,19 @@ fn task_a_body() -> ! {
         task::switching::insert_task(task_b);
     }
 
-    task::sleep(1000);
+    use task::messaging::Message;
+
     loop {
         kprint!("TICK\n");
-        task::sleep(2000);
+        task::sleep(1000);
+        task::send_message(b_id, Message(0, 0, 0, 0), 0xffffffff);
+        task::sleep(1000);
     }
 }
 
 fn task_b_body() -> ! {
     loop {
-        task::sleep(2000);
+        let _ = task::read_message_blocking(None);
         kprint!("TOCK\n");
     }
 }
