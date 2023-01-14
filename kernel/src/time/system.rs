@@ -13,3 +13,8 @@ static SYSTEM_TICKS: AtomicU32 = AtomicU32::new(0);
 pub fn tick() {
     SYSTEM_TICKS.fetch_add(1, Ordering::SeqCst);
 }
+
+pub fn get_system_ticks() -> u32 {
+    SYSTEM_TICKS.load(Ordering::SeqCst)
+}
+

@@ -1,5 +1,6 @@
 use alloc::boxed::Box;
 use super::id::TaskID;
+use super::messaging::{Message, MessagePacket, MessageQueue};
 use super::stack::free_stack;
 
 pub struct Task {
@@ -20,6 +21,9 @@ pub struct Task {
     /// Registers will be popped off the stack to resume the execution state
     /// of the task.
     pub stack_pointer: usize,
+
+    /// Store Messages that have been sent to this task
+    pub message_queue: MessageQueue,
 }
 
 impl Task {
@@ -30,6 +34,7 @@ impl Task {
             state: RunState::Uninitialized,
             kernel_stack: Some(stack),
             stack_pointer,
+            message_queue: MessageQueue::new(),
         }
     }
 
@@ -132,6 +137,34 @@ impl Task {
             panic!("Cannot sleep a non-running task");
         }
     }
+
+    pub fn read_message(&mut self, current_ticks: u32) -> (Option<MessagePacket>, bool) {
+        self.message_queue.read(current_ticks)
+    }
+
+    pub fn read_message_blocking(&mut self, current_ticks: u32, timeout: Option<u32>) -> (Option<MessagePacket>, bool) {
+        let (first_read, has_more) = self.message_queue.read(current_ticks);
+        if first_read.is_some() {
+            return (first_read, has_more);
+        }
+        // Nothing in the queue, block until something arrives
+        self.state = RunState::Blocked(timeout, BlockType::Message);
+        (None, false)
+    }
+
+    /// Place a Message in this task's queue. If the task is currently blocked
+    /// on reading the message queue, it will resume running.
+    /// Each message is accompanied by an expiration time (in system ticks),
+    /// after which point the message is considered invalid.
+    pub fn receive_message(&mut self, current_ticks: u32, from: TaskID, message: Message, expiration_ticks: u32) {
+        self.message_queue.add(from, message, current_ticks, expiration_ticks);
+        match self.state {
+            RunState::Blocked(_, BlockType::Message) => {
+                self.state = RunState::Running;
+            },
+            _ => (),
+        }
+    }
 }
 
 impl Drop for Task {
@@ -184,4 +217,6 @@ pub enum RunState {
 pub enum BlockType {
     /// The Task is sleeping for a fixed period of time, stored in the timeout
     Sleep,
+    /// The Task is waiting for a Message from another task
+    Message,
 }

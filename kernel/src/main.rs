@@ -44,10 +44,10 @@ pub extern "C" fn _start() -> ! {
     {
         let task_id = task::switching::get_next_id();
         let task_stack = task::stack::allocate_stack();
-        let mut other_task = task::state::Task::new(task_id, task_stack);
-        other_task.set_entry_point(other_task_body);
-        other_task.make_runnable();
-        task::switching::insert_task(other_task);
+        let mut task_a = task::state::Task::new(task_id, task_stack);
+        task_a.set_entry_point(task_a_body);
+        task_a.make_runnable();
+        task::switching::insert_task(task_a);
     }
 
     loop {
@@ -62,10 +62,27 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
-fn other_task_body() -> ! {
+fn task_a_body() -> ! {
+    {
+        let b_id = task::switching::get_next_id();
+        let stack = task::stack::allocate_stack();
+        let mut task_b = task::state::Task::new(b_id, stack);
+        task_b.set_entry_point(task_b_body);
+        task_b.make_runnable();
+        task::switching::insert_task(task_b);
+    }
+
+    task::sleep(1000);
     loop {
-        task::sleep(1000);
         kprint!("TICK\n");
+        task::sleep(2000);
+    }
+}
+
+fn task_b_body() -> ! {
+    loop {
+        task::sleep(2000);
+        kprint!("TOCK\n");
     }
 }
 
