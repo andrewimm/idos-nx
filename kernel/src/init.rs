@@ -54,6 +54,8 @@ pub fn init_hardware() {
     PIC::new().init();
     // set the PIT interrupt to approximately 100Hz
     PIT::new().set_divider(11932);
+
+    crate::hardware::pci::init();
 }
 
 
