@@ -16,6 +16,18 @@ extern "x86-interrupt" {
     fn pic_irq_0(frame: StackFrame) -> ();
     fn pic_irq_1(frame: StackFrame) -> ();
     fn pic_irq_3(frame: StackFrame) -> ();
+    fn pic_irq_4(frame: StackFrame) -> ();
+    fn pic_irq_5(frame: StackFrame) -> ();
+    fn pic_irq_6(frame: StackFrame) -> ();
+    fn pic_irq_7(frame: StackFrame) -> ();
+    fn pic_irq_8(frame: StackFrame) -> ();
+    fn pic_irq_9(frame: StackFrame) -> ();
+    fn pic_irq_a(frame: StackFrame) -> ();
+    fn pic_irq_b(frame: StackFrame) -> ();
+    fn pic_irq_c(frame: StackFrame) -> ();
+    fn pic_irq_d(frame: StackFrame) -> ();
+    fn pic_irq_e(frame: StackFrame) -> ();
+    fn pic_irq_f(frame: StackFrame) -> ();
 }
 
 /// An IDT Entry tells the x86 CPU how to handle an interrupt.
@@ -115,8 +127,21 @@ pub unsafe fn init_idt() {
     // hard-coded to be Interrupt Gate types (vs Task), they will disable other
     // interrupts when triggered. If we make the kernel interrupt-safe, these
     // can be updated to tasks and made interruptable themselves.
-   
+    IDT[0x00].set_handler(exceptions::div);
+    IDT[0x01].set_handler(exceptions::debug);
+    IDT[0x02].set_handler(exceptions::nmi);
+    IDT[0x03].set_handler(exceptions::breakpoint);
+    IDT[0x04].set_handler(exceptions::overflow);
+    IDT[0x05].set_handler(exceptions::bound_exceeded);
+    IDT[0x06].set_handler(exceptions::invalid_opcode);
+    IDT[0x07].set_handler(exceptions::fpu_not_available);
+    IDT[0x08].set_handler_with_error(exceptions::double_fault);
+    // IDT entry 9 is no longer valid
+    IDT[0x0a].set_handler_with_error(exceptions::invalid_tss);
+    IDT[0x0b].set_handler_with_error(exceptions::segment_not_present);
+    IDT[0x0c].set_handler_with_error(exceptions::stack_segment_fault);
     IDT[0x0d].set_handler_with_error(exceptions::gpf);
+    IDT[0x0e].set_handler_with_error(exceptions::page_fault);
 
     // Interrupts through 0x1f represent exceptions that we don't handle,
     // usually because they are deprecated or represent unsupported hardware.
@@ -125,7 +150,8 @@ pub unsafe fn init_idt() {
     // DOS interrupts. The only one used by the kernel is 0x2b, which is the
     // entrypoint for user-mode programs to make a syscall.
 
-    // TODO: set usermode-accessible interrupt for the syscall handler at 0x2b
+    //IDT[0x2b].set_handler(syscall_handler);
+    //IDT[0x2b].make_usermode_accessible();
 
     // Interrupts 0x30-0x3f are reserved for PIC hardware interrupts.
     // This is where we begin to allow processes to install their own interrupt
@@ -143,6 +169,18 @@ pub unsafe fn init_idt() {
     // When PCI devices are available, their interrupts are exposed on unused
     // lines.
     IDT[0x33].set_handler(pic_irq_3);
+    IDT[0x34].set_handler(pic_irq_4);
+    IDT[0x35].set_handler(pic_irq_5);
+    IDT[0x36].set_handler(pic_irq_6);
+    IDT[0x37].set_handler(pic_irq_7);
+    IDT[0x38].set_handler(pic_irq_8);
+    IDT[0x39].set_handler(pic_irq_9);
+    IDT[0x3a].set_handler(pic_irq_a);
+    IDT[0x3b].set_handler(pic_irq_b);
+    IDT[0x3c].set_handler(pic_irq_c);
+    IDT[0x3d].set_handler(pic_irq_d);
+    IDT[0x3e].set_handler(pic_irq_e);
+    IDT[0x3f].set_handler(pic_irq_f);
 
     IDTR.load();
 }

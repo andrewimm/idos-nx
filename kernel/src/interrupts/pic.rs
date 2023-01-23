@@ -3,7 +3,7 @@ use crate::hardware::pic::PIC;
 use super::stack::{SavedState, StackFrame};
 
 global_asm!(r#"
-.global pic_irq_0, pic_irq_1, pic_irq_3
+.global pic_irq_0, pic_irq_1, pic_irq_3, pic_irq_4, pic_irq_5, pic_irq_6, pic_irq_7, pic_irq_8, pic_irq_9, pic_irq_a, pic_irq_b, pic_irq_c, pic_irq_d, pic_irq_e, pic_irq_f
 
 pic_irq_0:
     push 0x0
