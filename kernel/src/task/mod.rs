@@ -1,4 +1,5 @@
 pub mod id;
+pub mod lifecycle;
 pub mod messaging;
 pub mod stack;
 pub mod state;

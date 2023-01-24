@@ -6,6 +6,8 @@ use super::stack::free_stack;
 pub struct Task {
     /// The unique identifier for this Task
     pub id: TaskID,
+    /// The ID of the parent Task
+    pub parent_id: TaskID,
     /// Represents the current execution state of the task
     pub state: RunState,
 
@@ -27,10 +29,11 @@ pub struct Task {
 }
 
 impl Task {
-    pub fn new(id: TaskID, stack: Box<[u8]>) -> Self {
+    pub fn new(id: TaskID, parent_id: TaskID, stack: Box<[u8]>) -> Self {
         let stack_pointer = (stack.as_ptr() as usize) + stack.len() - core::mem::size_of::<u32>();
         Self {
             id,
+            parent_id,
             state: RunState::Uninitialized,
             kernel_stack: Some(stack),
             stack_pointer,
@@ -41,7 +44,7 @@ impl Task {
     pub fn create_initial_task() -> Self {
         let id = TaskID::new(0);
         let stack = super::stack::create_initial_stack();
-        let mut task = Self::new(id, stack);
+        let mut task = Self::new(id, id, stack);
         task.make_runnable();
         task
     }
@@ -107,6 +110,7 @@ impl Task {
     pub fn can_resume(&self) -> bool {
         match self.state {
             RunState::Running => true,
+            RunState::Resuming(_) => true,
             _ => false,
         }
     }
@@ -114,6 +118,19 @@ impl Task {
     pub fn make_runnable(&mut self) {
         if let RunState::Uninitialized = self.state {
             self.state = RunState::Running;
+        }
+    }
+
+    /// End all execution of the task, and mark its resources as available for
+    /// cleanup
+    pub fn terminate(&mut self) {
+        self.state = RunState::Terminated;
+    }
+
+    pub fn is_terminated(&self) -> bool {
+        match self.state {
+            RunState::Terminated => true,
+            _ => false,
         }
     }
 
@@ -165,6 +182,32 @@ impl Task {
             _ => (),
         }
     }
+
+    /// Wait for a child process with the specified ID to return
+    pub fn wait_for_child(&mut self, id: TaskID, timeout: Option<u32>) {
+        self.state = RunState::Blocked(timeout, BlockType::WaitForChild(id));
+    }
+
+    /// Notify the task that a child task has terminated with an exit code
+    pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
+        let waiting_on = match self.state {
+            RunState::Blocked(_, BlockType::WaitForChild(wait_id)) => wait_id,
+            _ => return,
+        };
+        if id == waiting_on {
+            self.state = RunState::Resuming(exit_code);
+        }
+    }
+
+    pub fn resume_from_wait(&mut self) -> u32 {
+        match self.state {
+            RunState::Resuming(code) => {
+                self.state = RunState::Running;
+                return code;
+            }
+            _ => 0,
+        }
+    }
 }
 
 impl Drop for Task {
@@ -209,6 +252,8 @@ pub enum RunState {
     Terminated,
     /// The Task is blocked on some condition, with an optional timeout
     Blocked(Option<u32>, BlockType),
+    /// The Task is resuming from a Blocked state with a return code
+    Resuming(u32),
 }
 
 /// A task may block on a variety of hardware or software conditions. The
@@ -219,4 +264,6 @@ pub enum BlockType {
     Sleep,
     /// The Task is waiting for a Message from another task
     Message,
+    /// The Task is waiting for a Child Task to return
+    WaitForChild(TaskID),
 }
