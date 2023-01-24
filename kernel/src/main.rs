@@ -66,7 +66,10 @@ pub extern "C" fn _start() -> ! {
 fn wait_task_body() -> ! {
     kprint!("Child Task\n");
     task::sleep(2000);
-    task::lifecycle::terminate(16);
+    //task::lifecycle::terminate(16);
+    unsafe {
+        asm!("xor dx, dx; div dx");
+    }
     loop {}
 }
 

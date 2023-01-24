@@ -33,3 +33,12 @@ pub fn wait_for_child(id: TaskID, timeout: Option<u32>) -> u32 {
     let code = current_lock.write().resume_from_wait();
     code
 }
+
+pub fn exception() {
+    let cur_id = super::switching::get_current_id();
+    crate::kprint!("EXCEPTION! {:?}\n", cur_id);
+    // TODO: implement exception handling
+    
+    terminate_id(cur_id, 255);
+    yield_coop();
+}

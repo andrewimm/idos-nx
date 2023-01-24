@@ -1,3 +1,5 @@
+use crate::task::lifecycle::exception;
+
 use super::stack::StackFrame;
 
 /// Triggered when dividing by zero, or when the result is too large to fit in
@@ -5,8 +7,8 @@ use super::stack::StackFrame;
 #[no_mangle]
 pub extern "x86-interrupt" fn div(stack_frame: StackFrame) {
     // send a soft interrupt to the current task indicating an arithmetic exception
-
-    panic!("Divide by zero");
+    crate::kprint!("Divide by zero\n");
+    exception();
 }
 
 /// Debug trap used for a number of tracing modes like single-step
