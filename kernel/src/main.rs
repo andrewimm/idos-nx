@@ -13,6 +13,7 @@ use core::arch::asm;
 extern crate alloc;
 
 pub mod arch;
+pub mod collections;
 pub mod hardware;
 pub mod init;
 pub mod interrupts;
