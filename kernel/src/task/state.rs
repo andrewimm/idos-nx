@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use super::files::OpenFileMap;
 use super::id::TaskID;
 use super::messaging::{Message, MessagePacket, MessageQueue};
 use super::stack::free_stack;
@@ -26,6 +27,9 @@ pub struct Task {
 
     /// Store Messages that have been sent to this task
     pub message_queue: MessageQueue,
+
+    /// Store references to all currently open files
+    pub open_files: OpenFileMap,
 }
 
 impl Task {
@@ -38,6 +42,7 @@ impl Task {
             kernel_stack: Some(stack),
             stack_pointer,
             message_queue: MessageQueue::new(),
+            open_files: OpenFileMap::new(),
         }
     }
 

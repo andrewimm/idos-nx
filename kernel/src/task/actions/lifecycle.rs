@@ -1,5 +1,25 @@
-use super::id::TaskID;
+use super::super::id::TaskID;
 use super::yield_coop;
+
+pub fn create_kernel_task(task_body: fn() -> !) -> TaskID {
+    let cur_id = super::super::switching::get_current_id();
+    let task_id = super::super::switching::get_next_id();
+    let task_stack = super::super::stack::allocate_stack();
+    let mut task_state = super::super::state::Task::new(task_id, cur_id, task_stack);
+    task_state.set_entry_point(task_body);
+    task_state.make_runnable();
+    super::switching::insert_task(task_state);
+    task_id
+}
+
+pub fn create_task() -> TaskID {
+    let cur_id = super::super::switching::get_current_id();
+    let task_id = super::super::switching::get_next_id();
+    let task_stack = super::super::stack::allocate_stack();
+    let task_state = super::super::state::Task::new(task_id, cur_id, task_stack);
+    super::switching::insert_task(task_state);
+    task_id
+}
 
 pub fn terminate_id(id: TaskID, exit_code: u32) {
     let parent_id = {
