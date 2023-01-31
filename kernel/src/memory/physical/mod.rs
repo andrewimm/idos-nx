@@ -7,7 +7,7 @@ use bitmap::FrameBitmap;
 use range::FrameRange;
 use super::address::PhysicalAddress;
 
-pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAddress) {
+pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAddress, kernel_range: FrameRange) {
     // Get the memory map from BIOS to know how much memory is installed
     let memory_map = load_memory_map(memory_map_address);
     let mut memory_end = 0;
@@ -29,6 +29,8 @@ pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAdd
     let size_in_frames = bitmap.size_in_frames() as u32;
     let own_range = FrameRange::new(location, size_in_frames * 0x1000);
     bitmap.allocate_range(own_range).unwrap();
+    // Mark the kernel segments as allocated
+    bitmap.allocate_range(kernel_range).unwrap();
     // Mark the first 0x1000 bytes as occupied, too. We may need the BIOS data
     bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0), 0x1000)).unwrap();
 

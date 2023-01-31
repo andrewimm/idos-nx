@@ -7,6 +7,8 @@ SECTIONS
   . += SIZEOF_HEADERS;
   . = ALIGN(0x1000);
 
+  __kernel_start = .;
+
   .text :
   {
     *(.text*)
@@ -16,6 +18,8 @@ SECTIONS
   {
     *(.rodata*)
   }
+
+  . = ALIGN(0x1000);
 
   .data :
   {

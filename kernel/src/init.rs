@@ -1,9 +1,12 @@
 use crate::hardware::{pic::PIC, pit::PIT};
 use crate::memory::address::PhysicalAddress;
 use crate::memory::heap;
-use crate::memory::physical::{init_allocator};
+use crate::memory::physical::init_allocator;
+use crate::memory::physical::range::FrameRange;
 
 extern {
+    #[link_name = "__kernel_start"]
+    static mut label_kernel_start: ();
     #[link_name = "__bss_start"]
     static mut label_bss_start: u8;
     #[link_name = "__bss_end"]
@@ -37,9 +40,15 @@ pub unsafe fn init_cpu_tables() {
 /// need to be or-ed with 0xc0000000 so that they can correctly point to the
 /// kernel in all tasks.
 pub unsafe fn init_memory() {
-    let allocator_location = &label_kernel_end as *const () as u32;
+    let kernel_start_addr = &label_kernel_start as *const () as u32;
+    let kernel_end_addr = &label_kernel_end as *const () as u32;
+    let kernel_range = FrameRange::new(
+        PhysicalAddress::new(kernel_start_addr),
+        kernel_end_addr - kernel_start_addr,
+    );
     let bios_memmap = PhysicalAddress::new(0x1000);
-    init_allocator(PhysicalAddress::new(allocator_location), bios_memmap);
+    init_allocator(PhysicalAddress::new(kernel_end_addr), bios_memmap, kernel_range);
+    crate::kprint!("KERNEL RANGE: {:?}\n", kernel_range);
 
     // when paging is implemented, it should be activated here
 
