@@ -1,11 +1,18 @@
+pub mod allocated_frame;
 pub mod bios;
 pub mod bitmap;
 pub mod range;
 
+use allocated_frame::AllocatedFrame;
 use bios::load_memory_map;
-use bitmap::FrameBitmap;
+use bitmap::{BitmapError, FrameBitmap};
 use range::FrameRange;
+use spin::Mutex;
 use super::address::PhysicalAddress;
+
+static mut ALLOCATOR: Mutex<FrameBitmap> = Mutex::new(FrameBitmap::empty());
+
+pub const FRAME_SIZE: usize = 0x1000;
 
 pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAddress, kernel_range: FrameRange) {
     // Get the memory map from BIOS to know how much memory is installed
@@ -27,7 +34,7 @@ pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAdd
 
     // Mark the frame bitmap itself as allocated, so that it won't be reused
     let size_in_frames = bitmap.size_in_frames() as u32;
-    let own_range = FrameRange::new(location, size_in_frames * 0x1000);
+    let own_range = FrameRange::new(location, size_in_frames * FRAME_SIZE as u32);
     bitmap.allocate_range(own_range).unwrap();
     // Mark the kernel segments as allocated
     bitmap.allocate_range(kernel_range).unwrap();
@@ -39,6 +46,25 @@ pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAdd
         bitmap.total_frame_count() * 4,
         bitmap.get_free_frame_count() * 4,
     );
+
+    unsafe {
+        ALLOCATOR = Mutex::new(bitmap);
+    }
 }
 
+pub fn with_allocator<F, T>(f: F) -> T where
+    F: Fn(&mut FrameBitmap) -> T {
+    // Safe because the ALLOCATOR will only be set once, synchronously
+    let mut alloc = unsafe { ALLOCATOR.lock() };
+    f(&mut alloc)
+}
+
+pub fn allocate_frame() -> Result<AllocatedFrame, BitmapError> {
+    let frame_address = with_allocator(|alloc| {
+        alloc
+            .allocate_frames(1)
+            .map(|range| range.get_starting_address())
+    });
+    frame_address.map(|addr| AllocatedFrame::new(addr))
+}
 

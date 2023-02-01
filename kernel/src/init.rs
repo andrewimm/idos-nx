@@ -50,7 +50,10 @@ pub unsafe fn init_memory() {
     init_allocator(PhysicalAddress::new(kernel_end_addr), bios_memmap, kernel_range);
     crate::kprint!("KERNEL RANGE: {:?}\n", kernel_range);
 
-    // when paging is implemented, it should be activated here
+    // activate paging and virtual memory
+    let initial_pagedir = crate::memory::virt::create_initial_pagedir();
+    initial_pagedir.make_active();
+    crate::memory::virt::enable_paging();
 
     // enable the heap, so that the alloc crate can be used
     let heap_location = 0x400000;

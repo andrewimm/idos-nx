@@ -33,6 +33,13 @@ pub struct FrameBitmap {
 }
 
 impl FrameBitmap {
+    /// Creates an empty, invalid Frame Bitmap
+    pub const fn empty() -> Self {
+        Self {
+            map: &mut [],
+        }
+    }
+
     /// Initialize a Frame Bitmap at a specific location in memory.
     /// This assumes paging is disabled, and Physical Addresses can be used
     /// directly.
