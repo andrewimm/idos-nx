@@ -56,7 +56,7 @@ pub unsafe fn init_memory() {
     crate::memory::virt::enable_paging();
 
     // enable the heap, so that the alloc crate can be used
-    let heap_location = 0x400000;
+    let heap_location = 0x300000;
     heap::init_allocator(heap_location);
 
 }

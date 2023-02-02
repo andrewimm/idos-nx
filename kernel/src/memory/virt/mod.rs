@@ -32,31 +32,60 @@
 pub mod page_entry;
 pub mod page_table;
 
+use core::arch::asm;
 use page_table::{PageTable, PageTableReference};
-use super::address::VirtualAddress;
+use super::address::{PhysicalAddress, VirtualAddress};
 use super::physical::allocate_frame;
 
 /// Create the initial page directory need to enable paging.
 pub fn create_initial_pagedir() -> PageTableReference {
     let dir_address = allocate_frame().unwrap().to_physical_address();
-    unsafe {
-        // zero out the directory frame, otherwise it can cause strange bugs
-        let frame_start = dir_address.as_u32() as *mut u8;
-        let frame_slice = core::slice::from_raw_parts_mut(frame_start, super::physical::FRAME_SIZE);
-        for i in 0..frame_slice.len() {
-            frame_slice[i] = 0;
-        }
-    }
+    zero_frame(dir_address);
 
     let dir = PageTable::at_address(VirtualAddress::new(dir_address.into()));
     // Point the last entry to itself, so that it is always accessible
     dir.get_mut(1023).set_address(dir_address);
     dir.get_mut(1023).set_present();
 
+    // Identity-map the kernel
+    {
+        let table_zero_frame = allocate_frame().unwrap().to_physical_address();
+        zero_frame(table_zero_frame);
+        // TODO: Actually map kernel bounds
+        // Right now this is just identity-mapping the lower 4MiB as a hack
+        dir.get_mut(0).set_address(table_zero_frame);
+        dir.get_mut(0).set_present();
+
+        let table_zero = PageTable::at_address(VirtualAddress::new(table_zero_frame.into()));
+        for index in 0..1024 {
+            table_zero.get_mut(index).set_address(PhysicalAddress::new(0x1000 * index as u32));
+            table_zero.get_mut(index).set_present();
+        }
+    }
+
     PageTableReference::new(dir_address)
+}
+
+/// Zero out an allocated frame, does not work once paging is enabled
+fn zero_frame(start: PhysicalAddress) {
+    unsafe {
+        let frame_start = start.as_u32() as *mut u8;
+        let frame_slice = core::slice::from_raw_parts_mut(frame_start, super::physical::FRAME_SIZE);
+        for i in 0..frame_slice.len() {
+            frame_slice[i] = 0;
+        }
+    }
 }
 
 /// Modify CPU registers to enable paging
 pub fn enable_paging() {
-    
+    unsafe {
+        asm!(
+            "push eax",
+            "mov eax, cr0",
+            "or eax, 0x80000000",
+            "mov cr0, eax",
+            "pop eax",
+        );
+    }
 }
