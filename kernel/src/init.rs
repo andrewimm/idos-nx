@@ -1,8 +1,10 @@
+use core::arch::asm;
 use crate::hardware::{pic::PIC, pit::PIT};
 use crate::memory::address::PhysicalAddress;
 use crate::memory::heap;
 use crate::memory::physical::init_allocator;
 use crate::memory::physical::range::FrameRange;
+use crate::task::stack::get_kernel_stack_virtual_offset;
 
 extern {
     #[link_name = "__kernel_start"]
@@ -54,6 +56,16 @@ pub unsafe fn init_memory() {
     let initial_pagedir = crate::memory::virt::create_initial_pagedir();
     initial_pagedir.make_active();
     crate::memory::virt::enable_paging();
+
+    // with paging enabled, move all sorts of references to high memory
+    let stack_offset = get_kernel_stack_virtual_offset();
+    crate::kprint!("OFFSET: {:X}\n", stack_offset);
+    unsafe {
+        asm!(
+            "add esp, {offset}",
+            offset = in(reg) stack_offset,
+        );
+    }
 
     // enable the heap, so that the alloc crate can be used
     let heap_location = 0x300000;

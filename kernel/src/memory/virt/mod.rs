@@ -31,9 +31,14 @@
 
 pub mod page_entry;
 pub mod page_table;
+pub mod scratch;
 
 use core::arch::asm;
 use page_table::{PageTable, PageTableReference};
+use crate::task::stack::get_initial_kernel_stack_location;
+
+use self::scratch::SCRATCH_PAGE_COUNT;
+
 use super::address::{PhysicalAddress, VirtualAddress};
 use super::physical::allocate_frame;
 
@@ -63,6 +68,27 @@ pub fn create_initial_pagedir() -> PageTableReference {
         }
     }
 
+    // Create a page table for the second-highest entry in the pagedir.
+    // This will be used to store mappings to scratch space and kernel stacks.
+    {
+        let last_table_address = allocate_frame().unwrap().to_physical_address();
+        zero_frame(last_table_address);
+        dir.get_mut(1022).set_address(last_table_address);
+        dir.get_mut(1022).set_present();
+
+        let last_table = PageTable::at_address(VirtualAddress::new(last_table_address.into()));
+        let kernel_stack_index = 1023 - SCRATCH_PAGE_COUNT;
+
+        let (kernel_stack_address, kernel_stack_size) = get_initial_kernel_stack_location();
+        for i in 0..kernel_stack_size {
+            let index = kernel_stack_index - i;
+            let stack_offset = (kernel_stack_size - i - 1) * 0x1000;
+            let stack_frame = kernel_stack_address + stack_offset as u32;
+            last_table.get_mut(index).set_address(stack_frame);
+            last_table.get_mut(index).set_present();
+        }
+    }
+
     PageTableReference::new(dir_address)
 }
 
@@ -86,6 +112,16 @@ pub fn enable_paging() {
             "or eax, 0x80000000",
             "mov cr0, eax",
             "pop eax",
+        );
+    }
+}
+
+pub fn invalidate_page(addr: VirtualAddress) {
+    let addr_raw: u32 = addr.into();
+    unsafe {
+        asm!(
+            "invlpg [{0:e}]",
+            in(reg) addr_raw,
         );
     }
 }
