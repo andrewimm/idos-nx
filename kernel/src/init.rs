@@ -59,7 +59,6 @@ pub unsafe fn init_memory() {
 
     // with paging enabled, move all sorts of references to high memory
     let stack_offset = get_kernel_stack_virtual_offset();
-    crate::kprint!("OFFSET: {:X}\n", stack_offset);
     unsafe {
         asm!(
             "add esp, {offset}",
