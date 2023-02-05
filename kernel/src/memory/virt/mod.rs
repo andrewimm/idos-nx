@@ -96,7 +96,7 @@ pub fn create_initial_pagedir() -> PageTableReference {
 fn zero_frame(start: PhysicalAddress) {
     unsafe {
         let frame_start = start.as_u32() as *mut u8;
-        let frame_slice = core::slice::from_raw_parts_mut(frame_start, super::physical::FRAME_SIZE);
+        let frame_slice = core::slice::from_raw_parts_mut(frame_start, super::physical::FRAME_SIZE as usize);
         for i in 0..frame_slice.len() {
             frame_slice[i] = 0;
         }

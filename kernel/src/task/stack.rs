@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 use spin::Mutex;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
-use crate::memory::physical::allocate_frame;
+use crate::memory::physical::{allocate_frame, release_frame};
 use crate::memory::virt::invalidate_page;
 use crate::memory::virt::page_table::PageTable;
 use crate::memory::virt::scratch::SCRATCH_BOTTOM;
@@ -51,8 +51,8 @@ fn stack_box_from_index(index: usize) -> Box<[u8]> {
 }
 
 /// Starting from the lowest index, search for an unallocated kernel stack
-fn find_free_stack() -> usize {
-    let mut stack_bitmap = STACK_ALLOCATION_BITMAP.lock();
+fn find_free_stack(locked_bitmap: &Mutex<Vec<u8>>) -> usize {
+    let mut stack_bitmap = locked_bitmap.lock();
     for (index, map) in stack_bitmap.iter_mut().enumerate() {
         let mut stack_index = index * 8;
         if *map == 0xff {
@@ -76,19 +76,52 @@ fn find_free_stack() -> usize {
     stack_index
 }
 
+/// Clear an element in the bitmap, marking that stack as free
+fn mark_stack_as_free(locked_bitmap: &Mutex<Vec<u8>>, index: usize) {
+    let mut stack_bitmap = locked_bitmap.lock();
+    let byte_index = index / 8;
+    let local_index = index & 7;
+    if let Some(map) = stack_bitmap.get_mut(byte_index) {
+        let mask = 1 << local_index;
+        *map &= !mask;
+    }
+}
+
+/// Create a box for the initial kernel stack, and initialize the internal
+/// accounting. Since this stack's memory is part of the .bss, it does not need
+/// to be allocated the same way as every other kernel stack.
 pub fn create_initial_stack() -> Box<[u8]> {
     let mut stack_bitmap = STACK_ALLOCATION_BITMAP.lock();
     stack_bitmap.push(1);
     stack_box_from_index(0)
 }
 
+/// When a task has terminated, its kernel stack is freed to release memory.
+/// This marks the virtual space as being available again, and releases the
+/// physical frame that was backing it.
 pub fn free_stack(stack: Box<[u8]>) {
     let box_ptr = Box::into_raw(stack);
-    // TODO: mark the stack as free and available for a new task
+    let location = box_ptr as *mut u8 as usize;
+    let offset = (KERNEL_STACKS_TOP - location) / STACK_SIZE_IN_BYTES;
+    mark_stack_as_free(&STACK_ALLOCATION_BITMAP, offset);
+
+    let stack_start = VirtualAddress::new(location as u32);
+    let table_location = 0xffc00000 + 0x1000 * stack_start.get_page_directory_index();
+    let page_table = PageTable::at_address(VirtualAddress::new(table_location as u32));
+    let table_index = stack_start.get_page_table_index();
+    let frame_address = page_table.get(table_index).get_address();
+    page_table.get_mut(table_index).clear_present();
+    invalidate_page(stack_start);
+    release_frame(frame_address);
+
+    crate::kprint!("FREE STACK: {:?} {:?}\n", stack_start, frame_address);
 }
 
+/// Request a kernel stack for a new task. This finds a free area of virtual
+/// memory, backs it with a physical frame, and returns a Box referencing that
+/// newly allocated space.
 pub fn allocate_stack() -> Box<[u8]> {
-    let index = find_free_stack();
+    let index = find_free_stack(&STACK_ALLOCATION_BITMAP);
     let stack = stack_box_from_index(index);
     let ptr: *const u8 = &stack[0];
     let stack_start = VirtualAddress::new(ptr as u32);
@@ -99,7 +132,46 @@ pub fn allocate_stack() -> Box<[u8]> {
     page_table.get_mut(table_index).set_address(frame_address);
     page_table.get_mut(table_index).set_present();
     invalidate_page(stack_start);
+
+    crate::kprint!("ALLOC STACK: {:?} {:?}\n", stack_start, frame_address);
     
     stack
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        find_free_stack,
+        mark_stack_as_free,
+        Mutex,
+        Vec,
+    };
+
+    #[test_case]
+    fn allocate_stack() {
+        let stacks = Mutex::new(Vec::new());
+        assert_eq!(find_free_stack(&stacks), 0);
+        assert_eq!(find_free_stack(&stacks), 1);
+        assert_eq!(find_free_stack(&stacks), 2);
+        assert_eq!(find_free_stack(&stacks), 3);
+        assert_eq!(find_free_stack(&stacks), 4);
+        assert_eq!(find_free_stack(&stacks), 5);
+        assert_eq!(find_free_stack(&stacks), 6);
+        assert_eq!(find_free_stack(&stacks), 7);
+        *(stacks.lock().get_mut(0).unwrap()) = 0xbf;
+        assert_eq!(find_free_stack(&stacks), 6);
+        assert_eq!(find_free_stack(&stacks), 8);
+    }
+
+    #[test_case]
+    fn free_allocated_stack() {
+        let stacks = Mutex::new(Vec::new());
+        assert_eq!(find_free_stack(&stacks), 0);
+        assert_eq!(find_free_stack(&stacks), 1);
+        assert_eq!(find_free_stack(&stacks), 2);
+        assert_eq!(find_free_stack(&stacks), 3);
+        mark_stack_as_free(&stacks, 1);
+        assert_eq!(find_free_stack(&stacks), 1);
+    }
 }
 

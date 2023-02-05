@@ -12,7 +12,7 @@ use super::address::PhysicalAddress;
 
 static mut ALLOCATOR: Mutex<FrameBitmap> = Mutex::new(FrameBitmap::empty());
 
-pub const FRAME_SIZE: usize = 0x1000;
+pub const FRAME_SIZE: u32 = 0x1000;
 
 pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAddress, kernel_range: FrameRange) {
     // Get the memory map from BIOS to know how much memory is installed
@@ -34,7 +34,7 @@ pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAdd
 
     // Mark the frame bitmap itself as allocated, so that it won't be reused
     let size_in_frames = bitmap.size_in_frames() as u32;
-    let own_range = FrameRange::new(location, size_in_frames * FRAME_SIZE as u32);
+    let own_range = FrameRange::new(location, size_in_frames as u32 * FRAME_SIZE);
     bitmap.allocate_range(own_range).unwrap();
     // Mark the kernel segments as allocated
     bitmap.allocate_range(kernel_range).unwrap();
@@ -66,5 +66,12 @@ pub fn allocate_frame() -> Result<AllocatedFrame, BitmapError> {
             .map(|range| range.get_starting_address())
     });
     frame_address.map(|addr| AllocatedFrame::new(addr))
+}
+
+pub fn release_frame(address: PhysicalAddress) -> Result<(), BitmapError> {
+    let range = FrameRange::new(address, FRAME_SIZE);
+    with_allocator(|alloc| {
+        alloc.free_range(range)
+    })
 }
 
