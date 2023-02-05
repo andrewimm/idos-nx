@@ -1,5 +1,8 @@
+use crate::cleanup::get_cleanup_task_id;
+
 use super::super::id::TaskID;
-use super::yield_coop;
+use super::super::messaging::Message;
+use super::{yield_coop, send_message};
 
 pub fn create_kernel_task(task_body: fn() -> !) -> TaskID {
     let cur_id = super::super::switching::get_current_id();
@@ -38,6 +41,10 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
     if let Some(parent_lock) = parent_task {
         parent_lock.write().child_terminated(id, exit_code);
     }
+
+    // notify the cleanup task
+    let cleanup_task_id = get_cleanup_task_id();
+    send_message(cleanup_task_id, Message(0, 0, 0, 0), 0xffffffff);
 }
 
 pub fn terminate(exit_code: u32) {

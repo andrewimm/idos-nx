@@ -14,6 +14,7 @@ use core::arch::asm;
 extern crate alloc;
 
 pub mod arch;
+pub mod cleanup;
 pub mod collections;
 pub mod files;
 pub mod hardware;
@@ -40,6 +41,8 @@ pub extern "C" fn _start() -> ! {
     init::init_hardware();
 
     task::switching::init();
+
+    task::actions::lifecycle::create_kernel_task(cleanup::cleanup_task);
 
     #[cfg(test)]
     test_main();

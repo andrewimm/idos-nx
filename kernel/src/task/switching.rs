@@ -102,6 +102,38 @@ pub fn update_timeouts(ms: u32) {
     }
 }
 
+pub fn for_each_task<F>(f: F)
+    where F: Fn(Arc<RwLock<Task>>) -> () {
+    for (_, task) in TASK_MAP.read().iter() {
+        f(task.clone());
+    }
+}
+
+pub fn for_each_task_mut<F>(mut f: F)
+    where F: FnMut(Arc<RwLock<Task>>) -> () {
+    for (_, task) in TASK_MAP.read().iter() {
+        f(task.clone());
+    }
+}
+
+pub fn clean_up_task(id: TaskID) {
+    let task_lock = {
+        let mut task_map = TASK_MAP.write();
+        match task_map.remove(&id) {
+            Some(t) => t,
+            None => return,
+        }
+    };
+
+    let mut task = task_lock.write();
+    crate::kprint!("Clean up {:?}\n", id);
+    // TODO: add cleanup actions here (free remaining memory, etc)
+    // Files should be release at termination time, not here
+
+    // At this point, the Task state will be Dropped, and all heap objects held
+    // within the struct itself will be freed
+}
+
 /// Execute a context switch to another task. If that task does not exist, the
 /// method will panic.
 /// In addition to updating relevant pointers to the new Task's ID, the actual

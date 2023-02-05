@@ -103,7 +103,7 @@ pub fn free_stack(stack: Box<[u8]>) {
     let box_ptr = Box::into_raw(stack);
     let location = box_ptr as *mut u8 as usize;
     let offset = (KERNEL_STACKS_TOP - location) / STACK_SIZE_IN_BYTES;
-    mark_stack_as_free(&STACK_ALLOCATION_BITMAP, offset);
+    mark_stack_as_free(&STACK_ALLOCATION_BITMAP, offset - 1);
 
     let stack_start = VirtualAddress::new(location as u32);
     let table_location = 0xffc00000 + 0x1000 * stack_start.get_page_directory_index();
