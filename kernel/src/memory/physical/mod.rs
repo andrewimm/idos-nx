@@ -75,3 +75,9 @@ pub fn release_frame(address: PhysicalAddress) -> Result<(), BitmapError> {
     })
 }
 
+pub fn get_allocator_size() -> usize {
+    with_allocator(|alloc| {
+        alloc.size_in_bytes()
+    })
+}
+

@@ -66,6 +66,11 @@ pub fn create_initial_pagedir() -> PageTableReference {
             table_zero.get_mut(index).set_address(PhysicalAddress::new(0x1000 * index as u32));
             table_zero.get_mut(index).set_present();
         }
+
+        // Copy the same table to high memory, so that the kernel is accessible
+        // at 0xc0000000
+        dir.get_mut(0x300).set_address(table_zero_frame);
+        dir.get_mut(0x300).set_present();
     }
 
     // Create a page table for the second-highest entry in the pagedir.

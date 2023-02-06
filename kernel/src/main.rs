@@ -48,16 +48,6 @@ pub extern "C" fn _start() -> ! {
     test_main();
 
     {
-        /*
-        let cur_id = task::switching::get_current_id();
-        let task_id = task::switching::get_next_id();
-        let task_stack = task::stack::allocate_stack();
-        let mut task_a = task::state::Task::new(task_id, cur_id, task_stack);
-        task_a.set_entry_point(task_a_body);
-        task_a.make_runnable();
-        task::switching::insert_task(task_a);
-        */
-
         task::actions::lifecycle::create_kernel_task(task_a_body);
     }
 

@@ -4,6 +4,8 @@ use alloc::alloc::{GlobalAlloc, Layout};
 use list_allocator::ListAllocator;
 use spin::Mutex;
 
+use super::address::VirtualAddress;
+
 struct Allocator {
     locked_allocator: Mutex<ListAllocator>,
 }
@@ -37,16 +39,19 @@ unsafe impl GlobalAlloc for Allocator {
     }
 }
 
-pub const INITIAL_HEAP_SIZE_FRAMES: usize = 64;
-
 #[global_allocator]
 static ALLOCATOR: Allocator = Allocator::new();
 
-pub fn init_allocator(location: usize) {
-    // TODO: request enough physical frames for the allocator
+pub fn init_allocator(location: VirtualAddress) {
+    // Initial heap size is from the start location to the end of the frame.
+    // This memory should already have been allocated and mapped by previous
+    // initialization tasks.
+    let heap_end = location.next_page_barrier();
+    let byte_size = heap_end.as_u32() - location.as_u32();
 
-    let byte_size = INITIAL_HEAP_SIZE_FRAMES * 0x1000;
-    ALLOCATOR.update_implementation(location, byte_size);
+    ALLOCATOR.update_implementation(location.as_u32() as usize, byte_size as usize);
+
+    crate::kprint!("Kernel Heap at {:?}, {:#X} bytes\n", location, byte_size);
 }
 
 #[alloc_error_handler]

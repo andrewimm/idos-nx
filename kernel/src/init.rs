@@ -1,6 +1,6 @@
 use core::arch::asm;
 use crate::hardware::{pic::PIC, pit::PIT};
-use crate::memory::address::PhysicalAddress;
+use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::heap;
 use crate::memory::physical::init_allocator;
 use crate::memory::physical::range::FrameRange;
@@ -52,6 +52,10 @@ pub unsafe fn init_memory() {
     init_allocator(PhysicalAddress::new(kernel_end_addr), bios_memmap, kernel_range);
     crate::kprint!("KERNEL RANGE: {:?}\n", kernel_range);
 
+    let allocator_end = kernel_end_addr + crate::memory::physical::get_allocator_size() as u32;
+    crate::kprint!("ALLOC END: {:X}\n", allocator_end);
+    let heap_start = VirtualAddress::new(0xc0000000 + allocator_end);
+
     // activate paging and virtual memory
     let initial_pagedir = crate::memory::virt::create_initial_pagedir();
     initial_pagedir.make_active();
@@ -67,9 +71,7 @@ pub unsafe fn init_memory() {
     }
 
     // enable the heap, so that the alloc crate can be used
-    let heap_location = 0x300000;
-    heap::init_allocator(heap_location);
-
+    heap::init_allocator(heap_start);
 }
 
 /// Initialize the hardware necessary to run the PC architecture

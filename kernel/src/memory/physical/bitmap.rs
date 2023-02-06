@@ -115,6 +115,10 @@ impl FrameBitmap {
         }
     }
 
+    pub fn size_in_bytes(&self) -> usize {
+        self.map.len()
+    }
+
     pub fn total_frame_count(&self) -> usize {
         self.map.len() * 8
     }
