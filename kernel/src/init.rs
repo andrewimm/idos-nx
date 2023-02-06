@@ -61,14 +61,14 @@ pub unsafe fn init_memory() {
     initial_pagedir.make_active();
     crate::memory::virt::enable_paging();
 
-    // with paging enabled, move all sorts of references to high memory
+    // with paging enabled, move all sorts of references to high memory:
+    
+    // relocate $esp to the virtual location of the initial kernel stack
     let stack_offset = get_kernel_stack_virtual_offset();
-    unsafe {
-        asm!(
-            "add esp, {offset}",
-            offset = in(reg) stack_offset,
-        );
-    }
+    asm!(
+        "add esp, {offset}",
+        offset = in(reg) stack_offset,
+    );
 
     // enable the heap, so that the alloc crate can be used
     heap::init_allocator(heap_start);
@@ -81,6 +81,19 @@ pub fn init_hardware() {
     PIT::new().set_divider(11932);
 
     crate::hardware::pci::init();
+}
+
+#[naked]
+pub unsafe extern "C" fn jump_to_highmem() {
+    asm!(
+        "mov eax, [esp]",
+        "or eax, 0xc0000000",
+        // if compiled as position-independent code, ebx needs to also be
+        // moved to highmem here. It points to the PLT in that compilation mode
+        "mov [esp], eax",
+        "ret",
+        options(noreturn),
+    );
 }
 
 

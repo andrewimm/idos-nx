@@ -5,6 +5,7 @@
 #![feature(const_btree_new)]
 #![feature(const_mut_refs)]
 #![feature(custom_test_frameworks)]
+#![feature(naked_functions)]
 
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
@@ -34,6 +35,9 @@ pub extern "C" fn _start() -> ! {
         init::zero_bss();
         init::init_cpu_tables();
         init::init_memory();
+        // this method must be called from the top level of the kernel, or its
+        // effects will be lost
+        init::jump_to_highmem();
     }
 
     kprint!("\nKernel Memory initialized.\n");
