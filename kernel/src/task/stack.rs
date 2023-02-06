@@ -36,7 +36,7 @@ pub fn get_initial_kernel_stack_location() -> (PhysicalAddress, usize) {
 pub fn get_kernel_stack_virtual_offset() -> usize {
     let physical_start = unsafe { &label_stack_start as *const u8 as usize };
     let virtual_start = KERNEL_STACKS_TOP - STACK_SIZE_IN_BYTES;
-    virtual_start - physical_start
+    virtual_start - physical_start - 0xc0000000
 }
 
 /// Provided a numeric index of a kernel stack, construct a Boxed slice of

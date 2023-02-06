@@ -30,14 +30,10 @@ pub mod time;
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-
     unsafe {
         init::zero_bss();
         init::init_cpu_tables();
         init::init_memory();
-        // this method must be called from the top level of the kernel, or its
-        // effects will be lost
-        init::jump_to_highmem();
     }
 
     kprint!("\nKernel Memory initialized.\n");

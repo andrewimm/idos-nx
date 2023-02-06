@@ -1,47 +1,50 @@
 ENTRY(_start)
 
+KERNEL_VADDR_OFFSET = 0xC0000000;
+KERNEL_OFFSET = 0xC0100000;
+
 SECTIONS
 {
-  . = 0x00100000;
+  . = KERNEL_OFFSET;
 
   . += SIZEOF_HEADERS;
   . = ALIGN(0x1000);
 
-  __kernel_start = .;
+  __kernel_start = . - KERNEL_VADDR_OFFSET;
 
-  .text :
+  .text : AT(ADDR(.text) - KERNEL_OFFSET)
   {
     *(.text*)
   }
 
-  .rodata :
+  .rodata : AT(ADDR(.rodata) - KERNEL_OFFSET)
   {
     *(.rodata*)
   }
 
   . = ALIGN(0x1000);
 
-  .data :
+  .data : AT(ADDR(.data) - KERNEL_OFFSET)
   {
     *(.data*)
   }
 
-  .bss :
+  .bss : AT(ADDR(.bss) - KERNEL_OFFSET)
   {
-    __bss_start = .;
+    __bss_start = . - KERNEL_VADDR_OFFSET;
 
     *(.bss*)
 
-    __bss_end = .;
+    __bss_end = . - KERNEL_VADDR_OFFSET;
 
     . = ALIGN(0x1000);
 
-    __stack_start = .;
+    __stack_start = . - KERNEL_VADDR_OFFSET;
 
     . += 0x1000;
     
-    __stack_end = .;
+    __stack_end = . - KERNEL_VADDR_OFFSET;
   }
 
-  __kernel_end = .;
+  __kernel_end = . - KERNEL_VADDR_OFFSET;
 }

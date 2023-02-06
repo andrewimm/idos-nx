@@ -182,6 +182,7 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
                 }
 
                 KERNEL_MEMORY_END = sections_end;
+                KERNEL_MEMORY_END -= 0xc0000000;
             }
 
             {
@@ -201,88 +202,40 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         }
     }
 
-    /*
-    let mut kernel_sectors = file_size / 512;
-    if file_size & 511 != 0 {
-        kernel_sectors += 1;
-    }
-    let mut first_kernel_sector = root_data_sector;
-    first_kernel_sector += sectors_per_cluster * first_cluster;
-    first_kernel_sector -= sectors_per_cluster * 2;
-    write!(video::VideoWriter, "Kernel at sector {:#X}, {:#X} sectors long\r\n", first_kernel_sector, kernel_sectors);
-    write!(video::VideoWriter, "Disk No: {:#x}\r\n", disk_number);
-    // only memory below 1MB is available to BIOS, so we need to first copy to
-    // a lowmem buffer, and then copy that to higher memory when it's ready
-    let max_sectors_per_copy = 128;
-    let mut kernel_copy_sector = first_kernel_sector;
-    let mut remaining_sectors = kernel_sectors as u16;
-    let mut sector_copy_count = max_sectors_per_copy.min(remaining_sectors) as u16;
-    //if kernel_sectors > 128 {
-    //    panic!("Cannot copy more than 64KB at a time");
-    //}
-    disk::read_sectors(disk_number, kernel_copy_sector, 0x800, 0, sector_copy_count);
-
-    // Read the ELF header after the first chunk is copied to memory
-    // If we do this after it's been copied to high memory, the compiler will
-    // do weird optimizations assuming that addresses can't be higher than 1MB
-    // and everything will break.
-    unsafe {
-        let elf_root_ptr = 0x8000 as *const ElfHeader;
-        let elf_root = &(*elf_root_ptr);
-        let mut section_header_addr = 0x8000 + elf_root.section_header_location;
-        let section_header_size = elf_root.section_header_entry_size as u32;
-        let mut section_header_count = elf_root.section_header_entry_count;
-
-        let mut sections_end: u32 = 0;
-        while section_header_count > 0 {
-            let section_header_ptr = section_header_addr as *const SectionHeader;
-            let header = &(*section_header_ptr);
-            let section_load_at = header.section_address;
-            let section_end_at = section_load_at + header.section_size;
-            write!(video::VideoWriter, "Section End: {:X}\r\n", section_end_at);
-            if section_end_at > sections_end {
-                sections_end = section_end_at;
-            }
-            section_header_count -= 1;
-            section_header_addr += section_header_size;
-        }
-        KERNEL_MEMORY_END = sections_end;
-    };
-
-    unsafe {
-        KERNEL_ENTRY_LOCATION = core::ptr::read_volatile(0x8018 as *const u32);
-    }
-
-    let mut total_bytes_copied = sector_copy_count as usize * 512;
-
-    // copy from low memory buffer to 1MB mark
-    unsafe {
-        let src = 0x8000 as *const u8;
-        let dst = 0x100000 as *mut u8;
-        core::ptr::copy_nonoverlapping(src, dst, total_bytes_copied);
-    }
-    
-    while remaining_sectors > sector_copy_count {
-        video::print_string("Copy kernel segment\r\n");
-        remaining_sectors -= sector_copy_count;
-        kernel_copy_sector += sector_copy_count;
-        sector_copy_count = max_sectors_per_copy.min(remaining_sectors);
-        
-        write!(video::VideoWriter, "Copy {} from {:X} to {:X}\r\n", sector_copy_count, 0x8000, 0x100000 + total_bytes_copied);
-        disk::read_sectors(disk_number, kernel_copy_sector, 0x800, 0, sector_copy_count as u16);
-        let bytes_copied = sector_copy_count as usize * 512;
-
-        unsafe {
-            let src = 0x8000 as *const u8;
-            let dst = (0x100000 + total_bytes_copied) as *mut u8;
-            core::ptr::copy_nonoverlapping(src, dst, bytes_copied);
-        }
-
-        total_bytes_copied += bytes_copied;
-    }
-    */
-
     write!(video::VideoWriter, "Total bytes copied: {}\r\n", total_bytes_copied);
+
+    // Now that the kernel has been copied through the buffer to high memory,
+    // we should be able to access free memory found at 0x8000.
+    //
+    // Since the kernel is designed to live at 0xc0000000, we need to enable
+    // paging and simply map the first 4MiB to that area.
+    unsafe {
+        // Use the 4KiB frame at 0x8000 as the zero-th page table, and the
+        // frame at 0x9000 as the page directory
+        let page_table_start = 0x8000 as *mut u32;
+        let page_table_slice = core::slice::from_raw_parts_mut(page_table_start, 0x400);
+        let flags: u32 = 1; // present; no other flags needed
+        for i in 0..page_table_slice.len() {
+            let addr = (i as u32) << 12;
+            page_table_slice[i] = addr | flags;
+        }
+        
+        let page_dir_start = 0x9000 as *mut u32;
+        let page_dir_slice = core::slice::from_raw_parts_mut(page_dir_start, 0x400);
+        for i in 0..page_dir_slice.len() {
+            page_dir_slice[i] = 0;
+        }
+        page_dir_slice[0] = (8 << 12) | 1;
+        page_dir_slice[0x300] = (8 << 12) | 1;
+
+        asm!(
+            "push eax",
+            "mov eax, 0x9000",
+            "mov cr3, eax",
+            "pop eax",
+        );
+    }
+
     unsafe {
         write!(
             video::VideoWriter,
@@ -296,10 +249,9 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     unsafe {
         asm!(
             "mov esp, ecx",
-            "sub esp, 4",
             "push eax",
             "mov eax, cr0",
-            "or eax, 1",
+            "or eax, 0x00000001",
             "mov cr0, eax",
             in("ecx") KERNEL_MEMORY_END,
             in("eax") KERNEL_ENTRY_LOCATION,
@@ -317,7 +269,11 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
             "mov fs, ax",
             "mov gs, ax",
             "mov ss, ax",
+            "mov eax, cr0",
+            "or eax, 0x80000000",
+            "mov cr0, eax",
             "pop eax",
+            "add esp, 0xc0000000",
             "call eax",
         );
     }

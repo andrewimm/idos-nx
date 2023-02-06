@@ -83,17 +83,3 @@ pub fn init_hardware() {
     crate::hardware::pci::init();
 }
 
-#[naked]
-pub unsafe extern "C" fn jump_to_highmem() {
-    asm!(
-        "mov eax, [esp]",
-        "or eax, 0xc0000000",
-        // if compiled as position-independent code, ebx needs to also be
-        // moved to highmem here. It points to the PLT in that compilation mode
-        "mov [esp], eax",
-        "ret",
-        options(noreturn),
-    );
-}
-
-
