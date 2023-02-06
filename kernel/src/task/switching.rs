@@ -155,11 +155,13 @@ pub fn switch_to(id: TaskID) {
         let current = current_lock.read();
         &(current.stack_pointer) as *const usize as u32
     };
-    let next_sp: usize = {
+    let next_sp: u32 = {
         let next_lock = get_task(id).expect("Switching to task that does not exist");
         let next = next_lock.read();
-        next.stack_pointer
+        next.stack_pointer as u32
     };
+
+    crate::arch::gdt::set_tss_stack_pointer(next_sp);
 
     {
         *CURRENT_ID.write() = id;

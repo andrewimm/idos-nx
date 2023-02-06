@@ -29,10 +29,12 @@ pub unsafe fn zero_bss() {
 
 /// Initialize the GDT, IDT
 pub unsafe fn init_cpu_tables() {
+    crate::arch::gdt::init_tss();
     let gdt = &crate::arch::gdt::GDT;
     let gdt_descriptor = &mut crate::arch::gdt::GDTR;
     gdt_descriptor.point_to(gdt);
     gdt_descriptor.load();
+    crate::arch::gdt::ltr(0x28);
 
     crate::interrupts::idt::init_idt();
 }
