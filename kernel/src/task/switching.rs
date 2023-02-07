@@ -2,6 +2,8 @@ use alloc::{collections::BTreeMap, sync::Arc};
 use core::arch::{asm, global_asm};
 use core::ops::Deref;
 use spin::RwLock;
+use crate::memory::address::PhysicalAddress;
+
 use super::id::{TaskID, IdGenerator};
 use super::state::Task;
 
@@ -16,8 +18,10 @@ pub static NEXT_ID: IdGenerator = IdGenerator::new();
 /// All kernel code referring to the "current" task will use this TaskID
 pub static CURRENT_ID: RwLock<TaskID> = RwLock::new(TaskID::new(0));
 
-pub fn init() {
-    let idle_task = Task::create_initial_task();
+pub fn init(page_directory: PhysicalAddress) {
+    let mut idle_task = Task::create_initial_task();
+    idle_task.page_directory = page_directory;
+    crate::kprint!("Initial pagedir {:?}\n", page_directory);
     let id: TaskID = idle_task.id;
     let entry = Arc::new(RwLock::new(idle_task));
     {
@@ -155,10 +159,10 @@ pub fn switch_to(id: TaskID) {
         let current = current_lock.read();
         &(current.stack_pointer) as *const usize as u32
     };
-    let next_sp: u32 = {
+    let (next_sp, pagedir_addr) = {
         let next_lock = get_task(id).expect("Switching to task that does not exist");
         let next = next_lock.read();
-        next.stack_pointer as u32
+        (next.stack_pointer as u32, next.page_directory.as_u32())
     };
 
     crate::arch::gdt::set_tss_stack_pointer(next_sp);
@@ -169,8 +173,6 @@ pub fn switch_to(id: TaskID) {
 
     unsafe {
         asm!(
-            //"2:",
-            //"jmp 2b",
             "push eax",
             "push ecx",
             "push edx",
@@ -189,6 +191,7 @@ pub fn switch_to(id: TaskID) {
             "pop ecx",
             "pop eax",
 
+            in("eax") pagedir_addr,
             in("ecx") current_sp_addr,
             in("edx") next_sp,
         );
@@ -199,6 +202,7 @@ global_asm!(r#"
 .global switch_inner
 
 switch_inner:
+    mov cr3, eax
     mov [ecx], esp
     mov esp, edx
     ret

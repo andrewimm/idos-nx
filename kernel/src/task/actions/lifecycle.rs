@@ -5,13 +5,14 @@ use super::super::messaging::Message;
 use super::{yield_coop, send_message};
 
 pub fn create_kernel_task(task_body: fn() -> !) -> TaskID {
-    let cur_id = super::super::switching::get_current_id();
-    let task_id = super::super::switching::get_next_id();
-    let task_stack = super::super::stack::allocate_stack();
-    let mut task_state = super::super::state::Task::new(task_id, cur_id, task_stack);
-    task_state.set_entry_point(task_body);
-    task_state.make_runnable();
-    super::switching::insert_task(task_state);
+    let task_id = create_task();
+    let task_state_lock = super::super::switching::get_task(task_id).unwrap();
+    {
+        let mut task_state = task_state_lock.write();
+        task_state.set_entry_point(task_body);
+        task_state.make_runnable();
+    }
+
     task_id
 }
 
@@ -19,7 +20,8 @@ pub fn create_task() -> TaskID {
     let cur_id = super::super::switching::get_current_id();
     let task_id = super::super::switching::get_next_id();
     let task_stack = super::super::stack::allocate_stack();
-    let task_state = super::super::state::Task::new(task_id, cur_id, task_stack);
+    let mut task_state = super::super::state::Task::new(task_id, cur_id, task_stack);
+    task_state.page_directory = super::super::paging::create_page_directory();
     super::switching::insert_task(task_state);
     task_id
 }

@@ -1,4 +1,6 @@
 use alloc::boxed::Box;
+use crate::memory::address::PhysicalAddress;
+
 use super::files::OpenFileMap;
 use super::id::TaskID;
 use super::messaging::{Message, MessagePacket, MessageQueue};
@@ -24,6 +26,8 @@ pub struct Task {
     /// Registers will be popped off the stack to resume the execution state
     /// of the task.
     pub stack_pointer: usize,
+    /// Physical address of the task's page directory
+    pub page_directory: PhysicalAddress,
 
     /// Store Messages that have been sent to this task
     pub message_queue: MessageQueue,
@@ -41,6 +45,7 @@ impl Task {
             state: RunState::Uninitialized,
             kernel_stack: Some(stack),
             stack_pointer,
+            page_directory: PhysicalAddress::new(0),
             message_queue: MessageQueue::new(),
             open_files: OpenFileMap::new(),
         }

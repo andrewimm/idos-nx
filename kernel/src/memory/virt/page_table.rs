@@ -58,3 +58,14 @@ pub fn set_current_pagedir(phys: PhysicalAddress) {
     }
 }
 
+pub fn get_current_pagedir() -> PhysicalAddress {
+    let addr: u32;
+    unsafe {
+        asm!(
+            "mov {addr:e}, cr3",
+            addr = out(reg) addr,
+        );
+    }
+    PhysicalAddress::new(addr)
+}
+

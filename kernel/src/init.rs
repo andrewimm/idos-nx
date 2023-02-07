@@ -62,8 +62,6 @@ pub unsafe fn init_memory() {
     let initial_pagedir = crate::memory::virt::create_initial_pagedir();
     initial_pagedir.make_active();
     crate::memory::virt::enable_paging();
-
-    // with paging enabled, move all sorts of references to high memory:
     
     // relocate $esp to the virtual location of the initial kernel stack
     let stack_offset = get_kernel_stack_virtual_offset();

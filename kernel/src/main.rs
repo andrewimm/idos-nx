@@ -12,6 +12,8 @@
 
 use core::arch::asm;
 
+use crate::memory::virt::page_table::get_current_pagedir;
+
 extern crate alloc;
 
 pub mod arch;
@@ -40,7 +42,8 @@ pub extern "C" fn _start() -> ! {
 
     init::init_hardware();
 
-    task::switching::init();
+    let initial_pagedir = get_current_pagedir();
+    task::switching::init(initial_pagedir);
 
     task::actions::lifecycle::create_kernel_task(cleanup::cleanup_task);
 
