@@ -1,3 +1,6 @@
+use crate::files::path::Path;
+use crate::task::switching::get_current_task;
+
 use super::super::files::FileHandle;
 
 pub enum IOError {
@@ -13,6 +16,13 @@ pub enum IOError {
 /// path, it will be opened relative to the current task's working directory.
 /// On success, a new File Handle will be opened and returned.
 pub fn open_path<'path>(path_string: &'path str) -> Result<FileHandle, IOError> {
+    let (drive, path) = if Path::is_absolute(path_string) {
+        return Err(IOError::NotFound);
+    } else {
+        let mut working_dir = get_current_task().read().working_dir.clone();
+        working_dir.push(path_string);
+        (0, working_dir)
+    };
     Err(IOError::NotFound)
 }
 
