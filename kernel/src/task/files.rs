@@ -1,11 +1,28 @@
 use alloc::string::String;
 use crate::collections::SlotList;
 use crate::files::handle::DriverHandle;
+use crate::files::path::Path;
+use crate::filesystem::drive::DriveID;
+
+#[derive(Clone)]
+pub struct CurrentDrive {
+    pub name: String,
+    pub id: DriveID,
+}
+
+impl CurrentDrive {
+    pub fn empty() -> Self {
+        Self {
+            name: String::new(),
+            id: DriveID(0),
+        }
+    }
+}
 
 pub struct OpenFile {
-    pub drive: u32,
+    pub drive: DriveID,
     pub driver_handle: DriverHandle,
-    pub filename: String,
+    pub filename: Path,
 }
 
 /// An Open File Map maps numeric slots to files currently opened by this task.

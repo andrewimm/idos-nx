@@ -1,8 +1,12 @@
 use crate::files::path::Path;
+use crate::filesystem::get_driver_by_id;
+use crate::filesystem::kernel::KernelFileSystem;
+use crate::task::files::OpenFile;
 use crate::task::switching::get_current_task;
 
 use super::super::files::FileHandle;
 
+#[derive(Debug)]
 pub enum IOError {
     /// A File or Directory with the given path does not exist
     NotFound,
@@ -10,20 +14,46 @@ pub enum IOError {
     FileHandleInvalid,
     /// The file handle used for IO is not the correct type for that operation
     FileHandleWrongType,
+    /// A read operation failed
+    ReadFailed,
+    /// A write operation failed
+    WriteFailed,
 }
 
 /// Open a file at a specified path. If the provided string is not an absolute
 /// path, it will be opened relative to the current task's working directory.
 /// On success, a new File Handle will be opened and returned.
 pub fn open_path<'path>(path_string: &'path str) -> Result<FileHandle, IOError> {
-    let (drive, path) = if Path::is_absolute(path_string) {
+    let (drive_id, path) = if Path::is_absolute(path_string) {
         return Err(IOError::NotFound);
     } else {
-        let mut working_dir = get_current_task().read().working_dir.clone();
+        let (current_drive_id, mut working_dir) = {
+            let task_lock = get_current_task();
+            let task = task_lock.read();
+            (task.current_drive.id, task.working_dir.clone())
+        };
         working_dir.push(path_string);
-        (0, working_dir)
+        (current_drive_id, working_dir)
     };
-    Err(IOError::NotFound)
+
+    let driver_handle = get_driver_by_id(drive_id)
+        .map_err(|_| IOError::NotFound)?
+        .open(path.clone())
+        .map_err(|_| IOError::NotFound)?;
+
+    let open_handle_index = {
+        let task_lock = get_current_task();
+        let mut task = task_lock.write();
+        task.open_files.insert(
+            OpenFile {
+                drive: drive_id,
+                driver_handle,
+                filename: path,
+            }
+        )
+    };
+
+    Ok(FileHandle::new(open_handle_index))
 }
 
 /// Open a directory at a specified path. Similar to opening a file,
@@ -36,7 +66,17 @@ pub fn open_directory<'path>(path_string: &'path str) -> Result<FileHandle, IOEr
 /// Read bytes from an open file into a mutable byte buffer. On success, return
 /// the number of bytes read.
 pub fn read_file(handle: FileHandle, buffer: &mut [u8]) -> Result<usize, IOError> {
-    Err(IOError::FileHandleInvalid)
+    let (drive_id, driver_handle) = {
+        let task_lock = get_current_task();
+        let task = task_lock.read();
+        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        (entry.drive, entry.driver_handle)
+    };
+
+    get_driver_by_id(drive_id)
+        .map_err(|_| IOError::NotFound)?
+        .read(driver_handle, buffer)
+        .map_err(|_| IOError::ReadFailed)
 }
 
 /// Write bytes from a byte buffer to a file. On success, return the number of

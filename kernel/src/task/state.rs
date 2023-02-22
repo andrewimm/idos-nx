@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use crate::files::path::Path;
 use crate::memory::address::PhysicalAddress;
 
-use super::files::OpenFileMap;
+use super::files::{OpenFileMap, CurrentDrive};
 use super::id::TaskID;
 use super::messaging::{Message, MessagePacket, MessageQueue};
 use super::stack::free_stack;
@@ -33,6 +33,8 @@ pub struct Task {
     /// Store Messages that have been sent to this task
     pub message_queue: MessageQueue,
 
+    /// Store a reference to the current drive for the task
+    pub current_drive: CurrentDrive,
     /// Store the path of the current working directory
     pub working_dir: Path,
     /// Store references to all currently open files
@@ -50,6 +52,7 @@ impl Task {
             stack_pointer,
             page_directory: PhysicalAddress::new(0),
             message_queue: MessageQueue::new(),
+            current_drive: CurrentDrive::empty(),
             working_dir: Path::from_str(""),
             open_files: OpenFileMap::new(),
         }
