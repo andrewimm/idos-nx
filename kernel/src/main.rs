@@ -83,14 +83,16 @@ fn task_a_body() -> ! {
     {
         let wait_id = task::actions::lifecycle::create_kernel_task(wait_task_body);
         let return_code = task::actions::lifecycle::wait_for_child(wait_id, None);
-        kprint!("Child task returned: {}\n", return_code);
+        kprint!("Child task returned: {}\n\n", return_code);
     }
+
+    kprint!("Okay, time to read from a file...\n");
 
     let file = task::actions::io::open_path("TEST.TXT").unwrap();
     let mut buf: [u8; 5] = [0; 5];
-    task::actions::io::read_file(file, &mut buf);
+    task::actions::io::read_file(file, &mut buf).unwrap();
     let res = core::str::from_utf8(&buf).unwrap();
-    kprint!("READ FROM FILE {}\n", res);
+    kprint!("Read file content from initfs: {}\n\n", res);
 
     let b_id = task::actions::lifecycle::create_kernel_task(task_b_body);
 

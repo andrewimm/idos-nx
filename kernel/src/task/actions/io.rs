@@ -1,6 +1,5 @@
 use crate::files::path::Path;
 use crate::filesystem::get_driver_by_id;
-use crate::filesystem::kernel::KernelFileSystem;
 use crate::task::files::OpenFile;
 use crate::task::switching::get_current_task;
 

@@ -33,10 +33,10 @@ impl InitFileSystem {
 
 impl KernelFileSystem for InitFileSystem {
     fn open(&self, path: Path) -> Result<DriverHandle, ()> {
-        crate::kprint!("OPEN\n");
         let open_file = OpenFile {};
         let handle = OpenHandle::File(open_file);
         let index = self.open_handle_map.write().insert(handle);
+        crate::kprint!("INITFS open file: {}\n", path.as_str());
         Ok(DriverHandle(index as u32))
     }
 

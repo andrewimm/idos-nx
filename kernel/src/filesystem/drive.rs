@@ -50,7 +50,7 @@ impl DriveMap {
     pub fn install_sync(&self, name: &str, driver: Box<dyn KernelFileSystem + Sync + Send>) -> DriveID {
         let id = DriveID(self.next_id.fetch_add(1, Ordering::SeqCst));
         self.map.write().insert(id, FileSystemDriver::new_sync(driver));
-        crate::kprint!("INSTALLED {:?}\n", id);
+        crate::kprint!("Installed FS \"{}:\" as {:?}\n", name, id);
         id
     }
 
@@ -60,7 +60,7 @@ impl DriveMap {
 
     pub fn get_driver(&self, id: DriveID) -> Option<FileSystemDriver> {
         self.map.read().get(&id).map(|fs| {
-            crate::kprint!("GOT FS\n");
+            crate::kprint!("    ACCESS FS {:?}\n", id);
             fs.clone()
         })
     }

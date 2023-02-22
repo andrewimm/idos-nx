@@ -1,6 +1,5 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::arch::{asm, global_asm};
-use core::ops::Deref;
 use spin::RwLock;
 use crate::memory::address::PhysicalAddress;
 
@@ -153,7 +152,7 @@ pub fn clean_up_task(id: TaskID) {
 /// pointer is resurrected and all the registers are popped, making it seem as
 /// though the call to the inner switch method never happened.
 pub fn switch_to(id: TaskID) {
-    crate::kprint!("SWITCH TO {:?}\r\n", id);
+    crate::kprint!("    SWITCH TO {:?}\r\n", id);
     let current_sp_addr: u32 = {
         let current_lock = get_current_task();
         let current = current_lock.read();

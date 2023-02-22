@@ -10,8 +10,6 @@ use crate::memory::virt::scratch::SCRATCH_BOTTOM;
 extern {
     #[link_name = "__stack_start"]
     static mut label_stack_start: u8;
-    #[link_name = "__stack_end"]
-    static mut label_stack_end: u8;
 }
 
 /// Bottom of the scratch area, top of the kernel stacks
@@ -112,7 +110,7 @@ pub fn free_stack(stack: Box<[u8]>) {
     let frame_address = page_table.get(table_index).get_address();
     page_table.get_mut(table_index).clear_present();
     invalidate_page(stack_start);
-    release_frame(frame_address);
+    release_frame(frame_address).unwrap();
 
     crate::kprint!("FREE STACK: {:?} {:?}\n", stack_start, frame_address);
 }
