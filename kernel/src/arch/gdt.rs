@@ -40,9 +40,22 @@ impl GdtEntry {
     }
 
     pub fn set_base(&mut self, base: u32) {
+        let base_low = (base & 0xffff) as u16;
+        let base_middle = ((base >> 16) & 0xff) as u8;
+        let base_high = ((base >> 24) & 0xff) as u8;
+
+        self.base_low = base_low;
+        self.base_middle = base_middle;
+        self.base_high = base_high;
     }
 
     pub fn set_limit(&mut self, limit: u32) {
+        let limit_low = (limit & 0xffff) as u16;
+        let limit_high = ((limit >> 16) & 0x000f) as u8;
+
+        self.limit_low = limit_low;
+        self.flags_and_limit_high &= 0xf0;
+        self.flags_and_limit_high |= limit_high;
     }
 }
 
