@@ -1,4 +1,5 @@
-use alloc::boxed::Box;
+use alloc::sync::Arc;
+use spin::Mutex;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::task::id::TaskID;
@@ -27,16 +28,17 @@ impl AsyncFileSystem {
     /// The Arbiter will take repsonsibility for queuing up the request, and
     /// eventually passing it to the driver task. On completion, the Arbiter
     /// will wake the current task.
-    fn async_op(&self, request: AsyncIO) -> Box<Option<u32>> {
+    fn async_op(&self, request: AsyncIO) -> Option<u32> {
         
-        let mut response: Box<Option<u32>> = Box::new(None);
+        let mut response: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
 
         // send the request
-        begin_io(request);
+        begin_io(request, response.clone());
 
-        response.replace(1);
-
-        response
+        match Arc::try_unwrap(response) {
+            Ok(inner) => *inner.lock(),
+            Err(_) => None,
+        }
     }
 }
 
@@ -50,7 +52,7 @@ impl KernelFileSystem for AsyncFileSystem {
             AsyncIO::Open,
         );
 
-        match *response {
+        match response {
             Some(handle) => Ok(DriverHandle(handle)),
             None => Err(()),
         }
@@ -61,7 +63,7 @@ impl KernelFileSystem for AsyncFileSystem {
             AsyncIO::Read,
         );
 
-        match *response {
+        match response {
             Some(count) => Ok(count as usize),
             None => Err(()),
         }

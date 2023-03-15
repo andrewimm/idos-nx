@@ -1,4 +1,5 @@
 use alloc::collections::VecDeque;
+use alloc::sync::Arc;
 use spin::{RwLock, Mutex, Once, MutexGuard};
 use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::actions::{read_message_blocking, send_message};
@@ -14,14 +15,16 @@ pub enum AsyncIO {
     Close,
 }
 
+pub type AsyncResponse = Arc<Mutex<Option<u32>>>;
+
 /// Enqueue a new IO request. Assuming the target is a valid FS driver, the
 /// current task will be IO-blocked until the request completes. The Arbiter
 /// will consume the AsyncIO request and send an appropriate message to the FS
 /// driver.
-pub fn begin_io(io: AsyncIO) {
+pub fn begin_io(io: AsyncIO, response: AsyncResponse) {
     let current_id = get_current_id();
     // Add the request to the queue
-    get_arbiter_queue().push_back((current_id, io));
+    get_arbiter_queue().push_back((current_id, io, response));
     
     // Make sure the arbiter is awake
     let id = get_arbiter_task_id();
@@ -30,13 +33,13 @@ pub fn begin_io(io: AsyncIO) {
 }
 
 static ARBITER_TASK_ID: RwLock<TaskID> = RwLock::new(TaskID::new(0));
-static ARBITER_QUEUE: Once<Mutex<VecDeque<(TaskID, AsyncIO)>>> = Once::new();
+static ARBITER_QUEUE: Once<Mutex<VecDeque<(TaskID, AsyncIO, AsyncResponse)>>> = Once::new();
 
 pub fn get_arbiter_task_id() -> TaskID {
     *ARBITER_TASK_ID.read()
 }
 
-pub fn get_arbiter_queue() -> MutexGuard<'static, VecDeque<(TaskID, AsyncIO)>> {
+pub fn get_arbiter_queue() -> MutexGuard<'static, VecDeque<(TaskID, AsyncIO, AsyncResponse)>> {
     ARBITER_QUEUE.call_once(|| {
         Mutex::new(VecDeque::new())
     }).lock()
@@ -61,8 +64,18 @@ pub fn arbiter_task() -> ! {
             loop {
                 let head = queue.pop_front();
                 match head {
-                    Some((from, req)) => {
+                    Some((from, req, res)) => {
                         crate::kprint!("  IO Req: {:?}\n", req);
+
+                        match req {
+                            AsyncIO::Open => {
+                                res.lock().replace(1);
+                            },
+                            AsyncIO::Read => {
+                                res.lock().replace(3);
+                            },
+                            _ => (),
+                        }
 
                         crate::kprint!("  IO complete, resume {:?}\n", from);
                         if let Some(task_lock) = get_task(from) {
