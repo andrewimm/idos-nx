@@ -1,3 +1,4 @@
+pub mod arbiter;
 pub mod drive;
 pub mod driver;
 pub mod drivers;
@@ -7,14 +8,22 @@ pub mod kernel;
 use alloc::boxed::Box;
 use drive::{DriveID, DriveMap};
 use driver::FileSystemDriver;
+use drivers::asyncfs::AsyncFileSystem;
 use drivers::initfs::InitFileSystem;
 use error::FsError;
+
+use crate::task::actions::lifecycle::create_kernel_task;
+use crate::task::id::TaskID;
 
 static DRIVE_MAP: DriveMap = DriveMap::new();
 
 pub fn init_fs() {
-    let fs = Box::new(InitFileSystem::new());
-    DRIVE_MAP.install_sync("INIT", fs);
+    //DRIVE_MAP.install_sync("INIT", Box::new(InitFileSystem::new()));
+
+    let async_demo = TaskID::new(0xff);
+    DRIVE_MAP.install_sync("DEMO", Box::new(AsyncFileSystem::new(async_demo)));
+
+    create_kernel_task(arbiter::arbiter_task);
 }
 
 pub fn get_drive_id_by_name(name: &str) -> Result<DriveID, FsError> {

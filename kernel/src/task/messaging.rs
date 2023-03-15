@@ -6,6 +6,12 @@ use super::id::TaskID;
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Message(pub u32, pub u32, pub u32, pub u32);
 
+impl Message {
+    pub fn empty() -> Self {
+        Message(0, 0, 0, 0)
+    }
+}
+
 /// A Message Packet associates a message with its sender
 #[derive(Debug, Eq, PartialEq)]
 pub struct MessagePacket {
