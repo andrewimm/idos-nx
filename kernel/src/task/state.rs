@@ -205,6 +205,10 @@ impl Task {
         self.state = RunState::Blocked(timeout, BlockType::WaitForChild(id));
     }
 
+    pub fn wait_for_io(&mut self, timeout: Option<u32>) {
+        self.state = RunState::Blocked(timeout, BlockType::IO);
+    }
+
     /// Notify the task that a child task has terminated with an exit code
     pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
         let waiting_on = match self.state {
@@ -213,6 +217,15 @@ impl Task {
         };
         if id == waiting_on {
             self.state = RunState::Resuming(exit_code);
+        }
+    }
+
+    pub fn io_complete(&mut self) {
+        match self.state {
+            RunState::Blocked(_, BlockType::IO) => {
+                self.state = RunState::Running;
+            },
+            _ => return,
         }
     }
 
@@ -283,4 +296,6 @@ pub enum BlockType {
     Message,
     /// The Task is waiting for a Child Task to return
     WaitForChild(TaskID),
+    /// The Task is blocked on async IO
+    IO,
 }
