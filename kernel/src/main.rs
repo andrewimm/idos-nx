@@ -88,6 +88,7 @@ fn task_a_body() -> ! {
 
     kprint!("Okay, time to read from a file...\n");
 
+    task::actions::io::set_active_drive("DEMO").unwrap();
     let file = task::actions::io::open_path("TEST.TXT").unwrap();
     let mut buf: [u8; 5] = [b'A'; 5];
     let read_len = task::actions::io::read_file(file, &mut buf).unwrap();

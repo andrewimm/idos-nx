@@ -18,7 +18,7 @@ use crate::task::id::TaskID;
 static DRIVE_MAP: DriveMap = DriveMap::new();
 
 pub fn init_fs() {
-    //DRIVE_MAP.install_sync("INIT", Box::new(InitFileSystem::new()));
+    DRIVE_MAP.install_sync("INIT", Box::new(InitFileSystem::new()));
 
     let async_demo = TaskID::new(0xff);
     DRIVE_MAP.install_sync("DEMO", Box::new(AsyncFileSystem::new(async_demo)));
@@ -27,7 +27,7 @@ pub fn init_fs() {
 }
 
 pub fn get_drive_id_by_name(name: &str) -> Result<DriveID, FsError> {
-    return Err(FsError::DriveNotFound);
+    DRIVE_MAP.get_id_by_name(name).ok_or_else(|| FsError::DriveNotFound)
 }
 
 pub fn get_driver_by_id(id: DriveID) -> Result<FileSystemDriver, ()> {

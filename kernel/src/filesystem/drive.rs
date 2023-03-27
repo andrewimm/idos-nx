@@ -24,8 +24,9 @@
 //! 6) Dynamic volumes are assigned remaining letters if they are mounted after
 //!    boot time.
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, string::ToString};
 use alloc::collections::BTreeMap;
+use alloc::string::String;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use spin::RwLock;
 use super::{driver::FileSystemDriver, kernel::KernelFileSystem};
@@ -36,7 +37,7 @@ pub struct DriveID(pub usize);
 
 pub struct DriveMap {
     next_id: AtomicUsize,
-    map: RwLock<BTreeMap<DriveID, FileSystemDriver>>,
+    map: RwLock<BTreeMap<DriveID, (String, FileSystemDriver)>>,
 }
 
 impl DriveMap {
@@ -49,7 +50,7 @@ impl DriveMap {
 
     pub fn install_sync(&self, name: &str, driver: Box<dyn KernelFileSystem + Sync + Send>) -> DriveID {
         let id = DriveID(self.next_id.fetch_add(1, Ordering::SeqCst));
-        self.map.write().insert(id, FileSystemDriver::new_sync(driver));
+        self.map.write().insert(id, (name.to_string(), FileSystemDriver::new_sync(driver)));
         crate::kprint!("Installed FS \"{}:\" as {:?}\n", name, id);
         id
     }
@@ -58,8 +59,17 @@ impl DriveMap {
         DriveID(0)
     }
 
+    pub fn get_id_by_name(&self, name: &str) -> Option<DriveID> {
+        for (id, (drive_name, _)) in self.map.read().iter() {
+            if drive_name.as_str() == name {
+                return Some(*id);
+            }
+        }
+        None
+    }
+
     pub fn get_driver(&self, id: DriveID) -> Option<FileSystemDriver> {
-        self.map.read().get(&id).map(|fs| {
+        self.map.read().get(&id).map(|(_, fs)| {
             crate::kprint!("    ACCESS FS {:?}\n", id);
             fs.clone()
         })

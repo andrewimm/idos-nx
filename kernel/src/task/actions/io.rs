@@ -1,6 +1,8 @@
+use alloc::string::ToString;
 use crate::files::path::Path;
-use crate::filesystem::get_driver_by_id;
-use crate::task::files::OpenFile;
+use crate::filesystem::drive::DriveID;
+use crate::filesystem::{get_driver_by_id, get_drive_id_by_name};
+use crate::task::files::{OpenFile, CurrentDrive};
 use crate::task::switching::get_current_task;
 
 use super::super::files::FileHandle;
@@ -17,6 +19,22 @@ pub enum IOError {
     ReadFailed,
     /// A write operation failed
     WriteFailed,
+}
+
+pub fn set_active_drive(drive_name: &str) -> Result<DriveID, IOError> {
+    let found_id = get_drive_id_by_name(drive_name);
+    match found_id {
+        Ok(id) => {
+            let task_lock = get_current_task();
+            let mut task = task_lock.write();
+            task.current_drive = CurrentDrive {
+                name: drive_name.to_string(),
+                id,
+            };
+            Ok(id)
+        },
+        _ => Err(IOError::NotFound),
+    }
 }
 
 /// Open a file at a specified path. If the provided string is not an absolute
