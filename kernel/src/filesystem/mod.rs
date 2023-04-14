@@ -19,7 +19,7 @@ static DRIVE_MAP: DriveMap = DriveMap::new();
 pub fn init_fs() {
     DRIVE_MAP.install("INIT", Box::new(InitFileSystem::new()));
 
-    let async_demo = TaskID::new(0xff);
+    let async_demo = create_kernel_task(drivers::demofs::demo_fs_task);
     DRIVE_MAP.install_async("DEMO", async_demo);
 
     create_kernel_task(arbiter::arbiter_task);

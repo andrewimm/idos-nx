@@ -19,6 +19,12 @@ pub struct MessagePacket {
     pub message: Message,
 }
 
+impl MessagePacket {
+    pub fn open(self) -> (TaskID, Message) {
+        (self.from, self.message)
+    }
+}
+
 /// For storing messages in a task's receiving queue, each message is
 /// associated with an expiration time. The time is recorded in system ticks,
 /// and indicates the time after which this entry is no longer valid.

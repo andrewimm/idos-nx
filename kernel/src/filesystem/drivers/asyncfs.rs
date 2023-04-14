@@ -3,6 +3,7 @@ use spin::Mutex;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::task::id::TaskID;
+use crate::task::messaging::Message;
 use super::super::arbiter::{begin_io, AsyncIO};
 use super::super::kernel::KernelFileSystem;
 
@@ -70,3 +71,34 @@ impl KernelFileSystem for AsyncFileSystem {
         
     }
 }
+
+// Below are the resources used by async fs implementations
+
+#[repr(u32)]
+pub enum AsyncCommand {
+    Open = 1,
+    Read,
+    Write,
+    Close,
+}
+
+pub static ASYNC_RESPONSE_MAGIC: u32 = 0x00524553; // "\0RES"
+
+pub fn encode_request(request: AsyncIO) -> Message {
+    match request {
+        AsyncIO::Open => {
+            let code = AsyncCommand::Open as u32;
+            let path_str_start = 0;
+            let path_str_len = 0;
+            Message(code, path_str_start, path_str_len, 0)
+        },
+        AsyncIO::Read => {
+            let code = AsyncCommand::Read as u32;
+            let buffer_start = 0;
+            let buffer_len = 0;
+            Message(code, buffer_start, buffer_len, 0)
+        },
+        _ => panic!("Unsupported async io type"),
+    }
+}
+

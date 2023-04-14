@@ -1,6 +1,7 @@
-use alloc::collections::VecDeque;
+use alloc::collections::{VecDeque, BTreeMap};
 use alloc::sync::Arc;
 use spin::{RwLock, Mutex, Once, MutexGuard};
+use crate::filesystem::drivers::asyncfs::{encode_request, ASYNC_RESPONSE_MAGIC};
 use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::actions::{read_message_blocking, send_message};
 use crate::task::id::TaskID;
@@ -48,6 +49,7 @@ struct IncomingRequest {
 
 static ARBITER_TASK_ID: RwLock<TaskID> = RwLock::new(TaskID::new(0));
 static ARBITER_QUEUE: Once<Mutex<VecDeque<IncomingRequest>>> = Once::new();
+static OUTBOUND: Mutex<BTreeMap<TaskID, VecDeque<IncomingRequest>>> = Mutex::new(BTreeMap::new());
 
 pub fn get_arbiter_task_id() -> TaskID {
     *ARBITER_TASK_ID.read()
@@ -59,6 +61,30 @@ fn get_arbiter_queue() -> MutexGuard<'static, VecDeque<IncomingRequest>> {
     }).lock()
 }
 
+fn add_outbound(request: IncomingRequest) -> usize {
+    let mut tree = OUTBOUND.lock();
+    let id = request.driver_id;
+    match tree.get_mut(&id) {
+        Some(queue) => {
+            queue.push_back(request);
+            queue.len()
+        },
+        None => {
+            let mut queue = VecDeque::new();
+            queue.push_back(request);
+            let len = queue.len();
+            tree.insert(id, queue);
+            len
+        },
+    }
+}
+
+fn pop_pending_request(sender: TaskID) -> Option<IncomingRequest> {
+    let mut tree = OUTBOUND.lock();
+    let queue = tree.get_mut(&sender)?;
+    queue.pop_front()
+}
+
 /// The core loop of the Arbiter task. The Arbiter exists as an independent
 /// kernel-level task so that other 
 pub fn arbiter_task() -> ! {
@@ -68,9 +94,37 @@ pub fn arbiter_task() -> ! {
     loop {
         // reading this is only necessary when we start handling responses from
         // drivers
-        let (_next_message, _) = read_message_blocking(None);
+        let (message_read, _) = read_message_blocking(None);
 
         crate::kprint!("= Arbiter woke up\n");
+
+        if let Some(next_message) = message_read {
+            let (sender, message) = next_message.open();
+            if message.0 == ASYNC_RESPONSE_MAGIC {
+                // it's a response to a request
+                match pop_pending_request(sender) {
+                    Some(request) => {
+                        // hacky mocked logic from earlier
+                        match request.io {
+                            AsyncIO::Open => {
+                                request.response.lock().replace(1);
+                            },
+                            AsyncIO::Read => {
+                                request.response.lock().replace(3);
+                            },
+                            _ => (),
+                        }
+
+                        crate::kprint!("  IO complete, resume {:?}\n", request.requestor_id);
+                        if let Some(task_lock) = get_task(request.requestor_id) {
+                            let mut task = task_lock.write();
+                            task.io_complete();
+                        }
+                    },
+                    None => (),
+                }
+            }
+        }
 
         {
             let mut queue = get_arbiter_queue();
@@ -84,28 +138,24 @@ pub fn arbiter_task() -> ! {
             loop {
                 let head = queue.pop_front();
                 match head {
-                    Some(IncomingRequest { driver_id, requestor_id, io, response }) => {
-                        crate::kprint!("  IO Req: {:?}, to {:?}\n", io, driver_id);
-
-                        match io {
-                            AsyncIO::Open => {
-                                response.lock().replace(1);
-                            },
-                            AsyncIO::Read => {
-                                response.lock().replace(3);
-                            },
-                            _ => (),
-                        }
-
-                        crate::kprint!("  IO complete, resume {:?}\n", requestor_id);
-                        if let Some(task_lock) = get_task(requestor_id) {
-                            let mut task = task_lock.write();
-                            task.io_complete();
+                    Some(request) => {
+                        let driver_id = request.driver_id;
+                        let io = request.io.clone();
+                        crate::kprint!("  IO Req: {:?}, to {:?}\n", io, request.driver_id);
+                        // look up queue for id, or create it if it doesn't exist
+                        let len = add_outbound(request);
+                        if len <= 1 {
+                            // it's the only pending request to that driver
+                            let message = encode_request(io);
+                            send_message(driver_id, message, 0xffffffff);
+                            crate::kprint!("  Async message sent to {:?}\n", driver_id);
                         }
                     },
                     None => break,
                 }
             }
         }
+
+        crate::kprint!("= Arbiter sleep\n");
     }
 }
