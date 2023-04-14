@@ -21,10 +21,17 @@ pub type AsyncResponse = Arc<Mutex<Option<u32>>>;
 /// current task will be IO-blocked until the request completes. The Arbiter
 /// will consume the AsyncIO request and send an appropriate message to the FS
 /// driver.
-pub fn begin_io(io: AsyncIO, response: AsyncResponse) {
+pub fn begin_io(driver_id: TaskID, io: AsyncIO, response: AsyncResponse) {
     let current_id = get_current_id();
     // Add the request to the queue
-    get_arbiter_queue().push_back((current_id, io, response));
+    get_arbiter_queue().push_back(
+        IncomingRequest {
+            driver_id,
+            requestor_id: current_id,
+            io,
+            response,
+        }
+    );
     
     // Make sure the arbiter is awake
     let id = get_arbiter_task_id();
@@ -32,14 +39,21 @@ pub fn begin_io(io: AsyncIO, response: AsyncResponse) {
     wait_for_io(None);
 }
 
+struct IncomingRequest {
+    pub driver_id: TaskID,
+    pub requestor_id: TaskID,
+    pub io: AsyncIO,
+    pub response: AsyncResponse,
+}
+
 static ARBITER_TASK_ID: RwLock<TaskID> = RwLock::new(TaskID::new(0));
-static ARBITER_QUEUE: Once<Mutex<VecDeque<(TaskID, AsyncIO, AsyncResponse)>>> = Once::new();
+static ARBITER_QUEUE: Once<Mutex<VecDeque<IncomingRequest>>> = Once::new();
 
 pub fn get_arbiter_task_id() -> TaskID {
     *ARBITER_TASK_ID.read()
 }
 
-pub fn get_arbiter_queue() -> MutexGuard<'static, VecDeque<(TaskID, AsyncIO, AsyncResponse)>> {
+fn get_arbiter_queue() -> MutexGuard<'static, VecDeque<IncomingRequest>> {
     ARBITER_QUEUE.call_once(|| {
         Mutex::new(VecDeque::new())
     }).lock()
@@ -60,25 +74,31 @@ pub fn arbiter_task() -> ! {
 
         {
             let mut queue = get_arbiter_queue();
-
+            // Once the task is awake, read all the incoming requests.
+            // The Arbiter will use the task ID to determine the destination of
+            // this request. If no request is currently outstanding, 
+            //
+            // Notice that this logic is specific to file IO operations, but 
+            // has no concept of higher level file systems. That allows the
+            // same Arbiter task to be used for device drivers in the DEV: FS.
             loop {
                 let head = queue.pop_front();
                 match head {
-                    Some((from, req, res)) => {
-                        crate::kprint!("  IO Req: {:?}\n", req);
+                    Some(IncomingRequest { driver_id, requestor_id, io, response }) => {
+                        crate::kprint!("  IO Req: {:?}, to {:?}\n", io, driver_id);
 
-                        match req {
+                        match io {
                             AsyncIO::Open => {
-                                res.lock().replace(1);
+                                response.lock().replace(1);
                             },
                             AsyncIO::Read => {
-                                res.lock().replace(3);
+                                response.lock().replace(3);
                             },
                             _ => (),
                         }
 
-                        crate::kprint!("  IO complete, resume {:?}\n", from);
-                        if let Some(task_lock) = get_task(from) {
+                        crate::kprint!("  IO complete, resume {:?}\n", requestor_id);
+                        if let Some(task_lock) = get_task(requestor_id) {
                             let mut task = task_lock.write();
                             task.io_complete();
                         }

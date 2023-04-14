@@ -33,7 +33,7 @@ impl AsyncFileSystem {
         let mut response: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
 
         // send the request
-        begin_io(request, response.clone());
+        begin_io(self.task, request, response.clone());
 
         match Arc::try_unwrap(response) {
             Ok(inner) => *inner.lock(),
