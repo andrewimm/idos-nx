@@ -24,12 +24,16 @@
 //! 6) Dynamic volumes are assigned remaining letters if they are mounted after
 //!    boot time.
 
-use alloc::{boxed::Box, string::ToString};
+use alloc::boxed::Box;
+use alloc::string::ToString;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use core::sync::atomic::{AtomicUsize, Ordering};
+use crate::task::id::TaskID;
 use spin::RwLock;
-use super::{driver::FileSystemDriver, kernel::KernelFileSystem};
+use super::drivers::asyncfs::AsyncFileSystem;
+use super::driver::FileSystemDriver;
+use super::kernel::KernelFileSystem;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
@@ -48,15 +52,16 @@ impl DriveMap {
         }
     }
 
-    pub fn install_sync(&self, name: &str, driver: Box<dyn KernelFileSystem + Sync + Send>) -> DriveID {
+    pub fn install(&self, name: &str, driver: Box<dyn KernelFileSystem + Sync + Send>) -> DriveID {
         let id = DriveID(self.next_id.fetch_add(1, Ordering::SeqCst));
         self.map.write().insert(id, (name.to_string(), FileSystemDriver::new_sync(driver)));
         crate::kprint!("Installed FS \"{}:\" as {:?}\n", name, id);
         id
     }
 
-    pub fn install_async(&self) -> DriveID {
-        DriveID(0)
+    pub fn install_async(&self, name: &str, task_id: TaskID) -> DriveID {
+        let async_fs = Box::new(AsyncFileSystem::new(task_id));
+        self.install(name, async_fs)
     }
 
     pub fn get_id_by_name(&self, name: &str) -> Option<DriveID> {
