@@ -2,6 +2,7 @@ use alloc::sync::Arc;
 use spin::Mutex;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
+use crate::memory::shared::SharedMemoryRange;
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;
 use super::super::arbiter::{begin_io, AsyncIO};
@@ -46,12 +47,19 @@ impl AsyncFileSystem {
 impl KernelFileSystem for AsyncFileSystem {
     fn open(&self, path: Path) -> Result<DriverHandle, ()> {
         let path_str = path.as_str();
-        let path_ptr = path_str.as_ptr();
-        let path_size = path_str.len();
+        let path_slice = path_str.as_bytes();
+
+        let shared_range = SharedMemoryRange::for_slice::<u8>(path_slice);
+        let shared_to_driver = shared_range.share_with_task(self.task);
 
         let response = self.async_op(
-            AsyncIO::Open,
+            AsyncIO::Open(
+                shared_to_driver.get_range_start(),
+                shared_to_driver.range_length,
+            )
         );
+
+        // TODO: clean up shared range
 
         match response {
             Some(handle) => Ok(DriverHandle(handle)),
@@ -98,10 +106,8 @@ pub static ASYNC_RESPONSE_MAGIC: u32 = 0x00524553; // "\0RES"
 
 pub fn encode_request(request: AsyncIO) -> Message {
     match request {
-        AsyncIO::Open => {
+        AsyncIO::Open(path_str_start, path_str_len) => {
             let code = AsyncCommand::Open as u32;
-            let path_str_start = 0;
-            let path_str_len = 0;
             Message(code, path_str_start, path_str_len, 0)
         },
         AsyncIO::Read => {

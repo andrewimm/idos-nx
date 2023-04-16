@@ -10,7 +10,7 @@ use crate::task::switching::{get_current_id, get_task};
 
 #[derive(Copy, Clone, Debug)]
 pub enum AsyncIO {
-    Open,
+    Open(u32, u32),
     Read,
     Write,
     Close,

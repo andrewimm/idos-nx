@@ -16,6 +16,15 @@ pub fn demo_fs_task() -> ! {
 
             let response = match AsyncCommand::from(message.0) {
                 AsyncCommand::Open => {
+                    let path_str_start = message.1 as *const u8;
+                    let path_str_len = message.2 as usize;
+                    let path_slice = unsafe {
+                        core::slice::from_raw_parts(path_str_start, path_str_len)
+                    };
+                    let path = unsafe {
+                        core::str::from_utf8_unchecked(path_slice)
+                    };
+                    crate::kprint!("  Err, you want me to open \"{}\"?\n", path);
                     let handle = 1;
                     create_response(handle, 0, 0)
                 },
