@@ -43,7 +43,7 @@ impl Path {
         for element in to_append.split('\\') {
             match element {
                 "" | "." => (),
-                ".." => self.pop(),
+                ".." => self.pop_back(),
                 _ => {
                     if !self.inner.is_empty() {
                         self.inner.push('\\');
@@ -54,7 +54,7 @@ impl Path {
         }
     }
 
-    pub fn pop(&mut self) {
+    pub fn pop_back(&mut self) {
         let mut last_instance = None;
         for (index, ch) in self.inner.char_indices() {
             if ch == '\\' {
@@ -64,6 +64,29 @@ impl Path {
         match last_instance {
             Some(index) => self.inner.truncate(index),
             None => self.inner.truncate(0),
+        }
+    }
+
+    pub fn pop_front(&mut self) -> String {
+        let mut first_instance = None;
+        for (index, ch) in self.inner.char_indices() {
+            if ch == '\\' {
+                first_instance = Some(index);
+                break;
+            }
+        }
+        match first_instance {
+            Some(index) => {
+                let remainder = self.inner.split_off(index + 1);
+                let mut prefix = core::mem::replace(&mut self.inner, remainder);
+                prefix.pop();
+                prefix
+            },
+            None => {
+                let mut prefix = self.inner.clone();
+                self.inner.truncate(0);
+                prefix
+            },
         }
     }
 }
@@ -95,15 +118,40 @@ mod tests {
     #[test_case]
     fn pop() {
         let mut path = Path::from_str("path\\to\\the\\file.txt");
-        path.pop();
+        path.pop_back();
         assert_eq!(path.as_str(), "path\\to\\the");
-        path.pop();
+        path.pop_back();
         assert_eq!(path.as_str(), "path\\to");
-        path.pop();
+        path.pop_back();
         assert_eq!(path.as_str(), "path");
-        path.pop();
+        path.pop_back();
         assert_eq!(path.as_str(), "");
-        path.pop();
+        path.pop_back();
+        assert_eq!(path.as_str(), "");
+    }
+
+    #[test_case]
+    fn pop_front() {
+        let mut path = Path::from_str("path\\to\\the\\file.txt");
+        assert_eq!(
+            path.pop_front().as_str(),
+            "path",
+        );
+        assert_eq!(path.as_str(), "to\\the\\file.txt");
+        assert_eq!(
+            path.pop_front().as_str(),
+            "to",
+        );
+        assert_eq!(path.as_str(), "the\\file.txt");
+        assert_eq!(
+            path.pop_front().as_str(),
+            "the",
+        );
+        assert_eq!(path.as_str(), "file.txt");
+        assert_eq!(
+            path.pop_front().as_str(),
+            "file.txt",
+        );
         assert_eq!(path.as_str(), "");
     }
 

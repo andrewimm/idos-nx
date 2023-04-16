@@ -11,10 +11,14 @@ use error::FsError;
 
 use crate::task::actions::lifecycle::create_kernel_task;
 
+use self::drivers::devfs::DevFileSystem;
+
 static DRIVE_MAP: DriveMap = DriveMap::new();
 
 pub fn init_fs() {
     DRIVE_MAP.install("INIT", Box::new(InitFileSystem::new()));
+
+    DRIVE_MAP.install("DEV", Box::new(DevFileSystem::new()));
 
     let async_demo = create_kernel_task(drivers::demofs::demo_fs_task);
     DRIVE_MAP.install_async("DEMO", async_demo);

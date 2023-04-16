@@ -25,9 +25,8 @@
 //!    boot time.
 
 use alloc::boxed::Box;
-use alloc::string::ToString;
 use alloc::collections::BTreeMap;
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::task::id::TaskID;

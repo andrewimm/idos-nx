@@ -44,7 +44,12 @@ pub fn set_active_drive(drive_name: &str) -> Result<DriveID, IOError> {
 /// On success, a new File Handle will be opened and returned.
 pub fn open_path<'path>(path_string: &'path str) -> Result<FileHandle, IOError> {
     let (drive_id, path) = if Path::is_absolute(path_string) {
-        return Err(IOError::NotFound);
+        let mut parts = path_string.split(':');
+        let drive_name = parts.next().ok_or(IOError::NotFound)?;
+        let path_portion = parts.next().ok_or(IOError::NotFound)?;
+        let drive_id = get_drive_id_by_name(drive_name).map_err(|_| IOError::NotFound)?;
+       
+        (drive_id, Path::from_str(path_portion))
     } else {
         let (current_drive_id, mut working_dir) = {
             let task_lock = get_current_task();
