@@ -68,8 +68,14 @@ impl KernelFileSystem for AsyncFileSystem {
     }
 
     fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<usize, ()> {
+        let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
+        let shared_to_driver = shared_range.share_with_task(self.task);
+
         let response = self.async_op(
-            AsyncIO::Read,
+            AsyncIO::Read(
+                shared_to_driver.get_range_start(),
+                shared_to_driver.range_length,
+            )
         );
 
         match response {
@@ -110,13 +116,42 @@ pub fn encode_request(request: AsyncIO) -> Message {
             let code = AsyncCommand::Open as u32;
             Message(code, path_str_start, path_str_len, 0)
         },
-        AsyncIO::Read => {
+        AsyncIO::Read(buffer_start, buffer_len) => {
             let code = AsyncCommand::Read as u32;
-            let buffer_start = 0;
-            let buffer_len = 0;
             Message(code, buffer_start, buffer_len, 0)
         },
         _ => panic!("Unsupported async io type"),
     }
+}
+
+pub trait AsyncDriver {
+    fn handle_request(&mut self, message: Message) -> Option<Message> {
+        match AsyncCommand::from(message.0) {
+            AsyncCommand::Open => {
+                let path_str_start = message.1 as *const u8;
+                let path_str_len = message.2 as usize;
+                let path_slice = unsafe {
+                    core::slice::from_raw_parts(path_str_start, path_str_len)
+                };
+                let path = core::str::from_utf8(path_slice).ok()?;
+                let handle = self.open(path);
+                Some((handle, 0, 0))
+            },
+            AsyncCommand::Read => {
+                let buffer_start = message.1 as *mut u8;
+                let buffer_len = message.2 as usize;
+                let buffer = unsafe {
+                    core::slice::from_raw_parts_mut(buffer_start, buffer_len)
+                };
+                let written = self.read(buffer);
+                Some((written, 0, 0))
+            },
+            _ => None,
+        }.map(|(a, b, c)| Message(ASYNC_RESPONSE_MAGIC, a, b, c))
+    }
+
+    fn open(&mut self, path: &str) -> u32;
+
+    fn read(&mut self, buffer: &mut [u8]) -> u32;
 }
 
