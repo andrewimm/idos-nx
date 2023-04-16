@@ -30,6 +30,7 @@ pub type OpenFileMap = SlotList<OpenFile>;
 
 /// A FileHandle is an identifier for a currently open file, and is an index
 /// into the task's OpenFileMap
+#[derive(Copy, Clone)]
 #[repr(transparent)]
 pub struct FileHandle(u32);
 

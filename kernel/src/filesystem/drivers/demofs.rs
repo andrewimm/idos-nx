@@ -1,4 +1,3 @@
-use crate::filesystem::drivers::asyncfs::AsyncCommand;
 use crate::task::actions::{read_message_blocking, send_message};
 use crate::task::messaging::Message;
 
@@ -20,6 +19,14 @@ impl AsyncDriver for DemoFS {
         let written = 3;
         written
     }
+
+    fn write(&mut self, buffer: &[u8]) -> u32 {
+        0
+    }
+
+    fn close(&mut self, handle: u32) {
+        
+    }
 }
 
 pub fn demo_fs_task() -> ! {
@@ -40,6 +47,3 @@ pub fn demo_fs_task() -> ! {
     }
 }
 
-fn create_response(a: u32, b: u32, c: u32) -> Message {
-    Message(ASYNC_RESPONSE_MAGIC, a, b, c)
-}

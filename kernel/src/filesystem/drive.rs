@@ -28,12 +28,14 @@ use alloc::boxed::Box;
 use alloc::string::ToString;
 use alloc::collections::BTreeMap;
 use alloc::string::String;
+use alloc::sync::Arc;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::task::id::TaskID;
 use spin::RwLock;
 use super::drivers::asyncfs::AsyncFileSystem;
-use super::driver::FileSystemDriver;
 use super::kernel::KernelFileSystem;
+
+pub type FileSystemDriver = Arc<Box<dyn KernelFileSystem + Sync + Send>>;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[repr(transparent)]
@@ -54,7 +56,7 @@ impl DriveMap {
 
     pub fn install(&self, name: &str, driver: Box<dyn KernelFileSystem + Sync + Send>) -> DriveID {
         let id = DriveID(self.next_id.fetch_add(1, Ordering::SeqCst));
-        self.map.write().insert(id, (name.to_string(), FileSystemDriver::new_sync(driver)));
+        self.map.write().insert(id, (name.to_string(), Arc::new(driver)));
         crate::kprint!("Installed FS \"{}:\" as {:?}\n", name, id);
         id
     }

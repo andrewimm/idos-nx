@@ -95,6 +95,8 @@ fn task_a_body() -> ! {
     let res = core::str::from_utf8(&buf[..read_len]).unwrap();
     kprint!("Read file content from initfs: {}\n\n", res);
 
+    task::actions::io::close_file(file).unwrap();
+
     let b_id = task::actions::lifecycle::create_kernel_task(task_b_body);
 
     use task::messaging::Message;

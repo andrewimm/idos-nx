@@ -19,6 +19,8 @@ pub enum IOError {
     ReadFailed,
     /// A write operation failed
     WriteFailed,
+    /// A close operation failed
+    CloseFailed,
 }
 
 pub fn set_active_drive(drive_name: &str) -> Result<DriveID, IOError> {
@@ -105,5 +107,15 @@ pub fn write_file(handle: FileHandle, buffer: &[u8]) -> Result<usize, IOError> {
 /// Close a currently opened file. Upon return, regardless of success or error,
 /// the file handled used will no longer be valid.
 pub fn close_file(handle: FileHandle) -> Result<(), IOError> {
-    Err(IOError::FileHandleInvalid)
+    let (drive_id, driver_handle) = {
+        let task_lock = get_current_task();
+        let mut task = task_lock.write();
+        let entry = task.open_files.remove(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        (entry.drive, entry.driver_handle)
+    };
+
+    get_driver_by_id(drive_id)
+        .map_err(|_| IOError::NotFound)?
+        .close(driver_handle)
+        .map_err(|_| IOError::CloseFailed)
 }

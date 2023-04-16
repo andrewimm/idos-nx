@@ -47,6 +47,14 @@ impl KernelFileSystem for InitFileSystem {
         }
         Ok(buffer.len())
     }
+
+    fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()> {
+        Err(())
+    }
+
+    fn close(&self, handle: DriverHandle) -> Result<(), ()> {
+        Ok(())
+    }
 }
 
 #[derive(Clone)]

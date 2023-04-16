@@ -7,4 +7,8 @@ pub trait KernelFileSystem {
     fn open(&self, path: Path) -> Result<DriverHandle, ()>;
 
     fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<usize, ()>;
+
+    fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()>;
+
+    fn close(&self, handle: DriverHandle) -> Result<(), ()>;
 }

@@ -1,18 +1,15 @@
 pub mod arbiter;
 pub mod drive;
-pub mod driver;
 pub mod drivers;
 pub mod error;
 pub mod kernel;
 
 use alloc::boxed::Box;
-use drive::{DriveID, DriveMap};
-use driver::FileSystemDriver;
+use drive::{DriveID, DriveMap, FileSystemDriver};
 use drivers::initfs::InitFileSystem;
 use error::FsError;
 
 use crate::task::actions::lifecycle::create_kernel_task;
-use crate::task::id::TaskID;
 
 static DRIVE_MAP: DriveMap = DriveMap::new();
 

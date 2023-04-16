@@ -10,10 +10,14 @@ use crate::task::switching::{get_current_id, get_task};
 
 #[derive(Copy, Clone, Debug)]
 pub enum AsyncIO {
+    // Open(path str pointer, path str length)
     Open(u32, u32),
+    // Read(buffer pointer, buffer length)
     Read(u32, u32),
-    Write,
-    Close,
+    // Write(buffer pointer, buffer length)
+    Write(u32, u32),
+    // Close(handle id)
+    Close(u32),
 }
 
 pub type AsyncResponse = Arc<Mutex<Option<u32>>>;
@@ -85,6 +89,12 @@ fn pop_pending_request(sender: TaskID) -> Option<IncomingRequest> {
     queue.pop_front()
 }
 
+fn peek_pending_request(sender: TaskID) -> Option<AsyncIO> {
+    let mut tree = OUTBOUND.lock();
+    let queue = tree.get_mut(&sender)?;
+    queue.front().map(|front| front.io.clone())
+}
+
 /// The core loop of the Arbiter task. The Arbiter exists as an independent
 /// kernel-level task so that other 
 pub fn arbiter_task() -> ! {
@@ -112,6 +122,15 @@ pub fn arbiter_task() -> ! {
                             let mut task = task_lock.write();
                             task.io_complete();
                         }
+                    },
+                    None => (),
+                }
+
+                // if the driver has other messages queued up, send another one
+                match peek_pending_request(sender) {
+                    Some(request_io) => {
+                        let next_message = encode_request(request_io);
+                        send_message(sender, next_message, 0xffffffff);
                     },
                     None => (),
                 }

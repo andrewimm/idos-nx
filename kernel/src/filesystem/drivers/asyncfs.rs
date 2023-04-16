@@ -84,6 +84,34 @@ impl KernelFileSystem for AsyncFileSystem {
         }
         
     }
+
+    fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()> {
+        let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
+        let shared_to_driver = shared_range.share_with_task(self.task);
+
+        let response = self.async_op(
+            AsyncIO::Write(
+                shared_to_driver.get_range_start(),
+                shared_to_driver.range_length,
+            )
+        );
+
+        match response {
+            Some(count) => Ok(count as usize),
+            None => Err(()),
+        }
+    }
+    
+    fn close(&self, handle: DriverHandle) -> Result<(),  ()> {
+        let response = self.async_op(
+            AsyncIO::Close(handle.into())
+        );
+        
+        match response {
+            Some(_) => Ok(()),
+            None => Err(()),
+        }
+    }
 }
 
 // Below are the resources used by async fs implementations
@@ -120,6 +148,14 @@ pub fn encode_request(request: AsyncIO) -> Message {
             let code = AsyncCommand::Read as u32;
             Message(code, buffer_start, buffer_len, 0)
         },
+        AsyncIO::Write(buffer_start, buffer_len) => {
+            let code = AsyncCommand::Write as u32;
+            Message(code, buffer_start, buffer_len, 0)
+        },
+        AsyncIO::Close(handle) => {
+            let code = AsyncCommand::Close as u32;
+            Message(code, handle, 0, 0)
+        },
         _ => panic!("Unsupported async io type"),
     }
 }
@@ -146,6 +182,20 @@ pub trait AsyncDriver {
                 let written = self.read(buffer);
                 Some((written, 0, 0))
             },
+            AsyncCommand::Write => {
+                let buffer_start = message.1 as *mut u8;
+                let buffer_len = message.2 as usize;
+                let buffer = unsafe {
+                    core::slice::from_raw_parts(buffer_start, buffer_len)
+                };
+                let written = self.write(buffer);
+                Some((written, 0,  0))
+            },
+            AsyncCommand::Close => {
+                let handle = message.1 as u32;
+                self.close(handle);
+                Some((0,  0,  0))
+            },
             _ => None,
         }.map(|(a, b, c)| Message(ASYNC_RESPONSE_MAGIC, a, b, c))
     }
@@ -153,5 +203,9 @@ pub trait AsyncDriver {
     fn open(&mut self, path: &str) -> u32;
 
     fn read(&mut self, buffer: &mut [u8]) -> u32;
+
+    fn write(&mut self, buffer: &[u8]) -> u32;
+
+    fn close(&mut self, handle: u32);
 }
 
