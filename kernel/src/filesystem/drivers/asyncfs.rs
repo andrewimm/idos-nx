@@ -80,6 +80,18 @@ pub enum AsyncCommand {
     Read,
     Write,
     Close,
+
+    Invalid = 0xffffffff,
+}
+
+impl From<u32> for AsyncCommand {
+    fn from(value: u32) -> Self {
+        if value >= 1 && value <= 4 {
+            unsafe { core::mem::transmute(value) }
+        } else {
+            AsyncCommand::Invalid
+        }
+    }
 }
 
 pub static ASYNC_RESPONSE_MAGIC: u32 = 0x00524553; // "\0RES"

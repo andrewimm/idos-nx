@@ -104,16 +104,8 @@ pub fn arbiter_task() -> ! {
                 // it's a response to a request
                 match pop_pending_request(sender) {
                     Some(request) => {
-                        // hacky mocked logic from earlier
-                        match request.io {
-                            AsyncIO::Open => {
-                                request.response.lock().replace(1);
-                            },
-                            AsyncIO::Read => {
-                                request.response.lock().replace(3);
-                            },
-                            _ => (),
-                        }
+                        // TODO: error handling
+                        request.response.lock().replace(message.1);
 
                         crate::kprint!("  IO complete, resume {:?}\n", request.requestor_id);
                         if let Some(task_lock) = get_task(request.requestor_id) {
@@ -146,6 +138,9 @@ pub fn arbiter_task() -> ! {
                         let len = add_outbound(request);
                         if len <= 1 {
                             // it's the only pending request to that driver
+                            
+                            // TODO: actually implement kernel-side buffers and
+                            // pass the data to the driver
                             let message = encode_request(io);
                             send_message(driver_id, message, 0xffffffff);
                             crate::kprint!("  Async message sent to {:?}\n", driver_id);
