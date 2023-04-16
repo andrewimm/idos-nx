@@ -5,11 +5,12 @@ pub mod error;
 pub mod kernel;
 
 use alloc::boxed::Box;
+use alloc::sync::Arc;
 use drive::{DriveID, DriveMap, FileSystemDriver};
 use drivers::initfs::InitFileSystem;
 use error::FsError;
 
-use crate::task::actions::lifecycle::create_kernel_task;
+use crate::{task::actions::lifecycle::create_kernel_task, devices::zero::ZeroDriver};
 
 use self::drivers::devfs::DevFileSystem;
 
@@ -18,7 +19,12 @@ static DRIVE_MAP: DriveMap = DriveMap::new();
 pub fn init_fs() {
     DRIVE_MAP.install("INIT", Box::new(InitFileSystem::new()));
 
-    DRIVE_MAP.install("DEV", Box::new(DevFileSystem::new()));
+    {
+        let dev_fs = DevFileSystem::new();
+        dev_fs.install_sync_driver("ZERO", Arc::new(Box::new(ZeroDriver::new())));
+
+        DRIVE_MAP.install("DEV", Box::new(dev_fs));
+    }
 
     let async_demo = create_kernel_task(drivers::demofs::demo_fs_task);
     DRIVE_MAP.install_async("DEMO", async_demo);

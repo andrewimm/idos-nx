@@ -19,6 +19,7 @@ extern crate alloc;
 pub mod arch;
 pub mod cleanup;
 pub mod collections;
+pub mod devices;
 pub mod files;
 pub mod filesystem;
 pub mod hardware;

@@ -3,8 +3,11 @@
 //! LPI, etc. Now, every device can be given a filename without polluting the
 //! global namespace.
 
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use crate::devices::{DeviceDriver, SyncDriverType};
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::filesystem::kernel::KernelFileSystem;
@@ -12,7 +15,7 @@ use crate::task::id::TaskID;
 use spin::RwLock;
 
 pub struct DevFileSystem {
-    map: RwLock<BTreeMap<String, TaskID>>,
+    map: RwLock<BTreeMap<String, DeviceDriver>>,
 }
 
 impl DevFileSystem {
@@ -22,27 +25,42 @@ impl DevFileSystem {
         }
     }
 
-    pub fn install_driver(&self, name: &str, driver_id: TaskID) {
+    fn install(&self, name: &str, driver: DeviceDriver) {
         let key = name.to_string();
         let mut map = self.map.write();
         if map.contains_key(&key) {
             // should probably error out
             return;
         }
-        map.insert(key, driver_id);
+        map.insert(key, driver);
+    }
+
+    pub fn install_sync_driver(&self, name: &str, driver: Arc<Box<SyncDriverType>>) {
+        self.install(name, DeviceDriver::SyncDriver(driver));
+    }
+
+    pub fn install_async_driver(&self, name: &str, driver_id: TaskID) {
+        self.install(name, DeviceDriver::AsyncDriver(driver_id));
     }
     
-    fn get_driver_id(&self, name: String) -> Option<TaskID> {
-        self.map.read().get(&name).copied()
+    fn get_driver(&self, name: String) -> Option<DeviceDriver> {
+        self.map.read().get(&name).cloned()
     }
 }
 
 impl KernelFileSystem for DevFileSystem {
     fn open(&self, path: Path) -> Result<DriverHandle, ()> {
         crate::kprint!("  Open Device {}\n", path.as_str());
-        let driver_id = self.get_driver_id(path.into())
-            .ok_or(())?;
-        Err(())
+        match self.get_driver(path.into()).ok_or(())? {
+            DeviceDriver::SyncDriver(driver) => {
+                // TODO: store the id from the open() call, map it by a DriverHandl
+                driver.open().map(|_| DriverHandle(1))
+            },
+            DeviceDriver::AsyncDriver(id) => {
+                // send the command to the async driver
+                Err(())
+            },
+        }
     }
 
     fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<usize, ()> {
