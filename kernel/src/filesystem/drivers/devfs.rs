@@ -7,6 +7,7 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
+use crate::collections::SlotList;
 use crate::devices::{DeviceDriver, SyncDriverType};
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
@@ -15,24 +16,31 @@ use crate::task::id::TaskID;
 use spin::RwLock;
 
 pub struct DevFileSystem {
-    map: RwLock<BTreeMap<String, DeviceDriver>>,
+    /// Stores the actual device driver enums
+    installed_drivers: RwLock<SlotList<DeviceDriver>>,
+    /// Maps a device name to the index in the installed_drivers list
+    drivers_by_name: RwLock<BTreeMap<String, usize>>,
+    /// Map an open file to the driver and file instance it references
+    open_handles: RwLock<SlotList<(usize, u32)>>,
 }
 
 impl DevFileSystem {
     pub const fn new() -> Self {
         Self {
-            map: RwLock::new(BTreeMap::new()),
+            installed_drivers: RwLock::new(SlotList::new()),
+            drivers_by_name: RwLock::new(BTreeMap::new()),
+            open_handles: RwLock::new(SlotList::new()),
         }
     }
 
     fn install(&self, name: &str, driver: DeviceDriver) {
         let key = name.to_string();
-        let mut map = self.map.write();
-        if map.contains_key(&key) {
+        if self.drivers_by_name.read().contains_key(&key) {
             // should probably error out
             return;
         }
-        map.insert(key, driver);
+        let index = self.installed_drivers.write().insert(driver);
+        self.drivers_by_name.write().insert(key, index);
     }
 
     pub fn install_sync_driver(&self, name: &str, driver: Arc<Box<SyncDriverType>>) {
@@ -43,18 +51,22 @@ impl DevFileSystem {
         self.install(name, DeviceDriver::AsyncDriver(driver_id));
     }
     
-    fn get_driver(&self, name: String) -> Option<DeviceDriver> {
-        self.map.read().get(&name).cloned()
+    fn get_driver_by_name(&self, name: String) -> Option<(usize, DeviceDriver)> {
+        let index: usize = self.drivers_by_name.read().get(&name).copied()?;
+        self.installed_drivers.read().get(index).cloned()
+            .map(|driver| (index, driver))
     }
 }
 
 impl KernelFileSystem for DevFileSystem {
     fn open(&self, path: Path) -> Result<DriverHandle, ()> {
         crate::kprint!("  Open Device {}\n", path.as_str());
-        match self.get_driver(path.into()).ok_or(())? {
+        let (driver_index, driver) = self.get_driver_by_name(path.into()).ok_or(())?;
+        match driver {
             DeviceDriver::SyncDriver(driver) => {
-                // TODO: store the id from the open() call, map it by a DriverHandl
-                driver.open().map(|_| DriverHandle(1))
+                let open_instance: u32 = driver.open()?;
+                let handle = self.open_handles.write().insert((driver_index, open_instance));
+                Ok(DriverHandle(handle as u32))
             },
             DeviceDriver::AsyncDriver(id) => {
                 // send the command to the async driver
@@ -64,7 +76,16 @@ impl KernelFileSystem for DevFileSystem {
     }
 
     fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<usize, ()> {
-        Err(())
+        let list_index: usize = handle.into();
+        let (driver_index, open_instance) =
+                self.open_handles.read().get(list_index).copied().ok_or(())?;
+        let driver = self.installed_drivers.read().get(driver_index).cloned().ok_or(())?;
+        match driver {
+            DeviceDriver::SyncDriver(driver) => {
+                driver.read(open_instance, buffer).map(|w| w as usize)
+            },
+            _ => Err(()),
+        }
     }
 
     fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()> {

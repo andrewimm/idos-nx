@@ -99,6 +99,8 @@ fn task_a_body() -> ! {
     task::actions::io::close_file(file).unwrap();
 
     let devzero = task::actions::io::open_path("DEV:\\ZERO").unwrap();
+    let read_len = task::actions::io::read_file(devzero, &mut buf).unwrap();
+    kprint!("Read {} bytes from devzero. First is {}\n", read_len, buf[0]);
 
     let b_id = task::actions::lifecycle::create_kernel_task(task_b_body);
 
