@@ -56,6 +56,22 @@ impl DevFileSystem {
         self.installed_drivers.read().get(index).cloned()
             .map(|driver| (index, driver))
     }
+
+    fn run_driver_operation<F, T>(&self, handle: DriverHandle, op: F) -> Result<T, ()>
+        where F: FnOnce(DeviceDriver, u32) -> Result<T, ()> {
+        let list_index: usize = handle.into();
+        let (driver_index, open_instance) = self.open_handles
+            .read()
+            .get(list_index)
+            .copied()
+            .ok_or(())?;
+        let driver = self.installed_drivers
+            .read()
+            .get(driver_index)
+            .cloned()
+            .ok_or(())?;
+        op(driver, open_instance)
+    }
 }
 
 impl KernelFileSystem for DevFileSystem {
@@ -76,24 +92,50 @@ impl KernelFileSystem for DevFileSystem {
     }
 
     fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<usize, ()> {
-        let list_index: usize = handle.into();
-        let (driver_index, open_instance) =
-                self.open_handles.read().get(list_index).copied().ok_or(())?;
-        let driver = self.installed_drivers.read().get(driver_index).cloned().ok_or(())?;
-        match driver {
-            DeviceDriver::SyncDriver(driver) => {
-                driver.read(open_instance, buffer).map(|w| w as usize)
+        self.run_driver_operation(
+            handle,
+            |driver, open_instance| {
+                match driver {
+                    DeviceDriver::SyncDriver(driver) => {
+                        driver.read(open_instance, buffer)
+                    },
+                    _ => Err(()),
+                }
             },
-            _ => Err(()),
-        }
+        )
     }
 
     fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()> {
-        Err(())
+        self.run_driver_operation(
+            handle,
+            |driver, open_instance| {
+                match driver {
+                    DeviceDriver::SyncDriver(driver) => {
+                        driver.write(open_instance, buffer)
+                    },
+                    _ => Err(()),
+                }
+            },
+        )
     }
 
     fn close(&self, handle: DriverHandle) -> Result<(), ()> {
-        Err(())
+        let list_index: usize = handle.into();
+        let (driver_index, open_instance) = self.open_handles
+            .write()
+            .remove(list_index)
+            .ok_or(())?;
+        let driver = self.installed_drivers
+            .read()
+            .get(driver_index)
+            .cloned()
+            .ok_or(())?;
+        match driver {
+            DeviceDriver::SyncDriver(driver) => {
+                driver.close(open_instance)
+            },
+            DeviceDriver::AsyncDriver(id) => Err(()),
+        }
     }
 }
 

@@ -24,14 +24,14 @@ impl SyncDriver for ZeroDriver {
         Ok(())
     }
 
-    fn read(&self, _index: u32, buffer: &mut [u8]) -> Result<u32, ()> {
+    fn read(&self, _index: u32, buffer: &mut [u8]) -> Result<usize, ()> {
         for i in 0..buffer.len() {
             buffer[i] = 0;
         }
-        Ok(buffer.len() as u32)
+        Ok(buffer.len())
     }
 
-    fn write(&self, _index: u32, buffer: &[u8]) -> Result<u32, ()> {
-        Ok(buffer.len() as u32)
+    fn write(&self, _index: u32, buffer: &[u8]) -> Result<usize, ()> {
+        Ok(buffer.len())
     }
 }
