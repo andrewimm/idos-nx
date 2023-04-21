@@ -11,4 +11,8 @@ pub trait KernelFileSystem {
     fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()>;
 
     fn close(&self, handle: DriverHandle) -> Result<(), ()>;
+
+    fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32) -> Result<u32, ()> {
+        Err(())
+    }
 }

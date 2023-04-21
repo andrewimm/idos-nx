@@ -31,6 +31,12 @@ impl PartialEq for TaskID {
 
 impl Eq for TaskID {}
 
+impl Into<u32> for TaskID {
+    fn into(self) -> u32 {
+        self.0
+    }
+}
+
 impl core::fmt::Debug for TaskID {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "Task({})", self.0)

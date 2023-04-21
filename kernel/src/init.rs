@@ -1,4 +1,5 @@
 use core::arch::asm;
+use crate::filesystem::install_device_driver;
 use crate::hardware::{pic::PIC, pit::PIT};
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::heap;
@@ -81,5 +82,13 @@ pub fn init_hardware() {
     PIT::new().set_divider(11932);
 
     crate::hardware::pci::init();
+}
+
+/// Populate the DEV: FS with drivers for the devices detected on this PC
+pub fn init_device_drivers() {
+    let com1 = crate::io::com::dev::install_driver("COM1", 0x3f8).unwrap();
+    install_device_driver("COM1", com1);
+    let com2 = crate::io::com::dev::install_driver("COM2", 0x2f8).unwrap();
+    install_device_driver("COM2", com2);
 }
 

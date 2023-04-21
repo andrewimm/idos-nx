@@ -199,5 +199,30 @@ impl KernelFileSystem for DevFileSystem {
             },
         }
     }
+
+    fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32) -> Result<u32, ()> {
+        match command {
+            1 => {
+                // Install device driver with TaskID of `arg2`
+                // Assume arg0 and arg1 are the pointer and length of a string
+                // containing the device name
+                let name_slice = unsafe {
+                    core::slice::from_raw_parts(
+                        arg0 as *const u8,
+                        arg1 as usize,
+                    )
+                };
+                let name = core::str::from_utf8(name_slice).map_err(|_| ())?;
+                self.install_async_driver(name, TaskID::new(arg2));
+                Ok(0)
+            },
+            _ => Err(()),
+        }
+    }
+}
+
+#[repr(u32)]
+pub enum ConfigurationCommands {
+    InstallDevice = 1,
 }
 

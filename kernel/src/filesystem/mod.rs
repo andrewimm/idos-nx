@@ -10,7 +10,9 @@ use drive::{DriveID, DriveMap, FileSystemDriver};
 use drivers::initfs::InitFileSystem;
 use error::FsError;
 
-use crate::{task::actions::lifecycle::create_kernel_task, devices::zero::ZeroDriver};
+use crate::task::actions::lifecycle::create_kernel_task;
+use crate::task::id::TaskID;
+use crate::devices::zero::ZeroDriver;
 
 use self::drivers::devfs::DevFileSystem;
 
@@ -23,8 +25,8 @@ pub fn init_fs() {
         let dev_fs = DevFileSystem::new();
         dev_fs.install_sync_driver("ZERO", Arc::new(Box::new(ZeroDriver::new())));
 
-        let com1 = crate::io::com::dev::install_driver("COM1", 0x3f8).unwrap();
-        dev_fs.install_async_driver("COM1", com1);
+        //let com1 = crate::io::com::dev::install_driver("COM1", 0x3f8).unwrap();
+        //dev_fs.install_async_driver("COM1", com1);
 
         DRIVE_MAP.install("DEV", Box::new(dev_fs));
     }
@@ -41,5 +43,17 @@ pub fn get_drive_id_by_name(name: &str) -> Result<DriveID, FsError> {
 
 pub fn get_driver_by_id(id: DriveID) -> Result<FileSystemDriver, ()> {
     DRIVE_MAP.get_driver(id).ok_or_else(|| ())
+}
+
+pub fn install_device_driver(name: &str, task: TaskID) -> Result<(), FsError> {
+    let dev_fs_id = get_drive_id_by_name("DEV")?;
+    let driver = get_driver_by_id(dev_fs_id).map_err(|_| FsError::DriveNotFound)?;
+
+    let command = self::drivers::devfs::ConfigurationCommands::InstallDevice as u32;
+    let name_start = name.as_ptr() as u32;
+    let name_len = name.len() as u32;
+    driver.configure(command, name_start, name_len, task.into())
+        .map(|_| ())
+        .map_err(|_| FsError::InstallFailed)
 }
 

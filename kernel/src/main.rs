@@ -51,6 +51,8 @@ pub extern "C" fn _start() -> ! {
 
     filesystem::init_fs();
 
+    init::init_device_drivers();
+
     #[cfg(test)]
     test_main();
 
