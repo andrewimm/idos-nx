@@ -23,6 +23,9 @@ pub fn init_fs() {
         let dev_fs = DevFileSystem::new();
         dev_fs.install_sync_driver("ZERO", Arc::new(Box::new(ZeroDriver::new())));
 
+        let com1 = crate::io::com::dev::install_driver("COM1", 0x3f8).unwrap();
+        dev_fs.install_async_driver("COM1", com1);
+
         DRIVE_MAP.install("DEV", Box::new(dev_fs));
     }
 

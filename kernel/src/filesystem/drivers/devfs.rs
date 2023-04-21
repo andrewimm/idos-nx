@@ -11,9 +11,11 @@ use crate::collections::SlotList;
 use crate::devices::{DeviceDriver, SyncDriverType};
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
+use crate::filesystem::arbiter::{AsyncIO, begin_io};
 use crate::filesystem::kernel::KernelFileSystem;
+use crate::memory::shared::SharedMemoryRange;
 use crate::task::id::TaskID;
-use spin::RwLock;
+use spin::{RwLock, Mutex};
 
 pub struct DevFileSystem {
     /// Stores the actual device driver enums
@@ -72,6 +74,19 @@ impl DevFileSystem {
             .ok_or(())?;
         op(driver, open_instance)
     }
+
+    fn async_op(&self, task: TaskID, request: AsyncIO) -> Option<u32> {
+        
+        let mut response: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+
+        // send the request
+        begin_io(task, request, response.clone());
+
+        match Arc::try_unwrap(response) {
+            Ok(inner) => *inner.lock(),
+            Err(_) => None,
+        }
+    }
 }
 
 impl KernelFileSystem for DevFileSystem {
@@ -86,7 +101,13 @@ impl KernelFileSystem for DevFileSystem {
             },
             DeviceDriver::AsyncDriver(id) => {
                 // send the command to the async driver
-                Err(())
+                let open_instance = self.async_op(
+                    id,
+                    AsyncIO::OpenRaw,
+                ).ok_or(())?;
+
+                let handle = self.open_handles.write().insert((driver_index, open_instance));
+                Ok(DriverHandle(handle as u32))
             },
         }
     }
@@ -99,7 +120,23 @@ impl KernelFileSystem for DevFileSystem {
                     DeviceDriver::SyncDriver(driver) => {
                         driver.read(open_instance, buffer)
                     },
-                    _ => Err(()),
+                    DeviceDriver::AsyncDriver(id) => {
+                        let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
+                        let shared_to_driver = shared_range.share_with_task(id);
+
+                        let response = self.async_op(
+                            id,
+                            AsyncIO::Read(
+                                shared_to_driver.get_range_start(),
+                                shared_to_driver.range_length,
+                            )
+                        );
+
+                        match response {
+                            Some(count) => Ok(count as usize),
+                            None => Err(()),
+                        }
+                    },
                 }
             },
         )
@@ -113,7 +150,23 @@ impl KernelFileSystem for DevFileSystem {
                     DeviceDriver::SyncDriver(driver) => {
                         driver.write(open_instance, buffer)
                     },
-                    _ => Err(()),
+                    DeviceDriver::AsyncDriver(id) => {
+                        let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
+                        let shared_to_driver = shared_range.share_with_task(id);
+
+                        let response = self.async_op(
+                            id,
+                            AsyncIO::Write(
+                                shared_to_driver.get_range_start(),
+                                shared_to_driver.range_length,
+                            )
+                        );
+
+                        match response {
+                            Some(count) => Ok(count as usize),
+                            None => Err(()),
+                        }
+                    },
                 }
             },
         )
@@ -134,7 +187,16 @@ impl KernelFileSystem for DevFileSystem {
             DeviceDriver::SyncDriver(driver) => {
                 driver.close(open_instance)
             },
-            DeviceDriver::AsyncDriver(id) => Err(()),
+            DeviceDriver::AsyncDriver(id) => {
+                let response = self.async_op(
+                    id,
+                    AsyncIO::Close(open_instance),
+                );
+                match response {
+                    Some(_) => Ok(()),
+                    None => Err(()),
+                }
+            },
         }
     }
 }

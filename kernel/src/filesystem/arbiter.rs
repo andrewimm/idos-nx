@@ -12,6 +12,8 @@ use crate::task::switching::{get_current_id, get_task};
 pub enum AsyncIO {
     // Open(path str pointer, path str length)
     Open(u32, u32),
+    // Open a handle to the driver itself, with no path
+    OpenRaw,
     // Read(buffer pointer, buffer length)
     Read(u32, u32),
     // Write(buffer pointer, buffer length)
@@ -129,6 +131,7 @@ pub fn arbiter_task() -> ! {
                 // if the driver has other messages queued up, send another one
                 match peek_pending_request(sender) {
                     Some(request_io) => {
+                        crate::kprint!("  Another IO request queued, beginning it!\n");
                         let next_message = encode_request(request_io);
                         send_message(sender, next_message, 0xffffffff);
                     },

@@ -46,7 +46,9 @@ pub fn init_allocator(location: VirtualAddress) {
     // Initial heap size is from the start location to the end of the frame.
     // This memory should already have been allocated and mapped by previous
     // initialization tasks.
-    let heap_end = location.next_page_barrier();
+    // TODO: Until the heap is expandable, pre-allocating more memory. This
+    // also needs to page memory
+    let heap_end = location.next_page_barrier() + 0x1000;
     let byte_size = heap_end.as_u32() - location.as_u32();
 
     ALLOCATOR.update_implementation(location.as_u32() as usize, byte_size as usize);

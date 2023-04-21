@@ -49,6 +49,7 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
     send_message(cleanup_task_id, Message(0, 0, 0, 0), 0xffffffff);
 }
 
+// TODO: This should probably have a `-> !` return type
 pub fn terminate(exit_code: u32) {
     let cur_id = super::switching::get_current_id();
     terminate_id(cur_id, exit_code);

@@ -119,16 +119,18 @@ impl KernelFileSystem for AsyncFileSystem {
 #[repr(u32)]
 pub enum AsyncCommand {
     Open = 1,
+    OpenRaw,
     Read,
     Write,
     Close,
+    // Every time a new command is added, modify the From<u32> impl below
 
     Invalid = 0xffffffff,
 }
 
 impl From<u32> for AsyncCommand {
     fn from(value: u32) -> Self {
-        if value >= 1 && value <= 4 {
+        if value >= 1 && value <= 5 {
             unsafe { core::mem::transmute(value) }
         } else {
             AsyncCommand::Invalid
@@ -143,6 +145,10 @@ pub fn encode_request(request: AsyncIO) -> Message {
         AsyncIO::Open(path_str_start, path_str_len) => {
             let code = AsyncCommand::Open as u32;
             Message(code, path_str_start, path_str_len, 0)
+        },
+        AsyncIO::OpenRaw => {
+            let code = AsyncCommand::OpenRaw as u32;
+            Message(code, 0, 0, 0)
         },
         AsyncIO::Read(buffer_start, buffer_len) => {
             let code = AsyncCommand::Read as u32;
@@ -173,6 +179,10 @@ pub trait AsyncDriver {
                 let handle = self.open(path);
                 Some((handle, 0, 0))
             },
+            AsyncCommand::OpenRaw => {
+                let handle = self.open("");
+                Some((handle, 0, 0))
+            },
             AsyncCommand::Read => {
                 let buffer_start = message.1 as *mut u8;
                 let buffer_len = message.2 as usize;
@@ -196,7 +206,10 @@ pub trait AsyncDriver {
                 self.close(handle);
                 Some((0,  0,  0))
             },
-            _ => None,
+            _ => {
+                crate::kprint!("Async driver: unknown request\n");
+                None
+            },
         }.map(|(a, b, c)| Message(ASYNC_RESPONSE_MAGIC, a, b, c))
     }
 

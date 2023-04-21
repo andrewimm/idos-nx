@@ -117,6 +117,15 @@ impl core::cmp::Ord for VirtualAddress {
     }
 }
 
+impl core::ops::Add<u32> for VirtualAddress {
+    type Output = VirtualAddress;
+
+    fn add(self, rhs: u32) -> Self::Output {
+        let new_addr = self.0.wrapping_add(rhs);
+        VirtualAddress::new(new_addr)
+    }
+}
+
 impl core::fmt::Debug for VirtualAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "VirtualAddress({:#010X})", self.0)
