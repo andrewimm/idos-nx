@@ -70,6 +70,7 @@ pub unsafe fn init_memory() {
         "add esp, {offset}",
         offset = in(reg) stack_offset,
     );
+    crate::kprint!("STACK RELOCATED\n");
 
     // enable the heap, so that the alloc crate can be used
     heap::init_allocator(heap_start);

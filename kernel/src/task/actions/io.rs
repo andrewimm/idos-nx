@@ -106,7 +106,18 @@ pub fn read_file(handle: FileHandle, buffer: &mut [u8]) -> Result<usize, IOError
 /// Write bytes from a byte buffer to a file. On success, return the number of
 /// bytes written.
 pub fn write_file(handle: FileHandle, buffer: &[u8]) -> Result<usize, IOError> {
-    Err(IOError::FileHandleInvalid)
+    //return Err(IOError::FileHandleInvalid);
+    let (drive_id, driver_handle) = {
+        let task_lock = get_current_task();
+        let task = task_lock.read();
+        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        (entry.drive, entry.driver_handle)
+    };
+
+    get_driver_by_id(drive_id)
+        .map_err(|_| IOError::NotFound)?
+        .write(driver_handle, buffer)
+        .map_err(|_| IOError::WriteFailed)
 }
 
 /// Close a currently opened file. Upon return, regardless of success or error,

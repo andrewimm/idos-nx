@@ -46,7 +46,13 @@ impl AsyncDriver for ComDeviceDriver {
     }
 
     fn write(&mut self, buffer: &[u8]) -> u32 {
-        0
+        // TODO: make this not blocking
+        let mut written = 0;
+        for value in buffer.iter() {
+            self.port.send_byte(*value);
+            written += 1;
+        }
+        written
     }
 
     fn close(&mut self, handle: u32) {

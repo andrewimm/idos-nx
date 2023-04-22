@@ -106,6 +106,9 @@ fn task_a_body() -> ! {
     let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();
     let read_len = task::actions::io::read_file(com1, &mut buf).unwrap();
     kprint!("Read {} bytes from COM1. First is {}\n", read_len, buf[0]);
+    crate::kprint!("Write to COM...\n");
+    task::actions::io::write_file(com1, "HELLO COM\n".as_bytes()).unwrap();
+    crate::kprint!("\n");
     task::actions::io::close_file(com1).unwrap();
 
     let b_id = task::actions::lifecycle::create_kernel_task(task_b_body);
