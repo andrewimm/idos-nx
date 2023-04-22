@@ -77,7 +77,7 @@ impl DevFileSystem {
 
     fn async_op(&self, task: TaskID, request: AsyncIO) -> Option<u32> {
         
-        let mut response: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+        let response: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
 
         // send the request
         begin_io(task, request, response.clone());

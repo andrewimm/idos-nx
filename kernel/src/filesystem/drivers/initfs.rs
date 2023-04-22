@@ -25,7 +25,6 @@ impl InitFileSystem {
             .and_then(|handle| {
                 match handle {
                     OpenHandle::File(f) => Some(f.clone()),
-                    _ => None,
                 }
             })
     }
@@ -69,7 +68,6 @@ impl OpenHandle {
     pub fn is_file(&self) -> bool {
         match self {
             OpenHandle::File(_) => true,
-            _ => false,
         }
     }
 }

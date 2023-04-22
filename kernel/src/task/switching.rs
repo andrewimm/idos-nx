@@ -128,7 +128,7 @@ pub fn clean_up_task(id: TaskID) {
         }
     };
 
-    let mut task = task_lock.write();
+    let _task = task_lock.write();
     crate::kprint!("Clean up {:?}\n", id);
     // TODO: add cleanup actions here (free remaining memory, etc)
     // Files should be release at termination time, not here

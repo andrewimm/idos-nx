@@ -1,7 +1,6 @@
 use crate::task::actions::{read_message_blocking, send_message};
-use crate::task::messaging::Message;
 
-use super::asyncfs::{ASYNC_RESPONSE_MAGIC, AsyncDriver};
+use super::asyncfs::AsyncDriver;
 
 struct DemoFS {}
 

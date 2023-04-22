@@ -32,7 +32,7 @@ impl AsyncFileSystem {
     /// will wake the current task.
     fn async_op(&self, request: AsyncIO) -> Option<u32> {
         
-        let mut response: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+        let response: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
 
         // send the request
         begin_io(self.task, request, response.clone());
@@ -162,7 +162,6 @@ pub fn encode_request(request: AsyncIO) -> Message {
             let code = AsyncCommand::Close as u32;
             Message(code, handle, 0, 0)
         },
-        _ => panic!("Unsupported async io type"),
     }
 }
 

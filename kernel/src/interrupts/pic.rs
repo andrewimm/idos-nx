@@ -91,7 +91,7 @@ pic_irq_core:
 
 /// Handle interrupts that come from the PIC
 #[no_mangle]
-pub extern "C" fn _handle_pic_interrupt(registers: SavedState, irq: u32, frame: StackFrame) {
+pub extern "C" fn _handle_pic_interrupt(_registers: SavedState, irq: u32, _frame: StackFrame) {
     let pic = PIC::new();
 
     if irq == 0 {

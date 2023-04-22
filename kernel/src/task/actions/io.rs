@@ -83,7 +83,7 @@ pub fn open_path<'path>(path_string: &'path str) -> Result<FileHandle, IOError> 
 /// Open a directory at a specified path. Similar to opening a file,
 /// non-absolute paths will be opened relative to the task's working directory.
 /// On success, a new File Handle will be opened and returned.
-pub fn open_directory<'path>(path_string: &'path str) -> Result<FileHandle, IOError> {
+pub fn open_directory<'path>(_path_string: &'path str) -> Result<FileHandle, IOError> {
     Err(IOError::NotFound)
 }
 

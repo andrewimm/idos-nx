@@ -88,8 +88,8 @@ pub fn init_hardware() {
 /// Populate the DEV: FS with drivers for the devices detected on this PC
 pub fn init_device_drivers() {
     let com1 = crate::io::com::dev::install_driver("COM1", 0x3f8).unwrap();
-    install_device_driver("COM1", com1);
+    install_device_driver("COM1", com1).expect("Failed to install COM1");
     let com2 = crate::io::com::dev::install_driver("COM2", 0x2f8).unwrap();
-    install_device_driver("COM2", com2);
+    install_device_driver("COM2", com2).expect("Failed to install COM2");
 }
 

@@ -83,7 +83,7 @@ impl Path {
                 prefix
             },
             None => {
-                let mut prefix = self.inner.clone();
+                let prefix = self.inner.clone();
                 self.inner.truncate(0);
                 prefix
             },

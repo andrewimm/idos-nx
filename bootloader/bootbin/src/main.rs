@@ -133,8 +133,8 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     let mut first_kernel_sector = root_data_sector;
     first_kernel_sector += sectors_per_cluster * first_cluster;
     first_kernel_sector -= sectors_per_cluster * 2;
-    write!(video::VideoWriter, "Kernel at sector {:#X}, {:#X} sectors long\r\n", first_kernel_sector, kernel_sectors);
-    write!(video::VideoWriter, "Disk No: {:#x}\r\n", disk_number);
+    write!(video::VideoWriter, "Kernel at sector {:#X}, {:#X} sectors long\r\n", first_kernel_sector, kernel_sectors).unwrap();
+    write!(video::VideoWriter, "Disk No: {:#x}\r\n", disk_number).unwrap();
     // only memory below 1MB is available to BIOS, so we need to first copy to
     // a lowmem buffer, and then copy that to higher memory when it's ready.
     // The segmented memory model also makes it easiest to just copy in 64KiB
@@ -202,7 +202,7 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         }
     }
 
-    write!(video::VideoWriter, "Total bytes copied: {}\r\n", total_bytes_copied);
+    write!(video::VideoWriter, "Total bytes copied: {}\r\n", total_bytes_copied).unwrap();
 
     // Now that the kernel has been copied through the buffer to high memory,
     // we should be able to access free memory found at 0x8000.
@@ -242,7 +242,7 @@ pub extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
             "Enter kernel at {:#010X}, esp {:#010X}\r\n",
             KERNEL_ENTRY_LOCATION,
             KERNEL_MEMORY_END,
-        );
+        ).unwrap();
     }
 
     // enter protected mode, jump to 32-bit section of bootbin
@@ -292,7 +292,7 @@ fn bytes_to_sectors(bytes: u32, sector_size: u32) -> u32 {
 }
 
 #[panic_handler]
-pub fn panic(info: &core::panic::PanicInfo) -> ! {
+pub fn panic(_info: &core::panic::PanicInfo) -> ! {
     video::print_string("PANIC");
 
     loop {}

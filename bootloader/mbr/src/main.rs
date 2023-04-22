@@ -24,7 +24,7 @@ pub extern "C" fn mbr_start(disk_number: u16) -> ! {
     fat::read_sectors(root_dir_sector, root_dir_dest, 1);
     // check the name of the first file
     let expected = "BOOT    BIN".as_bytes();
-    let first_dir_entry = unsafe { 0x7e00 as *const u8 };
+    let first_dir_entry = 0x7e00 as *const u8;
     for i in 0..11 {
         unsafe {
             let expected_char = *expected.get_unchecked(i);
@@ -58,7 +58,7 @@ pub extern "C" fn mbr_start(disk_number: u16) -> ! {
 }
 
 #[no_mangle]
-pub extern "C" fn print_string(s: &'static str) {
+fn print_string(s: &'static str) {
     let slice = s.as_bytes();
     let ax = &slice[0] as *const u8;
     let cx = slice.len() + 1;
