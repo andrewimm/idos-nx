@@ -78,7 +78,6 @@ fn run_driver() -> ! {
         },
         (None, _) => {
             terminate(0);
-            loop {}
         },
     };
 
