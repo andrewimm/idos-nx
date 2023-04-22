@@ -1,5 +1,6 @@
 //! Device Driver for COM Ports
 
+use crate::collections::SlotList;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::task::actions::{read_message_blocking, send_message};
 use crate::task::actions::lifecycle::{create_kernel_task, terminate};
@@ -21,6 +22,7 @@ pub fn install_driver(_name: &str, base_port: u16) -> Result<TaskID, ()> {
 
 struct ComDeviceDriver {
     port: SerialPort,
+    open_handles: SlotList<()>,
 }
 
 impl ComDeviceDriver {
@@ -29,23 +31,31 @@ impl ComDeviceDriver {
         port.init();
         Self {
             port,
+            open_handles: SlotList::new(),
         }
     }
 }
 
 impl AsyncDriver for ComDeviceDriver {
-    fn open(&mut self, path: &str) -> u32 {
-        1
+    fn open(&mut self, _path: &str) -> u32 {
+        let index = self.open_handles.insert(());
+        index as u32
     }
 
-    fn read(&mut self, buffer: &mut [u8]) -> u32 {
+    fn read(&mut self, handle: u32, buffer: &mut [u8]) -> u32 {
+        if self.open_handles.get(handle as usize).is_none() {
+            return 0;
+        }
         for i in 0..buffer.len() {
             buffer[i] = b'A';
         }
         buffer.len() as u32
     }
 
-    fn write(&mut self, buffer: &[u8]) -> u32 {
+    fn write(&mut self, handle: u32, buffer: &[u8]) -> u32 {
+        if self.open_handles.get(handle as usize).is_none() {
+            return 0;
+        }
         // TODO: make this not blocking
         let mut written = 0;
         for value in buffer.iter() {
@@ -56,7 +66,7 @@ impl AsyncDriver for ComDeviceDriver {
     }
 
     fn close(&mut self, handle: u32) {
-        
+        self.open_handles.remove(handle as usize);
     }
 }
 

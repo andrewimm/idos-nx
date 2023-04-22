@@ -7,6 +7,7 @@ use crate::memory::physical::init_allocator;
 use crate::memory::physical::range::FrameRange;
 use crate::task::stack::get_kernel_stack_virtual_offset;
 
+#[allow(improper_ctypes)]
 extern {
     #[link_name = "__kernel_start"]
     static mut label_kernel_start: ();

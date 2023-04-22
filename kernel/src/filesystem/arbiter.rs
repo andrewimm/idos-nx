@@ -14,10 +14,10 @@ pub enum AsyncIO {
     Open(u32, u32),
     // Open a handle to the driver itself, with no path
     OpenRaw,
-    // Read(buffer pointer, buffer length)
-    Read(u32, u32),
-    // Write(buffer pointer, buffer length)
-    Write(u32, u32),
+    // Read(handle id, buffer pointer, buffer length)
+    Read(u32, u32, u32),
+    // Write(handle id, buffer pointer, buffer length)
+    Write(u32, u32, u32),
     // Close(handle id)
     Close(u32),
 }

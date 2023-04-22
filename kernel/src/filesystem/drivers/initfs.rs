@@ -40,18 +40,18 @@ impl KernelFileSystem for InitFileSystem {
     }
 
     fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<usize, ()> {
-        let open_file = self.get_open_file(handle).ok_or(())?;
+        let _open_file = self.get_open_file(handle).ok_or(())?;
         for i in 0..buffer.len() {
             buffer[i] = b'A';
         }
         Ok(buffer.len())
     }
 
-    fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()> {
+    fn write(&self, _handle: DriverHandle, _buffer: &[u8]) -> Result<usize, ()> {
         Err(())
     }
 
-    fn close(&self, handle: DriverHandle) -> Result<(), ()> {
+    fn close(&self, _handle: DriverHandle) -> Result<(), ()> {
         Ok(())
     }
 }

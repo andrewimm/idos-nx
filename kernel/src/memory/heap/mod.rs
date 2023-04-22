@@ -26,7 +26,7 @@ impl Allocator {
 unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut allocator = self.locked_allocator.lock();
-        let mut ptr = allocator.alloc(layout);
+        let ptr = allocator.alloc(layout);
         if ptr.is_null() {
             panic!("Heap expansion needs to be implemented");
         }

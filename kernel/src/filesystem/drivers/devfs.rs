@@ -127,6 +127,7 @@ impl KernelFileSystem for DevFileSystem {
                         let response = self.async_op(
                             id,
                             AsyncIO::Read(
+                                open_instance,
                                 shared_to_driver.get_range_start(),
                                 shared_to_driver.range_length,
                             )
@@ -157,6 +158,7 @@ impl KernelFileSystem for DevFileSystem {
                         let response = self.async_op(
                             id,
                             AsyncIO::Write(
+                                open_instance,
                                 shared_to_driver.get_range_start(),
                                 shared_to_driver.range_length,
                             )

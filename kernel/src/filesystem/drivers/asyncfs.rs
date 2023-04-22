@@ -73,6 +73,7 @@ impl KernelFileSystem for AsyncFileSystem {
 
         let response = self.async_op(
             AsyncIO::Read(
+                handle.into(),
                 shared_to_driver.get_range_start(),
                 shared_to_driver.range_length,
             )
@@ -91,6 +92,7 @@ impl KernelFileSystem for AsyncFileSystem {
 
         let response = self.async_op(
             AsyncIO::Write(
+                handle.into(),
                 shared_to_driver.get_range_start(),
                 shared_to_driver.range_length,
             )
@@ -150,13 +152,13 @@ pub fn encode_request(request: AsyncIO) -> Message {
             let code = AsyncCommand::OpenRaw as u32;
             Message(code, 0, 0, 0)
         },
-        AsyncIO::Read(buffer_start, buffer_len) => {
+        AsyncIO::Read(open_instance, buffer_start, buffer_len) => {
             let code = AsyncCommand::Read as u32;
-            Message(code, buffer_start, buffer_len, 0)
+            Message(code, open_instance, buffer_start, buffer_len)
         },
-        AsyncIO::Write(buffer_start, buffer_len) => {
+        AsyncIO::Write(open_instance, buffer_start, buffer_len) => {
             let code = AsyncCommand::Write as u32;
-            Message(code, buffer_start, buffer_len, 0)
+            Message(code, open_instance, buffer_start, buffer_len)
         },
         AsyncIO::Close(handle) => {
             let code = AsyncCommand::Close as u32;
@@ -183,21 +185,23 @@ pub trait AsyncDriver {
                 Some((handle, 0, 0))
             },
             AsyncCommand::Read => {
-                let buffer_start = message.1 as *mut u8;
-                let buffer_len = message.2 as usize;
+                let open_instance = message.1;
+                let buffer_start = message.2 as *mut u8;
+                let buffer_len = message.3 as usize;
                 let buffer = unsafe {
                     core::slice::from_raw_parts_mut(buffer_start, buffer_len)
                 };
-                let written = self.read(buffer);
+                let written = self.read(open_instance, buffer);
                 Some((written, 0, 0))
             },
             AsyncCommand::Write => {
-                let buffer_start = message.1 as *mut u8;
-                let buffer_len = message.2 as usize;
+                let open_instance = message.1;
+                let buffer_start = message.2 as *mut u8;
+                let buffer_len = message.3 as usize;
                 let buffer = unsafe {
                     core::slice::from_raw_parts(buffer_start, buffer_len)
                 };
-                let written = self.write(buffer);
+                let written = self.write(open_instance, buffer);
                 Some((written, 0,  0))
             },
             AsyncCommand::Close => {
@@ -214,9 +218,9 @@ pub trait AsyncDriver {
 
     fn open(&mut self, path: &str) -> u32;
 
-    fn read(&mut self, buffer: &mut [u8]) -> u32;
+    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> u32;
 
-    fn write(&mut self, buffer: &[u8]) -> u32;
+    fn write(&mut self, instance: u32, buffer: &[u8]) -> u32;
 
     fn close(&mut self, handle: u32);
 }

@@ -11,7 +11,7 @@ impl AsyncDriver for DemoFS {
         handle
     }
 
-    fn read(&mut self, buffer: &mut [u8]) -> u32 {
+    fn read(&mut self, _handle: u32, buffer: &mut [u8]) -> u32 {
         buffer[0] = b'A';
         buffer[1] = b'B';
         buffer[2] = b'C';
@@ -19,11 +19,11 @@ impl AsyncDriver for DemoFS {
         written
     }
 
-    fn write(&mut self, buffer: &[u8]) -> u32 {
+    fn write(&mut self, _handle: u32, _buffer: &[u8]) -> u32 {
         0
     }
 
-    fn close(&mut self, handle: u32) {
+    fn close(&mut self, _handle: u32) {
         
     }
 }
