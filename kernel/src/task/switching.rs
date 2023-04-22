@@ -206,3 +206,13 @@ switch_inner:
     mov esp, edx
     ret
 "#);
+
+#[cfg(test)]
+mod tests {
+
+    #[test_case]
+    fn switching_works() {
+        crate::kprint!("\n");
+        super::yield_coop();
+    }
+}

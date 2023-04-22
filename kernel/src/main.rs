@@ -54,8 +54,11 @@ pub extern "C" fn _start() -> ! {
     init::init_device_drivers();
 
     #[cfg(test)]
-    test_main();
-
+    {
+        task::actions::lifecycle::create_kernel_task(run_tests);
+    }
+    
+    #[cfg(not(test))]
     {
         task::actions::lifecycle::create_kernel_task(task_a_body);
     }
@@ -124,6 +127,11 @@ fn task_b_body() -> ! {
     }
 }
 
+#[cfg(test)]
+fn run_tests() -> ! {
+    test_main();
+    loop {}
+}
 
 #[cfg(test)]
 fn test_runner(tests: &[&dyn Fn()]) {

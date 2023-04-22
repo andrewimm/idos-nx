@@ -57,3 +57,18 @@ pub fn install_device_driver(name: &str, task: TaskID) -> Result<(), FsError> {
         .map_err(|_| FsError::InstallFailed)
 }
 
+#[cfg(test)]
+mod tests {
+
+    #[test_case]
+    fn sync_fs_read() {
+        let mut buffer: [u8; 5] = [b'A'; 5];
+        let devzero = crate::task::actions::io::open_path("DEV:\\ZERO").unwrap();
+        let read_len = crate::task::actions::io::read_file(devzero, &mut buffer).unwrap();
+        assert_eq!(read_len, 5);
+        assert_eq!(buffer[0], 0);
+        assert_eq!(buffer[4], 0);
+        crate::task::actions::io::close_file(devzero);
+    }
+}
+
