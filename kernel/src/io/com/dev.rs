@@ -2,12 +2,19 @@
 
 use crate::collections::SlotList;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
+use crate::interrupts::pic::install_interrupt_handler;
 use crate::task::actions::{read_message_blocking, send_message};
-use crate::task::actions::lifecycle::{create_kernel_task, terminate};
+use crate::task::actions::lifecycle::{create_kernel_task, terminate, wait_for_io};
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;
-
+use crate::task::switching::get_task;
+use spin::RwLock;
 use super::serial::SerialPort;
+
+static INSTALLED_DRIVERS: [RwLock<Option<TaskID>>; 2] = [
+    RwLock::new(None),
+    RwLock::new(None),
+];
 
 pub fn install_driver(_name: &str, base_port: u16) -> Result<TaskID, ()> {
     // right now this is getting called from within the fs initialization path
@@ -17,7 +24,32 @@ pub fn install_driver(_name: &str, base_port: u16) -> Result<TaskID, ()> {
     let task = create_kernel_task(run_driver);
     send_message(task, Message(base_port as u32, 0, 0, 0), 0xffffffff);
 
+    match base_port {
+        0x3f8 => {
+            INSTALLED_DRIVERS[0].write().replace(task);
+            install_interrupt_handler(4, com_interrupt_handler);
+        },
+        0x2f8 => {
+            INSTALLED_DRIVERS[1].write().replace(task);
+            install_interrupt_handler(3, com_interrupt_handler);
+        },
+        _ => (),
+    }
+
     Ok(task)
+}
+
+pub fn com_interrupt_handler(irq: u32) {
+    if irq == 4 { // COM1
+        let driver = INSTALLED_DRIVERS[0].read().clone();
+        if let Some(task) = driver {
+            // notify the driver
+            let task_lock = get_task(task);
+            if let Some(lock) = task_lock {
+                lock.write().io_complete();
+            }
+        }
+    }
 }
 
 struct ComDeviceDriver {
@@ -46,8 +78,15 @@ impl AsyncDriver for ComDeviceDriver {
         if self.open_handles.get(handle as usize).is_none() {
             return 0;
         }
-        for i in 0..buffer.len() {
-            buffer[i] = b'A';
+        let mut index = 0;
+        while index < buffer.len() {
+            while let Some(value) = self.port.read_byte() {
+                buffer[index] = value;
+                index += 1;
+            }
+            if index < buffer.len() {
+                wait_for_io(None);
+            }
         }
         buffer.len() as u32
     }

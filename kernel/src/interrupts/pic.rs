@@ -1,4 +1,6 @@
 use core::arch::global_asm;
+use spin::RwLock;
+
 use crate::hardware::pic::PIC;
 use super::stack::{SavedState, StackFrame};
 
@@ -98,6 +100,8 @@ pub extern "C" fn _handle_pic_interrupt(_registers: SavedState, irq: u32, _frame
         // IRQ 0 is not installable, and is hard-coded to the kernel's PIT
         // interrupt handler
         handle_pit_interrupt();
+        pic.acknowledge_interrupt(0);
+        return;
     }
 
     // need to check 7 and 15 for spurious interrupts
@@ -115,6 +119,11 @@ pub extern "C" fn _handle_pic_interrupt(_registers: SavedState, irq: u32, _frame
         }
     }
 
+    let handler = try_get_installed_handler(irq);
+    if let Some(f) = handler {
+        f(irq);
+    }
+
     pic.acknowledge_interrupt(irq as u8);
 }
 
@@ -124,3 +133,26 @@ pub fn handle_pit_interrupt() {
     crate::time::system::tick();
     crate::task::switching::update_timeouts(crate::time::system::MS_PER_TICK);
 }
+
+pub type InstallableHandler = RwLock<Option<fn(u32) -> ()>>;
+
+const UNINSTALLED_HANDLER: InstallableHandler = RwLock::new(None);
+
+static INSTALLED_HANDLERS: [InstallableHandler; 16] = [UNINSTALLED_HANDLER; 16];
+
+pub fn install_interrupt_handler(irq: u32, f: fn(u32) -> ()) {
+    match INSTALLED_HANDLERS[irq as usize].try_write() {
+        Some(mut inner) => {
+            inner.replace(f);
+        },
+        None => (),
+    }
+}
+
+pub fn try_get_installed_handler(irq: u32) -> Option<fn(u32) -> ()> {
+    match INSTALLED_HANDLERS[irq as usize].try_read() {
+        Some(inner) => *inner,
+        None => None,
+    }
+}
+

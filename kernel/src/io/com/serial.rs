@@ -1,6 +1,7 @@
 use crate::arch::port::Port;
 
 const STATUS_TRANSMIT_BUFFER_EMPTY: u8 = 1 << 5;
+const STATUS_DATA_READY: u8 = 1;
 
 #[allow(dead_code)]
 pub struct SerialPort {
@@ -59,6 +60,9 @@ impl SerialPort {
 
        // Enable Aux Output 2 so that interrupts can work; 
        self.modem_control.write_u8(0x08);
+
+       // Enable interrupt for data available
+       self.interrupt_enable.write_u8(1);
     }
     
     pub fn is_transmitting(&self) -> bool {
@@ -68,6 +72,18 @@ impl SerialPort {
     pub fn send_byte(&self, byte: u8) {
         while self.is_transmitting() {}
         self.data.write_u8(byte);
+    }
+
+    pub fn has_data(&self) -> bool {
+        (self.line_status.read_u8() & STATUS_DATA_READY) != 0
+    }
+
+    pub fn read_byte(&self) -> Option<u8> {
+        if self.has_data() {
+            Some(self.data.read_u8())
+        } else {
+            None
+        }
     }
 }
 
