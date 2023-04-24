@@ -40,14 +40,17 @@ pub fn install_driver(_name: &str, base_port: u16) -> Result<TaskID, ()> {
 }
 
 pub fn com_interrupt_handler(irq: u32) {
-    if irq == 4 { // COM1
-        let driver = INSTALLED_DRIVERS[0].read().clone();
-        if let Some(task) = driver {
-            // notify the driver
-            let task_lock = get_task(task);
-            if let Some(lock) = task_lock {
-                lock.write().io_complete();
-            }
+    let index = match irq {
+        3 => 1,
+        4 => 0,
+        _ => return,
+    };
+    let driver = INSTALLED_DRIVERS[index].read().clone();
+    if let Some(task) = driver {
+        // notify the driver
+        let task_lock = get_task(task);
+        if let Some(lock) = task_lock {
+            lock.write().io_complete();
         }
     }
 }
