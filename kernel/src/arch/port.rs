@@ -39,6 +39,28 @@ impl Port {
         value
     }
 
+    pub fn write_u16(&self, value: u16) {
+        unsafe {
+            asm!(
+                "out dx, ax",
+                in("dx") self.0,
+                in("ax") value,
+            );
+        }
+    }
+
+    pub fn read_u16(&self) -> u16 {
+        let value: u16;
+        unsafe {
+            asm!(
+                "in ax, dx",
+                out("ax") value,
+                in("dx") self.0,
+            );
+        }
+        value
+    }
+
     pub fn write_u32(&self, value: u32) {
         unsafe {
             asm!(

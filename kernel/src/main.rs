@@ -60,7 +60,7 @@ pub extern "C" fn _start() -> ! {
     
     #[cfg(not(test))]
     {
-        task::actions::lifecycle::create_kernel_task(task_a_body);
+        task::actions::lifecycle::create_kernel_task(init_system);
     }
 
     loop {
@@ -73,6 +73,19 @@ pub extern "C" fn _start() -> ! {
             );
         }
     }
+}
+
+fn init_system() -> ! {
+    // initialize drivers that rely on multitasking
+    {
+        crate::kprint!("Query ATA bus...\n");
+        let mut ata = hardware::ata::AtaController::new(0x1f0, 0x3f6);
+        ata.select(hardware::ata::DriveSelect::Primary);
+        ata.identify();
+    }
+    // do other boot stuff
+    // right now this just runs demos / tests
+    task_a_body();
 }
 
 fn wait_task_body() -> ! {
