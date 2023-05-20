@@ -79,8 +79,12 @@ fn init_system() -> ! {
     // initialize drivers that rely on multitasking
     {
         crate::kprint!("Query ATA bus...\n");
+        crate::kprint!("  Primary:\n");
         let mut ata = hardware::ata::AtaController::new(0x1f0, 0x3f6);
         ata.select(hardware::ata::DriveSelect::Primary);
+        ata.identify();
+        crate::kprint!("  Secondary:\n");
+        ata.select(hardware::ata::DriveSelect::Secondary);
         ata.identify();
     }
     // do other boot stuff

@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::vec::Vec;
 use crate::arch::port::Port;
 use crate::task::actions::{yield_coop, sleep};
@@ -29,16 +30,10 @@ pub struct AtaController {
 
     /// Memoize the last drive selected, to avoid unnecessary PIO
     pub drive_select: Option<DriveSelect>,
-
-    pub buffer: Box<[u8]>,
 }
 
 impl AtaController {
     pub fn new(base_port: u16, device_control_port: u16) -> Self {
-        let mut buffer = Vec::with_capacity(512);
-        for i in 0..512 {
-            buffer.push(0);
-        }
         Self {
             data: Port::new(base_port),
             error: Port::new(base_port + 1),
@@ -52,8 +47,6 @@ impl AtaController {
             device_control: Port::new(device_control_port),
 
             drive_select: None,
-
-            buffer: buffer.into_boxed_slice(),
         }
     }
 
@@ -66,6 +59,7 @@ impl AtaController {
     }
 
     pub fn identify(&mut self) {
+        let mut buffer: [u16; 256] = [0; 256];
         self.sector_count.write_u8(0);
         self.lba_low.write_u8(0);
         self.lba_mid.write_u8(0);
@@ -92,20 +86,37 @@ impl AtaController {
         }
 
         let mut read_index = 0;
-        while read_index < 512 {
-            let data = self.data.read_u16();
-            self.buffer[read_index] = (data >> 8) as u8;
-            self.buffer[read_index + 1] = data as u8;
-            read_index += 2;
+        while read_index < buffer.len() {
+            buffer[read_index] = self.data.read_u16();
+            read_index += 1;
         }
 
-        let serial = unsafe {
-            core::str::from_utf8_unchecked(&self.buffer[20..40])
-        };
+        let serial = extract_ata_string(&buffer[10..20]);
 
         crate::kprint!("    SERIAL NO: {}\n", serial);
 
+        let addressable_sectors =
+            (buffer[60] as u32) |
+            ((buffer[61] as u32) << 8);
+
+        crate::kprint!("    SECTORS: {}\n", addressable_sectors);
+
         crate::kprint!("IDENTIFY DONE\n\n");
     }
+}
+
+/// According to the ATA spec, each pair of bytes in an ATA string is "swapped"
+/// This means that each word needs to be inverted, and the data for an ASCII
+/// string cannot simply be copied directly from the raw buffer.
+pub fn extract_ata_string(buffer: &[u16]) -> String {
+    let mut converted = String::with_capacity(buffer.len());
+
+    for pair in buffer.iter() {
+        let low = *pair as u8;
+        let high = (pair >> 8) as u8;
+        converted.push(high as char);
+        converted.push(low as char);
+    }
+    converted
 }
 
