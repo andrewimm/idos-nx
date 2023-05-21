@@ -79,13 +79,17 @@ fn init_system() -> ! {
     // initialize drivers that rely on multitasking
     {
         crate::kprint!("Query ATA bus...\n");
-        crate::kprint!("  Primary:\n");
-        let mut ata = hardware::ata::AtaController::new(0x1f0, 0x3f6);
-        ata.select(hardware::ata::DriveSelect::Primary);
-        ata.identify();
-        crate::kprint!("  Secondary:\n");
-        ata.select(hardware::ata::DriveSelect::Secondary);
-        ata.identify();
+        crate::kprint!("  Primary bus:\n");
+        let mut primary = hardware::ata::controller::AtaController::new(0x1f0, 0x3f6);
+        let [a, b] = primary.identify();
+        match a {
+            Some(info) => crate::kprint!("    {}\n", info),
+            None => crate::kprint!("    Not Available\n"),
+        }
+        match b {
+            Some(info) => crate::kprint!("    {}\n", info),
+            None => crate::kprint!("    Not Available\n"),
+        }
     }
     // do other boot stuff
     // right now this just runs demos / tests

@@ -1,19 +1,16 @@
-use alloc::boxed::Box;
-use alloc::string::String;
-use alloc::vec::Vec;
+pub mod controller;
+pub mod dev;
+pub mod protocol;
+
 use crate::arch::port::Port;
 use crate::task::actions::{yield_coop, sleep};
+use protocol::{AtaCommand, extract_ata_string};
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
 pub enum DriveSelect {
     Primary = 0xa0,
     Secondary = 0xb0,
-}
-
-#[repr(u8)]
-pub enum AtaCommand {
-    Identify = 0xec,
 }
 
 pub struct AtaController {
@@ -103,20 +100,5 @@ impl AtaController {
 
         crate::kprint!("IDENTIFY DONE\n\n");
     }
-}
-
-/// According to the ATA spec, each pair of bytes in an ATA string is "swapped"
-/// This means that each word needs to be inverted, and the data for an ASCII
-/// string cannot simply be copied directly from the raw buffer.
-pub fn extract_ata_string(buffer: &[u16]) -> String {
-    let mut converted = String::with_capacity(buffer.len());
-
-    for pair in buffer.iter() {
-        let low = *pair as u8;
-        let high = (pair >> 8) as u8;
-        converted.push(high as char);
-        converted.push(low as char);
-    }
-    converted
 }
 
