@@ -82,8 +82,13 @@ fn init_system() -> ! {
         crate::kprint!("  Primary bus:\n");
         let mut primary = hardware::ata::controller::AtaController::new(0x1f0, 0x3f6);
         let [a, b] = primary.identify();
+        let mut buffer: [u8; 512] = [0; 512];
         match a {
-            Some(info) => crate::kprint!("    {}\n", info),
+            Some(info) => {
+                crate::kprint!("    {}\n", info);
+                primary.read_sectors(info.location, 0, &mut buffer);
+                crate::kprint!("    Read first sector into {:X}\n", buffer.as_slice().as_ptr() as usize);
+            },
             None => crate::kprint!("    Not Available\n"),
         }
         match b {
