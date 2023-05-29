@@ -80,20 +80,45 @@ fn init_system() -> ! {
     {
         crate::kprint!("Query ATA bus...\n");
         crate::kprint!("  Primary bus:\n");
-        let mut primary = hardware::ata::controller::AtaController::new(0x1f0, 0x3f6);
-        let [a, b] = primary.identify();
-        let mut buffer: [u8; 512] = [0; 512];
-        match a {
-            Some(info) => {
-                crate::kprint!("    {}\n", info);
-                primary.read_sectors(info.location, 0, &mut buffer);
-                crate::kprint!("    Read first sector into {:X}\n", buffer.as_slice().as_ptr() as usize);
-            },
-            None => crate::kprint!("    Not Available\n"),
+        let mut ata_count = 0;
+        {
+            let mut primary_bus = hardware::ata::controller::AtaController::new(0x1f0, 0x3f6);
+            let disks = primary_bus.identify();
+
+            let shared_controller = alloc::sync::Arc::new(
+                spin::Mutex::new(
+                    primary_bus
+                )
+            );
+
+            for disk in disks {
+                if let Some(info) = disk {
+                    ata_count += 1;
+                    crate::kprint!("    {}\n", info);
+                    let dev_name = alloc::format!("ATA{}", ata_count);
+                    crate::kprint!("Install driver as DEV:\\{}\n", dev_name);
+                }
+            }
         }
-        match b {
-            Some(info) => crate::kprint!("    {}\n", info),
-            None => crate::kprint!("    Not Available\n"),
+        crate::kprint!("  Secondary bus:\n");
+        {
+            let mut secondary_bus = hardware::ata::controller::AtaController::new(0x170, 0x376);
+            let disks = secondary_bus.identify();
+
+            let shared_controller = alloc::sync::Arc::new(
+                spin::Mutex::new(
+                    secondary_bus
+                )
+            );
+
+            for disk in disks {
+                if let Some(info) = disk {
+                    ata_count += 1;
+                    crate::kprint!("    {}\n", info);
+                    let dev_name = alloc::format!("ATA{}", ata_count);
+                    crate::kprint!("Install driver as DEV:\\{}\n", dev_name);
+                }
+            }
         }
     }
     // do other boot stuff

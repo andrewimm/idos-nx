@@ -28,14 +28,29 @@ pub struct AtaController {
 
 /// Stores the important traits passed back from an IDENTIFY command
 pub struct DiskProperties {
+    pub disk_type: DiskType,
     pub sectors: u32,
     pub location: DriveSelect,
     pub serial: String,
 }
 
+#[derive(Copy, Clone)]
+pub enum DiskType {
+    PATA,
+    ATAPI,
+    SATA,
+}
+
 impl core::fmt::Display for DiskProperties {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!("ATA Disk \"{}\", {} Bytes", self.serial, self.sectors * 512))
+        match self.disk_type {
+            DiskType::PATA =>
+                f.write_fmt(format_args!("ATA Disk \"{}\", {} Bytes", self.serial, self.sectors * 512)),
+            DiskType::ATAPI =>
+                f.write_fmt(format_args!("ATAPI Disk \"{}\"", self.serial)),
+            DiskType::SATA =>
+                f.write_fmt(format_args!("SATA Disk \"{}\"", self.serial)),
+        }
     }
 }
 
@@ -75,6 +90,7 @@ impl AtaController {
         let mut buffer: [u16; 256] = [0; 256];
 
         drives.map(|drive| {
+            // send IDENTIFY command
             self.drive_register.write_u8(0xa0 | drive as u8);
             sleep(1);
             self.sector_count.write_u8(0);
@@ -89,8 +105,24 @@ impl AtaController {
                 return None;
             }
 
-            if let Err(_) = self.poll() {
-                return None;
+            let disk_type = if let Err(_) = self.poll() {
+                let sig_low = self.lba_mid.read_u8();
+                let sig_high = self.lba_high.read_u8();
+                match (sig_low, sig_high) {
+                    (0x14, 0xeb) => { // ATAPI
+                        crate::kprint!("!!! FOUND ATAPI !!!\n");
+                        DiskType::ATAPI
+                    },
+                    _ => return None,
+                }
+            } else {
+                DiskType::PATA
+            };
+            
+            if let DiskType::ATAPI = disk_type {
+                // send IDENTIFY PACKET DEVICE command instead
+                self.command_status.write_u8(AtaCommand::IdentifyPacketDevice as u8);
+                sleep(1);
             }
 
             for i in 0..buffer.len() {
@@ -105,6 +137,7 @@ impl AtaController {
 
             return Some(
                 DiskProperties {
+                    disk_type,
                     sectors,
                     location: drive,
                     serial,

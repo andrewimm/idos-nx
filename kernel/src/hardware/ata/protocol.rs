@@ -4,6 +4,7 @@ use alloc::string::String;
 #[repr(u8)]
 pub enum AtaCommand {
     Identify = 0xec,
+    IdentifyPacketDevice = 0xa1,
     ReadSectors = 0x20,
     WriteSectors = 0x30,
 }
