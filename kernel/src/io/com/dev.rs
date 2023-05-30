@@ -2,6 +2,7 @@
 
 use crate::collections::SlotList;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
+use crate::filesystem::install_device_driver;
 use crate::interrupts::pic::install_interrupt_handler;
 use crate::task::actions::{read_message_blocking, send_message};
 use crate::task::actions::lifecycle::{create_kernel_task, terminate, wait_for_io};
@@ -16,27 +17,21 @@ static INSTALLED_DRIVERS: [RwLock<Option<TaskID>>; 2] = [
     RwLock::new(None),
 ];
 
-pub fn install_driver(_name: &str, base_port: u16) -> Result<TaskID, ()> {
-    // right now this is getting called from within the fs initialization path
-    // Once we add a global configure() method to all kernel fs, this can
-    // instead tell the DEV: fs directly to install a new driver with a
-    // specific name
-    let task = create_kernel_task(run_driver);
-    send_message(task, Message(base_port as u32, 0, 0, 0), 0xffffffff);
+pub fn install_drivers() {
+    let configs = [
+        (0x3f8, 4),
+        (0x2f8, 3),
+    ];
 
-    match base_port {
-        0x3f8 => {
-            INSTALLED_DRIVERS[0].write().replace(task);
-            install_interrupt_handler(4, com_interrupt_handler);
-        },
-        0x2f8 => {
-            INSTALLED_DRIVERS[1].write().replace(task);
-            install_interrupt_handler(3, com_interrupt_handler);
-        },
-        _ => (),
+    for (index, (port, irq)) in configs.iter().enumerate() {
+        let task = create_kernel_task(run_driver);
+        send_message(task, Message(*port, 0, 0, 0), 0xffffffff);
+        INSTALLED_DRIVERS[index].write().replace(task);
+        install_interrupt_handler(*irq, com_interrupt_handler);
+        let name = alloc::format!("COM{}", index + 1);
+
+        install_device_driver(name.as_str(), task, 0).expect("Failed to install COM driver");
     }
-
-    Ok(task)
 }
 
 pub fn com_interrupt_handler(irq: u32) {
@@ -72,7 +67,7 @@ impl ComDeviceDriver {
 }
 
 impl AsyncDriver for ComDeviceDriver {
-    fn open(&mut self, _path: &str) -> u32 {
+    fn open(&mut self, path: &str) -> u32 {
         let index = self.open_handles.insert(());
         index as u32
     }

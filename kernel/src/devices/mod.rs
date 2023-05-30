@@ -15,6 +15,6 @@ pub type SyncDriverType = dyn SyncDriver + Sync + Send;
 
 #[derive(Clone)]
 pub enum DeviceDriver {
-    AsyncDriver(TaskID),
+    AsyncDriver(TaskID, u32),
     SyncDriver(Arc<Box<SyncDriverType>>),
 }

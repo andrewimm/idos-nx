@@ -12,8 +12,11 @@ use crate::task::switching::{get_current_id, get_task};
 pub enum AsyncIO {
     // Open(path str pointer, path str length)
     Open(u32, u32),
-    // Open a handle to the driver itself, with no path
-    OpenRaw,
+    // Open a handle to the driver itself, with no path.
+    // The argument provides a way to embed a unique instance identifier
+    // without using a string path -- this is commonly used by async device
+    // drivers which respond to multiple file names.
+    OpenRaw(u32),
     // Read(handle id, buffer pointer, buffer length)
     Read(u32, u32, u32),
     // Write(handle id, buffer pointer, buffer length)

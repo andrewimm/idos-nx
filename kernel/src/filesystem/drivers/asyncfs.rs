@@ -1,3 +1,4 @@
+use alloc::string::ToString;
 use alloc::sync::Arc;
 use spin::Mutex;
 use crate::files::handle::DriverHandle;
@@ -148,9 +149,9 @@ pub fn encode_request(request: AsyncIO) -> Message {
             let code = AsyncCommand::Open as u32;
             Message(code, path_str_start, path_str_len, 0)
         },
-        AsyncIO::OpenRaw => {
+        AsyncIO::OpenRaw(id) => {
             let code = AsyncCommand::OpenRaw as u32;
-            Message(code, 0, 0, 0)
+            Message(code, id, 0, 0)
         },
         AsyncIO::Read(open_instance, buffer_start, buffer_len) => {
             let code = AsyncCommand::Read as u32;
@@ -181,7 +182,8 @@ pub trait AsyncDriver {
                 Some((handle, 0, 0))
             },
             AsyncCommand::OpenRaw => {
-                let handle = self.open("");
+                let id_as_path = message.1.to_string();
+                let handle = self.open(id_as_path.as_str());
                 Some((handle, 0, 0))
             },
             AsyncCommand::Read => {

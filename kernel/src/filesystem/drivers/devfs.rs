@@ -49,8 +49,8 @@ impl DevFileSystem {
         self.install(name, DeviceDriver::SyncDriver(driver));
     }
 
-    pub fn install_async_driver(&self, name: &str, driver_id: TaskID) {
-        self.install(name, DeviceDriver::AsyncDriver(driver_id));
+    pub fn install_async_driver(&self, name: &str, driver_id: TaskID, sub_id: u32) {
+        self.install(name, DeviceDriver::AsyncDriver(driver_id, sub_id));
     }
     
     fn get_driver_by_name(&self, name: String) -> Option<(usize, DeviceDriver)> {
@@ -99,11 +99,11 @@ impl KernelFileSystem for DevFileSystem {
                 let handle = self.open_handles.write().insert((driver_index, open_instance));
                 Ok(DriverHandle(handle as u32))
             },
-            DeviceDriver::AsyncDriver(id) => {
+            DeviceDriver::AsyncDriver(id, sub_id) => {
                 // send the command to the async driver
                 let open_instance = self.async_op(
                     id,
-                    AsyncIO::OpenRaw,
+                    AsyncIO::OpenRaw(sub_id),
                 ).ok_or(())?;
 
                 let handle = self.open_handles.write().insert((driver_index, open_instance));
@@ -120,7 +120,7 @@ impl KernelFileSystem for DevFileSystem {
                     DeviceDriver::SyncDriver(driver) => {
                         driver.read(open_instance, buffer)
                     },
-                    DeviceDriver::AsyncDriver(id) => {
+                    DeviceDriver::AsyncDriver(id, _) => {
                         let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
                         let shared_to_driver = shared_range.share_with_task(id);
 
@@ -151,7 +151,7 @@ impl KernelFileSystem for DevFileSystem {
                     DeviceDriver::SyncDriver(driver) => {
                         driver.write(open_instance, buffer)
                     },
-                    DeviceDriver::AsyncDriver(id) => {
+                    DeviceDriver::AsyncDriver(id, _) => {
                         let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
                         let shared_to_driver = shared_range.share_with_task(id);
 
@@ -189,7 +189,7 @@ impl KernelFileSystem for DevFileSystem {
             DeviceDriver::SyncDriver(driver) => {
                 driver.close(open_instance)
             },
-            DeviceDriver::AsyncDriver(id) => {
+            DeviceDriver::AsyncDriver(id, _) => {
                 let response = self.async_op(
                     id,
                     AsyncIO::Close(open_instance),
@@ -202,10 +202,12 @@ impl KernelFileSystem for DevFileSystem {
         }
     }
 
-    fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32) -> Result<u32, ()> {
+    fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) -> Result<u32, ()> {
         match command {
             1 => {
                 // Install device driver with TaskID of `arg2`
+                // arg3 will be used as the driver sub-id, for drivers that
+                // service multiple device names with a single Task.
                 // Assume arg0 and arg1 are the pointer and length of a string
                 // containing the device name
                 let name_slice = unsafe {
@@ -215,7 +217,7 @@ impl KernelFileSystem for DevFileSystem {
                     )
                 };
                 let name = core::str::from_utf8(name_slice).map_err(|_| ())?;
-                self.install_async_driver(name, TaskID::new(arg2));
+                self.install_async_driver(name, TaskID::new(arg2), arg3);
                 Ok(0)
             },
             _ => Err(()),
