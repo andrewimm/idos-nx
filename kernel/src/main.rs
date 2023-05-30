@@ -79,47 +79,7 @@ fn init_system() -> ! {
     // initialize drivers that rely on multitasking
     {
         crate::kprint!("Query ATA bus...\n");
-        crate::kprint!("  Primary bus:\n");
-        let mut ata_count = 0;
-        {
-            let mut primary_bus = hardware::ata::controller::AtaController::new(0x1f0, 0x3f6);
-            let disks = primary_bus.identify();
-
-            let shared_controller = alloc::sync::Arc::new(
-                spin::Mutex::new(
-                    primary_bus
-                )
-            );
-
-            for disk in disks {
-                if let Some(info) = disk {
-                    ata_count += 1;
-                    crate::kprint!("    {}\n", info);
-                    let dev_name = alloc::format!("ATA{}", ata_count);
-                    crate::kprint!("Install driver as DEV:\\{}\n", dev_name);
-                }
-            }
-        }
-        crate::kprint!("  Secondary bus:\n");
-        {
-            let mut secondary_bus = hardware::ata::controller::AtaController::new(0x170, 0x376);
-            let disks = secondary_bus.identify();
-
-            let shared_controller = alloc::sync::Arc::new(
-                spin::Mutex::new(
-                    secondary_bus
-                )
-            );
-
-            for disk in disks {
-                if let Some(info) = disk {
-                    ata_count += 1;
-                    crate::kprint!("    {}\n", info);
-                    let dev_name = alloc::format!("ATA{}", ata_count);
-                    crate::kprint!("Install driver as DEV:\\{}\n", dev_name);
-                }
-            }
-        }
+        hardware::ata::dev::install_drivers();
     }
     // do other boot stuff
     // right now this just runs demos / tests
