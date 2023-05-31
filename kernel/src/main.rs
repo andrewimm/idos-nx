@@ -114,6 +114,14 @@ fn task_a_body() -> ! {
 
     task::actions::io::close_file(file).unwrap();
 
+    crate::kprint!("Okay let's read a raw HDD\n");
+    let hd1 = task::actions::io::open_path("DEV:\\ATA1").unwrap();
+    task::actions::io::read_file(hd1, &mut buf).unwrap();
+    for i in 0..buf.len() {
+        crate::kprint!("{:#04X} ", buf[i]);
+    }
+    crate::kprint!("\nDone\n");
+
     let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();
     let read_len = task::actions::io::read_file(com1, &mut buf).unwrap();
     let res = core::str::from_utf8(&buf[..read_len]).unwrap();
