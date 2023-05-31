@@ -34,4 +34,8 @@ impl SyncDriver for ZeroDriver {
     fn write(&self, _index: u32, buffer: &[u8]) -> Result<usize, ()> {
         Ok(buffer.len())
     }
+
+    fn seek(&self, _index: u32, _offset: crate::files::cursor::SeekMethod) -> Result<usize, ()> {
+        Err(())
+    }
 }

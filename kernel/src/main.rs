@@ -120,6 +120,17 @@ fn task_a_body() -> ! {
     for i in 0..buf.len() {
         crate::kprint!("{:#04X} ", buf[i]);
     }
+    crate::kprint!("\n");
+    task::actions::io::read_file(hd1, &mut buf).unwrap();
+    for i in 0..buf.len() {
+        crate::kprint!("{:#04X} ", buf[i]);
+    }
+    crate::kprint!("\n");
+    task::actions::io::seek_file(hd1, files::cursor::SeekMethod::Absolute(0x10)).unwrap();
+    task::actions::io::read_file(hd1, &mut buf).unwrap();
+    for i in 0..buf.len() {
+        crate::kprint!("{:#04X} ", buf[i]);
+    }
     crate::kprint!("\nDone\n");
 
     let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();

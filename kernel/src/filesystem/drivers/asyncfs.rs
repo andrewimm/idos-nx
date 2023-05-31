@@ -1,6 +1,7 @@
 use alloc::string::ToString;
 use alloc::sync::Arc;
 use spin::Mutex;
+use crate::files::cursor::SeekMethod;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::memory::shared::SharedMemoryRange;
@@ -115,6 +116,22 @@ impl KernelFileSystem for AsyncFileSystem {
             None => Err(()),
         }
     }
+
+    fn seek(&self, handle: DriverHandle, offset: SeekMethod) -> Result<usize, ()> {
+        let (method, delta) = offset.encode();
+        let response = self.async_op(
+            AsyncIO::Seek(
+                handle.into(),
+                method,
+                delta,
+            )
+        );
+
+        match response {
+            Some(index) => Ok(index as usize),
+            None => Err(()),
+        }
+    }
 }
 
 // Below are the resources used by async fs implementations
@@ -126,6 +143,7 @@ pub enum AsyncCommand {
     Read,
     Write,
     Close,
+    Seek,
     // Every time a new command is added, modify the From<u32> impl below
 
     Invalid = 0xffffffff,
@@ -133,7 +151,7 @@ pub enum AsyncCommand {
 
 impl From<u32> for AsyncCommand {
     fn from(value: u32) -> Self {
-        if value >= 1 && value <= 5 {
+        if value >= 1 && value <= 6 {
             unsafe { core::mem::transmute(value) }
         } else {
             AsyncCommand::Invalid
@@ -164,6 +182,10 @@ pub fn encode_request(request: AsyncIO) -> Message {
         AsyncIO::Close(handle) => {
             let code = AsyncCommand::Close as u32;
             Message(code, handle, 0, 0)
+        },
+        AsyncIO::Seek(open_instance, method, delta) => {
+            let code = AsyncCommand::Seek as u32;
+            Message(code, open_instance, method, delta)
         },
     }
 }
@@ -211,6 +233,14 @@ pub trait AsyncDriver {
                 self.close(handle);
                 Some((0,  0,  0))
             },
+            AsyncCommand::Seek => {
+                let open_instance = message.1;
+                let method = message.2;
+                let delta = message.3;
+                let offset = SeekMethod::decode(method, delta).unwrap();
+                let new_position = self.seek(open_instance, offset);
+                Some((new_position, 0, 0))
+            },
             _ => {
                 crate::kprint!("Async driver: unknown request\n");
                 None
@@ -225,5 +255,7 @@ pub trait AsyncDriver {
     fn write(&mut self, instance: u32, buffer: &[u8]) -> u32;
 
     fn close(&mut self, handle: u32);
+
+    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32;
 }
 

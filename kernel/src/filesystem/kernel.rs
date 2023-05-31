@@ -1,3 +1,4 @@
+use crate::files::cursor::SeekMethod;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 
@@ -11,6 +12,8 @@ pub trait KernelFileSystem {
     fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()>;
 
     fn close(&self, handle: DriverHandle) -> Result<(), ()>;
+
+    fn seek(&self, handle: DriverHandle, offset: SeekMethod) -> Result<usize, ()>;
 
     fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) -> Result<u32, ()> {
         Err(())

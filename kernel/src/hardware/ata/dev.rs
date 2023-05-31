@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
-
 use crate::collections::SlotList;
+use crate::files::cursor::SeekMethod;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::task::actions::lifecycle::{create_kernel_task, terminate};
 use crate::task::actions::{read_message_blocking, send_message};
@@ -44,13 +44,14 @@ impl AsyncDriver for AtaDeviceDriver {
         // TODO: Parse path to determine which drive to open
         let handle = OpenHandle {
             drive: 0,
+            position: 0,
         };
         self.open_handle_map.insert(handle) as u32
     }
 
     fn read(&mut self, instance: u32, buffer: &mut [u8]) -> u32 {
-        let drive_index = match self.open_handle_map.get(instance as usize) {
-            Some(handle) => handle.drive,
+        let (drive_index, position) = match self.open_handle_map.get(instance as usize) {
+            Some(handle) => (handle.drive, handle.position),
             None => return 0, // handle doesn't exist
         };
         let location = match self.attached.get(drive_index) {
@@ -62,9 +63,11 @@ impl AsyncDriver for AtaDeviceDriver {
         let first_sector = 0;
         self.controller.read_sectors(location, first_sector, &mut pio_buffer);
         for i in 0..buffer.len() {
-            buffer[i] = pio_buffer[i];
+            buffer[i] = pio_buffer[position + i];
         }
-        buffer.len() as u32
+        let bytes_read = buffer.len();
+        self.open_handle_map.get_mut(instance as usize).unwrap().position += bytes_read;
+        bytes_read as u32
     }
 
     fn write(&mut self, instance: u32, buffer: &[u8]) -> u32 {
@@ -74,10 +77,21 @@ impl AsyncDriver for AtaDeviceDriver {
     fn close(&mut self, handle: u32) {
         self.open_handle_map.remove(handle as usize);
     }
+
+    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
+        let current_position = match self.open_handle_map.get(instance as usize) {
+            Some(handle) => handle.position,
+            None => return 0,
+        };
+        let new_position = offset.from_current_position(current_position);
+        self.open_handle_map.get_mut(instance as usize).unwrap().position = new_position;
+        new_position as u32
+    }
 }
 
 struct OpenHandle {
     drive: usize,
+    position: usize,
 }
 
 fn run_driver() -> ! {

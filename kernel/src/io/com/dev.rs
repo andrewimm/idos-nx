@@ -1,6 +1,7 @@
 //! Device Driver for COM Ports
 
 use crate::collections::SlotList;
+use crate::files::cursor::SeekMethod;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::filesystem::install_device_driver;
 use crate::interrupts::pic::install_interrupt_handler;
@@ -104,6 +105,10 @@ impl AsyncDriver for ComDeviceDriver {
 
     fn close(&mut self, handle: u32) {
         self.open_handles.remove(handle as usize);
+    }
+
+    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
+        0
     }
 }
 

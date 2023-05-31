@@ -23,6 +23,8 @@ pub enum AsyncIO {
     Write(u32, u32, u32),
     // Close(handle id)
     Close(u32),
+    // Seek(handle id, method, delta)
+    Seek(u32, u32, u32),
 }
 
 pub type AsyncResponse = Arc<Mutex<Option<u32>>>;

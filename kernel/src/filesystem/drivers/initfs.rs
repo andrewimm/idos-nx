@@ -54,6 +54,10 @@ impl KernelFileSystem for InitFileSystem {
     fn close(&self, _handle: DriverHandle) -> Result<(), ()> {
         Ok(())
     }
+
+    fn seek(&self, handle: DriverHandle, offset: crate::files::cursor::SeekMethod) -> Result<usize, ()> {
+        Err(())
+    }
 }
 
 #[derive(Clone)]

@@ -9,6 +9,7 @@ use alloc::string::{String, ToString};
 use alloc::sync::Arc;
 use crate::collections::SlotList;
 use crate::devices::{DeviceDriver, SyncDriverType};
+use crate::files::cursor::SeekMethod;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::filesystem::arbiter::{AsyncIO, begin_io};
@@ -200,6 +201,35 @@ impl KernelFileSystem for DevFileSystem {
                 }
             },
         }
+    }
+
+    fn seek(&self, handle: DriverHandle, offset: SeekMethod) -> Result<usize, ()> {
+        self.run_driver_operation(
+            handle,
+            |driver, open_instance| {
+                match driver {
+                    DeviceDriver::SyncDriver(driver) => {
+                        driver.seek(open_instance, offset)
+                    },
+                    DeviceDriver::AsyncDriver(id, _) => {
+                        let (method, delta) = offset.encode();
+                        let response = self.async_op(
+                            id,
+                            AsyncIO::Seek(
+                                open_instance,
+                                method,
+                                delta,
+                            )
+                        );
+
+                        match response {
+                            Some(count) => Ok(count as usize),
+                            None => Err(()),
+                        }
+                    },
+                }
+            },
+        )
     }
 
     fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) -> Result<u32, ()> {

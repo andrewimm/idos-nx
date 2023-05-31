@@ -1,4 +1,5 @@
 use alloc::string::ToString;
+use crate::files::cursor::SeekMethod;
 use crate::files::path::Path;
 use crate::filesystem::drive::DriveID;
 use crate::filesystem::{get_driver_by_id, get_drive_id_by_name};
@@ -21,6 +22,8 @@ pub enum IOError {
     WriteFailed,
     /// A close operation failed
     CloseFailed,
+
+    SeekFailed,
 }
 
 pub fn set_active_drive(drive_name: &str) -> Result<DriveID, IOError> {
@@ -134,4 +137,18 @@ pub fn close_file(handle: FileHandle) -> Result<(), IOError> {
         .map_err(|_| IOError::NotFound)?
         .close(driver_handle)
         .map_err(|_| IOError::CloseFailed)
+}
+
+pub fn seek_file(handle: FileHandle, method: SeekMethod) -> Result<usize, IOError> {
+    let (drive_id, driver_handle) = {
+        let task_lock = get_current_task();
+        let task = task_lock.read();
+        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        (entry.drive, entry.driver_handle)
+    };
+
+    get_driver_by_id(drive_id)
+        .map_err(|_| IOError::NotFound)?
+        .seek(driver_handle, method)
+        .map_err(|_| IOError::SeekFailed)
 }
