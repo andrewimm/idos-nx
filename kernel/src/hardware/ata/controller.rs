@@ -4,7 +4,7 @@ use crate::arch::port::Port;
 use crate::task::actions::{yield_coop, sleep};
 use super::protocol::{AtaCommand, extract_ata_string};
 
-pub const SECTOR_SIZE: u32 = 512;
+pub const SECTOR_SIZE: usize = 512;
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 #[repr(u8)]
@@ -147,14 +147,14 @@ impl AtaController {
     }
 
     pub fn read_sectors(&self, drive: DriveSelect, first_sector: u32, buffer: &mut [u8]) -> Result<u32, ()> {
-        if (buffer.len() as u32) % SECTOR_SIZE != 0 {
+        if buffer.len() % SECTOR_SIZE != 0 {
             panic!("ATA READ: Buffer must be divisible by sector size ({})", SECTOR_SIZE);
         }
         if first_sector > 0x00ffffff {
             panic!("ATA READ: PIO transfer with >24 bits not supported yet");
         }
 
-        let sectors = (buffer.len() as u32 + SECTOR_SIZE - 1) / SECTOR_SIZE;
+        let sectors = (buffer.len() + SECTOR_SIZE - 1) / SECTOR_SIZE;
 
         if sectors > 256 {
             panic!("ATA READ: PIO can only transfer 256 sectors at a time");
@@ -177,7 +177,7 @@ impl AtaController {
         for sector in 0..sectors {
             // need at least 400ns for the status register to be correct
             sleep(1);
-            let read_start = (sector * SECTOR_SIZE) as usize;
+            let read_start = sector * SECTOR_SIZE;
             self.poll();
             for i in 0..256 {
                 // ATA spec suggests reading one word at a time
@@ -187,6 +187,6 @@ impl AtaController {
             }
         }
 
-        Ok(sectors)
+        Ok(sectors as u32)
     }
 }

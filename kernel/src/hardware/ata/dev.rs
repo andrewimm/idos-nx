@@ -7,7 +7,7 @@ use crate::task::actions::{read_message_blocking, send_message};
 use crate::task::messaging::Message;
 use crate::task::switching::get_current_id;
 use crate::filesystem::install_device_driver;
-use super::controller::{AtaController, DriveSelect};
+use super::controller::{AtaController, DriveSelect, SECTOR_SIZE};
 
 struct AtaDeviceDriver {
     controller: AtaController,
@@ -59,15 +59,44 @@ impl AsyncDriver for AtaDeviceDriver {
             None => return 0,
         };
 
-        let mut pio_buffer: [u8; 512] = [0; 512];
-        let first_sector = 0;
-        self.controller.read_sectors(location, first_sector, &mut pio_buffer);
-        for i in 0..buffer.len() {
-            buffer[i] = pio_buffer[position + i];
+        if position % SECTOR_SIZE == 0 && buffer.len() % SECTOR_SIZE == 0 {
+            // if the read is sector aligned, we can optimize by writing direct
+            // from the disk to the buffer
+            let first_sector = (position / SECTOR_SIZE) as u32;
+            let sectors_read = self.controller.read_sectors(location, first_sector, buffer).unwrap();
+            let bytes_read = sectors_read as usize * SECTOR_SIZE;
+
+            self.open_handle_map.get_mut(instance as usize).unwrap().position += bytes_read;
+            return bytes_read as u32;
         }
-        let bytes_read = buffer.len();
+
+        // unoptimized flow, using an intermediate buffer
+        let mut bytes_read = 0;
+        let mut pio_buffer: [u8; 512] = [0; 512];
+
+        while bytes_read < buffer.len() {
+            let read_position = position + bytes_read;
+            let sector_index = read_position / SECTOR_SIZE;
+            let sector_offset = read_position % SECTOR_SIZE;
+            let bytes_remaining_in_sector = SECTOR_SIZE - sector_offset;
+            let bytes_remaining_in_buffer = buffer.len() - bytes_read;
+
+            self.controller.read_sectors(location, sector_index as u32, &mut pio_buffer);
+
+            let bytes_to_copy = bytes_remaining_in_sector.min(bytes_remaining_in_buffer);
+
+            for i in 0..bytes_to_copy {
+                let to = bytes_read + i;
+                let from = sector_offset + i;
+
+                buffer[to] = pio_buffer[from];
+            }
+
+            bytes_read += bytes_to_copy;
+        }
+
         self.open_handle_map.get_mut(instance as usize).unwrap().position += bytes_read;
-        bytes_read as u32
+        return bytes_read as u32;
     }
 
     fn write(&mut self, instance: u32, buffer: &[u8]) -> u32 {
