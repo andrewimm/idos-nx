@@ -14,7 +14,9 @@ clean:
 	@rm -r build
 
 run: bootdisk
-	@qemu-system-i386 -m 8M -drive format=raw,file=$(diskimage) -serial stdio
+	@qemu-system-i386 -m 8M -drive format=raw,file=$(diskimage) -serial stdio -device isa-debug-exit,iobase=0xf4,iosize=4; \
+	EXIT_CODE=$$?; \
+	exit $$(($$EXIT_CODE >> 1))
 
 $(diskimage):
 	@mkdir -p $(shell dirname $@)

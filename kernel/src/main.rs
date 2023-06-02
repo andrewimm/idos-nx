@@ -168,13 +168,16 @@ fn run_tests() -> ! {
 }
 
 #[cfg(test)]
-fn test_runner(tests: &[&dyn Fn()]) {
+fn test_runner(tests: &[&dyn Fn()]) -> ! {
     kprint!("Running {} tests\n", tests.len());
     for test in tests {
         kprint!("... ");
         test();
         kprint!("[ok]\n");
     }
-    loop {}
+    kprint!("All tests passed!\n");
+    kprint!("Exiting in 5 seconds\n");
+    task::actions::sleep(5000);
+    hardware::qemu::debug_exit(0);
 }
 
