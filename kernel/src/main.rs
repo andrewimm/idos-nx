@@ -80,6 +80,8 @@ fn init_system() -> ! {
     {
         crate::kprint!("Query ATA bus...\n");
         hardware::ata::dev::install_drivers();
+
+        hardware::floppy::dev::install_drivers();
     }
     // do other boot stuff
     // right now this just runs demos / tests

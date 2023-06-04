@@ -86,8 +86,6 @@ pub fn init_hardware() {
     crate::hardware::pci::init();
 
     crate::hardware::ps2::PS2Controller::new().init();
-
-    crate::hardware::floppy::init();
 }
 
 /// Populate the DEV: FS with drivers for the devices detected on this PC
