@@ -50,4 +50,12 @@ impl PageTableEntry {
     pub fn is_present(&self) -> bool {
         self.0 & ENTRY_PRESENT != 0
     }
+
+    pub fn set_user_access(&mut self) {
+        self.0 |= ENTRY_USER_ACCESS;
+    }
+
+    pub fn set_write_access(&mut self) {
+        self.0 |= ENTRY_WRITE_ACCESS;
+    }
 }

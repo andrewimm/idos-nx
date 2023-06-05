@@ -64,6 +64,13 @@ impl FloppyDriver {
             self.controller.ensure_motor_on(DriveSelect::Secondary);
         }
 
+        crate::kprint!("\n\nTrigger the page fault\n");
+        unsafe {
+            crate::kprint!("DMA Location: {:?}\n", self.dma_address);
+            let ptr = self.dma_address.as_u32() as *mut u8;
+            *ptr = 0xaa;
+        }
+
         Ok(())
     }
 

@@ -1,4 +1,8 @@
+use crate::asm;
+use crate::memory::address::VirtualAddress;
 use crate::task::actions::lifecycle::exception;
+use crate::task::paging::{page_on_demand, PermissionFlags};
+use crate::task::switching::get_current_id;
 
 use super::stack::StackFrame;
 
@@ -78,8 +82,49 @@ pub extern "x86-interrupt" fn gpf(_stack_frame: StackFrame, _error: u32) {
 }
 
 #[no_mangle]
-pub extern "x86-interrupt" fn page_fault(_stack_frame: StackFrame, error: u32) {
-    crate::kprint!("Page Fault: {:#010X}\n", error);
+pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
+    let address: u32;
+    unsafe {
+        asm!(
+            "mov {0:e}, cr2",
+            out(reg) address,
+        );
+    }
+    let eip = stack_frame.eip;
+    let cur_id = get_current_id();
+    crate::kprint!("\nPage Fault ({:?}: {:#010X}) at {:#010X} ({:X})\n", cur_id, eip, address, error);
+
+    if address >= 0xc0000000 { // Kernel region
+        if error & 4 == 4 {
+            // Permission error - access attempt did not come from ring 0
+            // This should segfault
+            loop {}
+        }
+        if error & 1 == 0 {
+            // Page was not present
+            crate::kprint!("Attempted to reach unpaged kernel memory. Does heap need to be expanded?");
+            loop {}
+        }
+    } else { // User space
+        if error & 1 == 0 {
+            // Page was not present
+            // Let the current task determine how to handle the missing page
+            let vaddr = VirtualAddress::new(address);
+            if !page_on_demand(vaddr).is_none() {
+                // Return back to the failed memory access
+                return;
+            }
+        } else if error & 2 == 2 {
+            // Write to a read-only page
+            crate::kprint!("Write to page {:?}", cur_id);
+        }
+
+        
+        // All other cases (accessing an unmapped section, writing a read-only
+        // segment, etc) should cause a segfault.
+        crate::kprint!("SEGFAULT AT IP: {:#010X} (Access {:#010X})\n", eip, address);
+    }
+
     loop {}
 }
 
