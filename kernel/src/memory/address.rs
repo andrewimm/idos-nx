@@ -126,6 +126,23 @@ impl core::ops::Add<u32> for VirtualAddress {
     }
 }
 
+impl core::ops::Sub<VirtualAddress> for VirtualAddress {
+    type Output = u32;
+
+    fn sub(self, rhs: VirtualAddress) -> Self::Output {
+        self.0.saturating_sub(rhs.0)
+    }
+}
+
+impl core::ops::Sub<u32> for VirtualAddress {
+    type Output = VirtualAddress;
+
+    fn sub(self, rhs: u32) -> Self::Output {
+        let new_addr = self.0.saturating_sub(rhs);
+        VirtualAddress::new(new_addr)
+    }
+}
+
 impl core::fmt::Debug for VirtualAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "VirtualAddress({:#010X})", self.0)

@@ -4,9 +4,12 @@ use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::interrupts::pic::install_interrupt_handler;
+use crate::memory::address::VirtualAddress;
 use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
+use crate::task::actions::memory::map_memory;
 use crate::task::actions::{read_message_blocking, send_message, yield_coop};
 use crate::task::id::TaskID;
+use crate::task::memory::MemoryBacking;
 use crate::task::switching::{get_current_id, get_task};
 use crate::filesystem::install_device_driver;
 use super::controller::{DriveSelect, DriveType, Command, ControllerError, FloppyController};
@@ -16,15 +19,18 @@ pub struct FloppyDriver {
     selected_drive: Option<DriveSelect>,
     controller: FloppyController,
     open_handle_map: SlotList<OpenHandle>,
+    dma_address: VirtualAddress,
 }
 
 impl FloppyDriver {
     pub fn new() -> Self {
+        let dma_address = map_memory(None, 0x1000, MemoryBacking::DMA).unwrap();
         Self {
             attached: [None, None],
             selected_drive: None,
             controller: FloppyController::new(),
             open_handle_map: SlotList::new(),
+            dma_address,
         }
     }
 

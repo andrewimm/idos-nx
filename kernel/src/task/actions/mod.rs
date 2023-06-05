@@ -4,6 +4,7 @@
 
 pub mod io;
 pub mod lifecycle;
+pub mod memory;
 
 use super::{id, messaging, switching};
 pub use switching::yield_coop;

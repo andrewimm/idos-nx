@@ -4,6 +4,7 @@ use crate::memory::address::PhysicalAddress;
 
 use super::files::{OpenFileMap, CurrentDrive};
 use super::id::TaskID;
+use super::memory::TaskMemory;
 use super::messaging::{Message, MessagePacket, MessageQueue};
 use super::stack::free_stack;
 
@@ -29,6 +30,8 @@ pub struct Task {
     pub stack_pointer: usize,
     /// Physical address of the task's page directory
     pub page_directory: PhysicalAddress,
+    /// Stores all of the memory mappings for the Task
+    pub memory_mapping: TaskMemory,
 
     /// Store Messages that have been sent to this task
     pub message_queue: MessageQueue,
@@ -51,6 +54,7 @@ impl Task {
             kernel_stack: Some(stack),
             stack_pointer,
             page_directory: PhysicalAddress::new(0),
+            memory_mapping: TaskMemory::new(),
             message_queue: MessageQueue::new(),
             current_drive: CurrentDrive::empty(),
             working_dir: Path::from_str(""),

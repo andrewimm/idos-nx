@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod files;
 pub mod id;
+pub mod memory;
 pub mod messaging;
 pub mod paging;
 pub mod stack;
