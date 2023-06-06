@@ -10,6 +10,13 @@ pub const ENTRY_DIRTY: u32 = 1 << 6;
 pub const ENTRY_SIZE_EXTENDED: u32 = 1 << 7;
 pub const ENTRY_GLOBAL: u32 = 1 << 8;
 
+// Kernel-specific flags -- Some flags are unused and are available for the
+// kernel to add its own functionality
+
+/// Indicates that when the entry is unmapped, it should NOT be freed. This is
+/// useful for memory-mapped hardware that should not be re-allocated as RAM
+pub const ENTRY_NO_RECLAIM: u32 = 1 << 10;
+
 /// Represents an entry in a page table or directory. Entries are 32-bit
 /// values with the following layout:
 /// 31        11     9       0
@@ -57,5 +64,9 @@ impl PageTableEntry {
 
     pub fn set_write_access(&mut self) {
         self.0 |= ENTRY_WRITE_ACCESS;
+    }
+
+    pub fn set_no_reclaim(&mut self) {
+        self.0 |= ENTRY_NO_RECLAIM;
     }
 }

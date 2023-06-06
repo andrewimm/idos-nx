@@ -3,13 +3,15 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
+use crate::hardware::dma::DmaChannelRegisters;
 use crate::interrupts::pic::install_interrupt_handler;
-use crate::memory::address::VirtualAddress;
+use crate::memory::address::{VirtualAddress, PhysicalAddress};
 use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::{read_message_blocking, send_message, yield_coop};
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
+use crate::task::paging::page_on_demand;
 use crate::task::switching::{get_current_id, get_task};
 use crate::filesystem::install_device_driver;
 use super::controller::{DriveSelect, DriveType, Command, ControllerError, FloppyController};
@@ -19,18 +21,21 @@ pub struct FloppyDriver {
     selected_drive: Option<DriveSelect>,
     controller: FloppyController,
     open_handle_map: SlotList<OpenHandle>,
-    dma_address: VirtualAddress,
+    dma_vaddr: VirtualAddress,
+    dma_paddr: PhysicalAddress,
 }
 
 impl FloppyDriver {
     pub fn new() -> Self {
-        let dma_address = map_memory(None, 0x1000, MemoryBacking::DMA).unwrap();
+        let dma_vaddr = map_memory(None, 0x1000, MemoryBacking::DMA).unwrap();
+        let dma_paddr = page_on_demand(dma_vaddr).unwrap();
         Self {
             attached: [None, None],
             selected_drive: None,
             controller: FloppyController::new(),
             open_handle_map: SlotList::new(),
-            dma_address,
+            dma_vaddr,
+            dma_paddr,
         }
     }
 
@@ -62,13 +67,8 @@ impl FloppyDriver {
         }
         if !self.attached[1].is_none() {
             self.controller.ensure_motor_on(DriveSelect::Secondary);
-        }
 
-        crate::kprint!("\n\nTrigger the page fault\n");
-        unsafe {
-            crate::kprint!("DMA Location: {:?}\n", self.dma_address);
-            let ptr = self.dma_address.as_u32() as *mut u8;
-            *ptr = 0xaa;
+            self.recalibrate(DriveSelect::Secondary);
         }
 
         Ok(())
@@ -108,8 +108,6 @@ impl FloppyDriver {
     }
 
     fn reset(&self) -> Result<(), ControllerError> {
-        crate::kprint!("!!! FLOPPY RESET\n");
-
         self.mark_ready_for_interrupt();
         self.controller.dor_write(0);
         yield_coop();
@@ -160,7 +158,6 @@ impl FloppyDriver {
             return;
         }
         wait_for_io(timeout);
-        crate::kprint!("WAKE FROM INT\n");
     }
 
     fn dma(&self, command: Command, drive_number: u8, chs: ChsGeometry) -> Result<(), ControllerError> {
@@ -203,36 +200,66 @@ impl FloppyDriver {
         };
         self.dma(Command::WriteData, drive_number, chs)
     }
+
+    fn get_dma_buffer(&self) -> &mut [u8] {
+        unsafe {
+            let buffer_start = self.dma_vaddr.as_u32() as *mut u8;
+            let buffer_length = 0x1000;
+            core::slice::from_raw_parts_mut(buffer_start, buffer_length)
+        }
+    }
+
+    fn dma_prepare_load_sectors(&self, count: usize, dma_mode: u8) {
+        let dma_channel = DmaChannelRegisters::for_channel(2);
+        dma_channel.set_address(self.dma_paddr);
+        dma_channel.set_count((count * SECTOR_SIZE) as u32 - 1);
+        dma_channel.set_mode(dma_mode);
+    }
 }
 
 impl AsyncDriver for FloppyDriver {
     fn open(&mut self, path: &str) -> u32 {
-        crate::kprint!("Floppy Open Path {}\n", path);
         let index = path.parse::<usize>().unwrap();
         match self.attached.get(index) {
             None => panic!("Sub ID does not exist"),
             _ => (),
         }
+        let drive = match index {
+            1 => DriveSelect::Secondary,
+            _ => DriveSelect::Primary,
+        };
         let handle = OpenHandle {
-            drive: index,
+            drive,
             position: 0,
         };
         self.open_handle_map.insert(handle) as u32
     }
 
     fn read(&mut self, instance: u32, buffer: &mut [u8]) -> u32 {
-        let (drive_index, position) = match self.open_handle_map.get(instance as usize) {
+        let (drive_select, position) = match self.open_handle_map.get(instance as usize) {
             Some(handle) => (handle.drive, handle.position),
             None => return 0, // handle doesn't exist
         };
 
-        let mut bytes_read = 0;
+        let first_sector = position / SECTOR_SIZE;
+        let read_offset = position % SECTOR_SIZE;
+        let last_sector = (position + buffer.len()) / SECTOR_SIZE;
+        let sector_count = last_sector - first_sector + 1;
 
-        // set up DMA buffer
-        // initiate DMA to cache
-        // copy bytes from driver cache to callee buffer
-        
-        bytes_read
+        self.dma_prepare_load_sectors(sector_count, 0x56);
+        let chs = ChsGeometry::from_lba(first_sector);
+        self.read(drive_select, chs).unwrap();
+
+        let dma_buffer = self.get_dma_buffer();
+        for i in 0..buffer.len() {
+            buffer[i] = dma_buffer[read_offset + i];
+        }
+
+        let bytes_read = buffer.len();
+
+        self.open_handle_map.get_mut(instance as usize).unwrap().position += bytes_read;
+
+        bytes_read as u32
     }
 
     fn write(&mut self, instance: u32, buffer: &[u8]) -> u32 {
@@ -240,11 +267,17 @@ impl AsyncDriver for FloppyDriver {
     }
 
     fn close(&mut self, handle: u32) {
-        
+        self.open_handle_map.remove(handle as usize);
     }
 
     fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
-        0
+        let current_position = match self.open_handle_map.get(instance as usize) {
+            Some(handle) => handle.position,
+            None => return 0,
+        };
+        let new_position = offset.from_current_position(current_position);
+        self.open_handle_map.get_mut(instance as usize).unwrap().position = new_position;
+        new_position as u32
     }
 }
 
@@ -257,13 +290,14 @@ struct AttachedDrive {
 
 #[derive(Copy, Clone)]
 struct OpenHandle {
-    drive: usize,
+    drive: DriveSelect,
     position: usize,
 }
 
 const SECTORS_PER_TRACK: usize = 18;
 const SECTOR_SIZE: usize = 512; 
 
+#[derive(Debug)]
 struct ChsGeometry {
     pub cylinder: usize,
     pub head: usize,
@@ -341,7 +375,6 @@ static BLOCKED_DRIVER_TASK: AtomicU32 = AtomicU32::new(0);
 
 pub fn floppy_interrupt_handler(_irq: u32) {
     let task_complete = BLOCKED_DRIVER_TASK.swap(0, Ordering::SeqCst);
-    crate::kprint!("+ INT FLOPPY\n");
     if task_complete == 0 {
         return;
     }

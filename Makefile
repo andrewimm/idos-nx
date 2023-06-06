@@ -1,4 +1,5 @@
 diskimage := build/bootdisk.img
+userdata := build/datadisk.img
 bootsector := build/mbr.bin
 bootbin := build/boot.bin
 kernel := build/kernel.bin
@@ -14,7 +15,7 @@ clean:
 	@rm -r build
 
 run: bootdisk
-	@qemu-system-i386 -m 8M -drive format=raw,file=$(diskimage) -serial stdio -device floppy,unit=0,drive= -device floppy,unit=1,drive= -device isa-debug-exit,iobase=0xf4,iosize=4; \
+	@qemu-system-i386 -m 8M -drive format=raw,file=$(diskimage) -serial stdio -fda $(userdata) -device floppy,unit=1,drive= -device isa-debug-exit,iobase=0xf4,iosize=4; \
 	EXIT_CODE=$$?; \
 	exit $$(($$EXIT_CODE >> 1))
 
@@ -22,7 +23,11 @@ $(diskimage):
 	@mkdir -p $(shell dirname $@)
 	@mkfs.msdos -C $(diskimage) 1440
 
-bootdisk: $(diskimage) $(bootsector) $(bootbin) $(kernel)
+$(userdata):
+	@mkdir -p $(shell dirname $@)
+	@mkfs.msdos -C $(userdata) 1440
+
+bootdisk: $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
 	@mcopy -D o -i $(diskimage) $(bootbin) ::BOOT.BIN
 	@mcopy -D o -i $(diskimage) $(kernel) ::KERNEL.BIN

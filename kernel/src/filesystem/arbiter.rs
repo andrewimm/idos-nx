@@ -113,7 +113,7 @@ pub fn arbiter_task() -> ! {
         // drivers
         let (message_read, _) = read_message_blocking(None);
 
-        crate::kprint!("= Arbiter woke up\n");
+        //crate::kprint!("= Arbiter woke up\n");
 
         if let Some(next_message) = message_read {
             let (sender, message) = next_message.open();
@@ -124,7 +124,7 @@ pub fn arbiter_task() -> ! {
                         // TODO: error handling
                         request.response.lock().replace(message.1);
 
-                        crate::kprint!("  IO complete, resume {:?}\n", request.requestor_id);
+                        //crate::kprint!("  IO complete, resume {:?}\n", request.requestor_id);
                         if let Some(task_lock) = get_task(request.requestor_id) {
                             let mut task = task_lock.write();
                             task.io_complete();
@@ -136,7 +136,7 @@ pub fn arbiter_task() -> ! {
                 // if the driver has other messages queued up, send another one
                 match peek_pending_request(sender) {
                     Some(request_io) => {
-                        crate::kprint!("  Another IO request queued, beginning it!\n");
+                        //crate::kprint!("  Another IO request queued, beginning it!\n");
                         let next_message = encode_request(request_io);
                         send_message(sender, next_message, 0xffffffff);
                     },
@@ -160,7 +160,7 @@ pub fn arbiter_task() -> ! {
                     Some(request) => {
                         let driver_id = request.driver_id;
                         let io = request.io.clone();
-                        crate::kprint!("  IO Req: {:?}, to {:?}\n", io, request.driver_id);
+                        //crate::kprint!("  IO Req: {:?}, to {:?}\n", io, request.driver_id);
                         // look up queue for id, or create it if it doesn't exist
                         let len = add_outbound(request);
                         if len <= 1 {
@@ -170,7 +170,7 @@ pub fn arbiter_task() -> ! {
                             // pass the data to the driver
                             let message = encode_request(io);
                             send_message(driver_id, message, 0xffffffff);
-                            crate::kprint!("  Async message sent to {:?}\n", driver_id);
+                            //crate::kprint!("  Async message sent to {:?}\n", driver_id);
                         }
                     },
                     None => break,
@@ -178,6 +178,6 @@ pub fn arbiter_task() -> ! {
             }
         }
 
-        crate::kprint!("= Arbiter sleep\n");
+        //crate::kprint!("= Arbiter sleep\n");
     }
 }
