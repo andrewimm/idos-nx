@@ -42,6 +42,10 @@ pub fn get_driver_by_id(id: DriveID) -> Result<FileSystemDriver, ()> {
     DRIVE_MAP.get_driver(id).ok_or_else(|| ())
 }
 
+pub fn install_async_fs(name: &str, task: TaskID) {
+    DRIVE_MAP.install_async(name, task);
+}
+
 pub fn install_device_driver(name: &str, task: TaskID, sub_id: u32) -> Result<(), FsError> {
     let dev_fs_id = get_drive_id_by_name("DEV")?;
     let driver = get_driver_by_id(dev_fs_id).map_err(|_| FsError::DriveNotFound)?;
