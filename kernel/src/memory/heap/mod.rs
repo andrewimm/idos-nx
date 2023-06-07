@@ -26,11 +26,16 @@ impl Allocator {
 unsafe impl GlobalAlloc for Allocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut allocator = self.locked_allocator.lock();
-        let ptr = allocator.alloc(layout);
-        if ptr.is_null() {
-            panic!("Heap expansion needs to be implemented");
+        loop {
+            let ptr = allocator.alloc(layout);
+            if ptr.is_null() {
+                let space_needed = layout.size();
+                let pages_needed = (space_needed / 0x1000) + 1;
+                allocator.expand(pages_needed);
+            } else {
+                return ptr;
+            }
         }
-        ptr
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, _layout: Layout) {

@@ -148,8 +148,8 @@ fn task_a_body() -> ! {
 
     crate::kprint!("With the floppy available, mount a FAT drive\n");
     filesystem::drivers::fatfs::mount_fat_fs();
-    crate::kprint!("\n\n");
 
+    crate::kprint!("\n\nReading from COM1:\n");
     let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();
     let read_len = task::actions::io::read_file(com1, &mut buf).unwrap();
     let res = core::str::from_utf8(&buf[..read_len]).unwrap();

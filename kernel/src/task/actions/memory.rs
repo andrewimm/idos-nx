@@ -10,6 +10,6 @@ pub fn map_memory(addr: Option<VirtualAddress>, size: u32, backing: MemoryBackin
 pub fn map_memory_for_task(task_id: TaskID, addr: Option<VirtualAddress>, size: u32, backing: MemoryBacking) -> Result<VirtualAddress, TaskMemoryError> {
     let task_lock = get_task(task_id).ok_or(TaskMemoryError::NoTask)?;
     let mut task = task_lock.write();
-    task.memory_mapping.map_memory(None, size, backing)
+    task.memory_mapping.map_memory(addr, size, backing)
 }
 

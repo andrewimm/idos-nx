@@ -136,6 +136,26 @@ impl ListAllocator {
         }
     }
 
+    pub fn find_last_node(&self) -> &mut AllocNode {
+        let mut current = self.first_free;
+        loop {
+            let node_ptr = current as *mut AllocNode;
+            let node = unsafe { &mut *node_ptr };
+            if node.next == 0 {
+                return node;
+            }
+            current = node.next as usize;
+        }
+    }
+
+    pub fn expand(&mut self, page_count: usize) {
+        let expanded_bytes = 0x1000 * page_count;
+        let last_node = self.find_last_node();
+        last_node.size += expanded_bytes as u32;
+        self.size += expanded_bytes;
+        crate::kprint!("Heap expanded\n");
+    }
+
     pub unsafe fn alloc(&mut self, layout: Layout) -> *mut u8 {
         let mut prev = 0;
         let mut current = self.first_free;
