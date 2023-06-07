@@ -18,10 +18,10 @@ impl FatFS {
     pub fn new(mount: &str) -> Self {
         let mut disk = DiskAccess::new(mount);
 
-        //let mut volume_label: [u8; 11] = [0x20; 11];
-        //disk.read_bytes_from_disk(0x2b, &mut volume_label);
-        //let label_str = core::str::from_utf8(&volume_label).unwrap();
-        //crate::kprint!("FAT VOLUME LABEL: \"{}\"\n", label_str);
+        let mut volume_label: [u8; 11] = [0x20; 11];
+        disk.read_bytes_from_disk(0x2b, &mut volume_label);
+        let label_str = core::str::from_utf8(&volume_label).unwrap();
+        crate::kprint!("FAT VOLUME LABEL: \"{}\"\n", label_str);
 
         Self {
             disk,

@@ -24,12 +24,20 @@ impl DiskAccess {
 
         let buffer_location = map_memory(None, buffer_size as u32, MemoryBacking::Anonymous).unwrap();
 
-        Self {
+        let mut disk = Self {
             mount_handle,
             buffer_location,
             buffer_size,
             cache_entries: Vec::new(),
+        };
+
+        // zero out the cache
+        let cache = disk.get_buffer();
+        for i in 0..cache.len() {
+            cache[i] = 0;
         }
+
+        disk
     }
 
     fn get_buffer(&self) -> &mut [u8] {

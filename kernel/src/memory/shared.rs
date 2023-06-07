@@ -18,7 +18,10 @@
 //! the other task. The receiving task must be trusted to not mess with
 //! anything outside of that explicitly shared range.
 
+use crate::task::actions::memory::map_memory_for_task;
 use crate::task::id::TaskID;
+use crate::task::memory::MemoryBacking;
+use crate::task::paging::get_current_physical_address;
 use crate::task::switching::get_current_id;
 use super::address::{PhysicalAddress, VirtualAddress};
 
@@ -35,8 +38,7 @@ impl SharedMemoryRange {
         let start = slice.as_ptr() as u32;
 
         let mapped_to = VirtualAddress::new(start).prev_page_barrier();
-        // TODO: find this from the mapping table
-        let physical_frame = PhysicalAddress::new(0);
+        let physical_frame = get_current_physical_address(mapped_to).expect("Cannot share unpaged memory!");
         let range_offset = start - mapped_to.as_u32();
         let range_length = (slice.len() * core::mem::size_of::<T>()) as u32;
 
@@ -54,7 +56,16 @@ impl SharedMemoryRange {
     /// Map the page containing the range
     pub fn share_with_task(&self, id: TaskID) -> Self {
         if self.mapped_to < VirtualAddress::new(0xc0000000) {
-            panic!("Shared memory ranges are only supported in the kernel for now!");
+            // TODO: we're going to need to clean this up when sharing is done
+            let mapped_to = map_memory_for_task(id, None, 4096, MemoryBacking::Direct(self.physical_frame)).unwrap();
+
+            Self {
+                owner: id,
+                mapped_to,
+                physical_frame: self.physical_frame,
+                range_offset: self.range_offset,
+                range_length: self.range_length,
+            }
         } else {
             // in the kernel space, all memory is shared, so nothing needs to
             // be mapped or unmapped. Just create a new instance of the struct.
@@ -87,3 +98,64 @@ impl SharedMemoryRange {
         unsafe { Some(core::slice::from_raw_parts_mut(start_ptr, len as usize)) }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::task::{
+        actions::{
+            memory::map_memory,
+            lifecycle::{create_kernel_task, terminate, wait_for_child},
+            read_message_blocking, send_message,
+        },
+        memory::MemoryBacking, messaging::Message,
+    };
+    use super::SharedMemoryRange;
+
+    #[test_case]
+    fn sharing_within_kernel() {
+    }
+
+    #[test_case]
+    fn sharing_outside_kernel() {
+        // create a buffer
+        let addr = map_memory(None, 4096, MemoryBacking::Anonymous).unwrap();
+        let mut buffer = unsafe {
+            core::slice::from_raw_parts_mut(addr.as_u32() as *mut u8, 4096)
+        };
+        for i in 0..10 {
+            buffer[i] = 0;
+        }
+
+        let child = create_kernel_task(outside_kernel_subtask);
+        let range = SharedMemoryRange::for_slice(&buffer[0..10]);
+        let shared = range.share_with_task(child);
+
+        send_message(
+            child,
+            Message(shared.get_range_start(), shared.range_length, 0, 0),
+            0xffffffff,
+        );
+
+        wait_for_child(child, None);
+
+        for i in 0..10 {
+            assert_eq!(buffer[i], i as u8);
+        }
+    }
+
+    fn outside_kernel_subtask() -> ! {
+        let (message_read, _) = read_message_blocking(None);
+        let packet = message_read.unwrap();
+        let (_, message) = packet.open();
+        let addr = message.0;
+        let size = message.1 as usize;
+        let mut buffer = unsafe {
+            core::slice::from_raw_parts_mut(addr as *mut u8, size)
+        };
+        for i in 0..10 {
+            buffer[i] = i as u8;
+        }
+        terminate(0);
+    }
+}
+

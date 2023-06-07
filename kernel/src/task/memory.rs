@@ -208,6 +208,7 @@ pub enum TaskMemoryError {
     NotEnoughMemory,
     NotMapped,
     UnmapNotPageMultiple,
+    NoTask,
 }
 
 #[cfg(test)]
