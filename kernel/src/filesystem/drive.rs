@@ -76,7 +76,7 @@ impl DriveMap {
 
     pub fn get_driver(&self, id: DriveID) -> Option<FileSystemDriver> {
         self.map.read().get(&id).map(|(_, fs)| {
-            crate::kprint!("    ACCESS FS {:?}\n", id);
+            //crate::kprint!("    ACCESS FS {:?}\n", id);
             fs.clone()
         })
     }

@@ -59,6 +59,8 @@ impl SharedMemoryRange {
             // TODO: we're going to need to clean this up when sharing is done
             let mapped_to = map_memory_for_task(id, None, 4096, MemoryBacking::Direct(self.physical_frame)).unwrap();
 
+            crate::kprint!("SHARING to {:?}. {:?} / {:?} -> {:?}\n", id, self.mapped_to, mapped_to, self.physical_frame);
+
             Self {
                 owner: id,
                 mapped_to,

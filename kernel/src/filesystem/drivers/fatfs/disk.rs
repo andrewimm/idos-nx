@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
+use crate::files::cursor::SeekMethod;
 use crate::memory::address::VirtualAddress;
-use crate::task::actions::io::{open_path, read_file};
+use crate::task::actions::io::{open_path, read_file, seek_file};
 use crate::task::actions::memory::map_memory;
 use crate::task::files::FileHandle;
 use crate::task::memory::MemoryBacking;
@@ -74,6 +75,8 @@ impl DiskAccess {
                 }
             );
             let cache_buffer = self.get_buffer_sector(index);
+            let seek_to = lba as usize * 512;
+            seek_file(self.mount_handle, SeekMethod::Absolute(seek_to));
             read_file(self.mount_handle, cache_buffer).unwrap();
 
             index
@@ -103,6 +106,15 @@ impl DiskAccess {
         }
 
         bytes_read
+    }
+
+    pub fn read_struct_from_disk<S: Sized>(&mut self, offset: u32, s: &mut S) {
+        let buffer_ptr = s as *mut S as *mut u8;
+        let buffer_size = core::mem::size_of::<S>();
+        let buffer = unsafe {
+            core::slice::from_raw_parts_mut(buffer_ptr, buffer_size)
+        };
+        self.read_bytes_from_disk(offset, buffer);
     }
 }
 

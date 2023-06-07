@@ -30,6 +30,46 @@ pub struct DirEntry {
     byte_size: u32,
 }
 
+impl DirEntry {
+    pub fn new() -> Self {
+        Self {
+            file_name: [0x20; 8],
+            ext: [0x20; 3],
+            attributes: 0,
+            nonstandard_attributes: 0,
+            fine_create_time: 0,
+            creation_time: FileTime(0),
+            creation_date: FileDate(0),
+            access_date: FileDate(0),
+            extended_attributes: 0,
+            last_modify_time: FileTime(0),
+            last_modify_date: FileDate(0),
+            first_file_cluster: 0,
+            byte_size: 0,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self.file_name[0] {
+            0x00 => true,
+            0xe5 => true,
+            _ => false,
+        }
+    }
+
+    pub fn get_filename(&self) -> &str {
+        unsafe {
+            core::str::from_utf8_unchecked(&self.file_name)
+        }
+    }
+
+    pub fn get_ext(&self) -> &str {
+        unsafe {
+            core::str::from_utf8_unchecked(&self.ext)
+        }
+    }
+}
+
 #[derive(Copy, Clone)]
 #[repr(transparent)]
 pub struct FileTime(u16);
@@ -64,6 +104,9 @@ impl FileDate {
     pub fn get_day(&self) -> u16 {
         self.0 & 0x1f
     }
+}
+
+pub struct RootDirectory {
 }
 
 pub struct Directory {
