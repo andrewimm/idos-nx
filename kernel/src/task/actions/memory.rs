@@ -1,5 +1,5 @@
 use crate::memory::address::VirtualAddress;
-use crate::task::paging::ExternalPageDirectory;
+use crate::task::paging::{ExternalPageDirectory, current_pagedir_unmap};
 use super::super::id::TaskID;
 use super::super::memory::{MemoryBacking, TaskMemoryError};
 use super::super::switching::{get_current_id, get_task};
@@ -21,7 +21,12 @@ pub fn unmap_memory_for_task(task_id: TaskID, addr: VirtualAddress, size: u32) -
         task.memory_mapping.unmap_memory(addr, size);
     }
     if task_id == get_current_id() {
-        // TODO: explicitly unmap from page table
+        let mut offset = 0;
+        while offset < size {
+            let mapping = addr + offset;
+            current_pagedir_unmap(mapping);
+            offset += 4096;
+        }
     } else {
         let pagedir = ExternalPageDirectory::for_task(task_id);
         let mut offset = 0;

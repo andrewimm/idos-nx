@@ -122,6 +122,25 @@ pub fn current_pagedir_map_explicit(paddr: PhysicalAddress, vaddr: VirtualAddres
     }
 }
 
+pub fn current_pagedir_unmap(vaddr: VirtualAddress) -> Option<PhysicalAddress> {
+    crate::kprint!("Unmapping {:?}\n", vaddr);
+    let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
+    let dir_index = vaddr.get_page_directory_index();
+    let table_index = vaddr.get_page_table_index();
+
+    let entry = current_dir.get(dir_index);
+    if !entry.is_present() {
+        return None;
+    }
+    let table_address = VirtualAddress::new(0xffc00000 + (dir_index as u32 * 0x1000));
+    let table = PageTable::at_address(table_address);
+    if !table.get(table_index).is_present() {
+        return None;
+    }
+    table.get_mut(table_index).clear_present();
+    Some(table.get(table_index).get_address())
+}
+
 /// Get the physical address backing a virtual address in the current page
 /// directory.
 /// If that part of memory is not backed by anything, this method returns None.
