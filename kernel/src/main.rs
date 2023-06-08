@@ -147,7 +147,14 @@ fn task_a_body() -> ! {
 
 
     crate::kprint!("With the floppy available, mount a FAT drive\n");
+    task::actions::sleep(2000);
     filesystem::drivers::fatfs::mount_fat_fs();
+    let kernelbin = task::actions::io::open_path("A:\\KERNEL.BIN").unwrap();
+    task::actions::io::read_file(kernelbin, &mut buf).unwrap();
+    for i in 0..buf.len() {
+        crate::kprint!("{:#04X} ", buf[i]);
+    }
+    crate::kprint!("\n");
 
     crate::kprint!("\n\nReading from COM1:\n");
     let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();

@@ -1,3 +1,4 @@
+#[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct BiosParamBlock {
     pub bytes_per_sector: u16,
@@ -28,5 +29,9 @@ impl BiosParamBlock {
         let fat_sectors = (self.fat_count as u32) * (self.sectors_per_fat as u32);
 
         (self.reserved_sectors as u32) + fat_sectors
+    }
+
+    pub fn root_directory_size(&self) -> u32 {
+        self.root_directory_entries as u32 * 32
     }
 }

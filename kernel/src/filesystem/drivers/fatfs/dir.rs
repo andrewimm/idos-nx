@@ -1,3 +1,7 @@
+use alloc::string::String;
+
+use super::{disk::DiskAccess, table::AllocationTable};
+
 /// On-disk representation of a file or subdirectory
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
@@ -58,15 +62,18 @@ impl DirEntry {
     }
 
     pub fn get_filename(&self) -> &str {
-        unsafe {
-            core::str::from_utf8_unchecked(&self.file_name)
+        let mut len = 8;
+        for i in 0..8 {
+            if self.file_name[i] == 0x20 {
+                len = i;
+                break;
+            }
         }
+        core::str::from_utf8(&self.file_name[..len]).unwrap_or("!!!!!!!!")
     }
 
     pub fn get_ext(&self) -> &str {
-        unsafe {
-            core::str::from_utf8_unchecked(&self.ext)
-        }
+        core::str::from_utf8(&self.ext).unwrap_or("!!!")
     }
 }
 
@@ -107,11 +114,103 @@ impl FileDate {
 }
 
 pub struct RootDirectory {
+    first_sector: u32,
+    max_sectors: u32,
 }
 
+impl RootDirectory {
+    pub fn new(first_sector: u32, max_entries: u32) -> Self {
+        let max_sectors = max_entries * 32 / 512;
+        Self {
+            first_sector,
+            max_sectors,
+        }
+    }
+
+    pub fn iter<'disk>(&self, disk: &'disk mut DiskAccess) -> RootDirectoryIter<'disk> {
+        let mut current = DirEntry::new();
+        let dir_offset = self.first_sector * 512;
+        disk.read_struct_from_disk(dir_offset, &mut current);
+
+        RootDirectoryIter {
+            disk,
+            dir_offset,
+            current_index: 0,
+            current,
+        }
+    }
+
+    pub fn find_entry(&self, name: &str, disk: &mut DiskAccess) -> Option<File> {
+        let (filename, ext) = match name.rsplit_once('.') {
+            Some(pair) => pair,
+            None => (name, ""),
+        };
+        for entry in self.iter(disk) {
+            if entry.get_filename() == filename && entry.get_ext() == ext {
+                return Some(File::from_dir_entry(entry));
+            }
+        }
+        None
+    }
+}
+
+pub struct RootDirectoryIter<'disk> {
+    disk: &'disk mut DiskAccess,
+    dir_offset: u32,
+    current_index: u32,
+    current: DirEntry,
+}
+
+impl Iterator for RootDirectoryIter<'_> {
+    type Item = DirEntry;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current.is_empty() {
+            return None;
+        }
+
+        let entry = self.current.clone();
+        self.current_index += 1;
+        let offset = self.dir_offset + self.current_index * core::mem::size_of::<DirEntry>() as u32;
+        self.disk.read_struct_from_disk(offset, &mut self.current);
+
+        Some(entry)
+    }
+}
+
+#[derive(Copy, Clone)]
 pub struct Directory {
 }
 
+#[derive(Copy, Clone)]
 pub struct File {
+    dir_entry: DirEntry,
 }
 
+impl File {
+    pub fn from_dir_entry(dir_entry: DirEntry) -> Self {
+        Self {
+            dir_entry,
+        }
+    }
+
+    pub fn file_name(&self) -> String {
+        let mut full_name = String::from(self.dir_entry.get_filename());
+        full_name.push('.');
+        full_name.push_str(self.dir_entry.get_ext());
+        full_name
+    }
+
+    pub fn byte_size(&self) -> u32 {
+        self.dir_entry.byte_size
+    }
+
+    pub fn read(&self, buffer: &mut [u8], offset: u32, table: AllocationTable, disk: &mut DiskAccess) -> u32 {
+        let current_relative_cluster = offset / table.bytes_per_cluster();
+        let cluster_offset = offset % table.bytes_per_cluster();
+        let current_cluster = self.dir_entry.first_file_cluster as u32 + current_relative_cluster;
+        let cluster_location = table.get_cluster_location(current_cluster);
+
+        disk.read_bytes_from_disk(cluster_location + cluster_offset, buffer)
+    }
+}
