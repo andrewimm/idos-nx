@@ -4,8 +4,9 @@ use crate::memory::physical::allocated_frame::AllocatedFrame;
 use crate::memory::virt::invalidate_page;
 use crate::memory::virt::page_table::PageTable;
 use crate::memory::virt::scratch::UnmappedPage;
+use super::id::TaskID;
 use super::memory::{MemMappedRegion, MemoryBacking};
-use super::switching::get_current_task;
+use super::switching::{get_current_task, get_task};
 
 /// PermissionFlags are used by kernel or user code to request the extra
 /// permission bits applied to paged memory
@@ -166,3 +167,42 @@ pub fn get_flags_for_region(region: &MemMappedRegion) -> PermissionFlags {
     PermissionFlags::new(flags)
 }
 
+/// Represents the page directory of a separate task
+pub struct ExternalPageDirectory {
+    id: TaskID,
+    page_directory_location: PhysicalAddress,
+}
+
+impl ExternalPageDirectory {
+    pub fn for_task(id: TaskID) -> Self {
+        let task_lock = get_task(id).unwrap();
+        let page_directory_location = task_lock.read().page_directory;
+
+        Self {
+            id,
+            page_directory_location,
+        }
+    }
+
+    pub fn unmap(&self, address: VirtualAddress) -> Option<PhysicalAddress> {
+        crate::kprint!("Unmap {:?} for {:?}\n", address, self.id);
+        let dir_index = address.get_page_directory_index();
+        let table_index = address.get_page_table_index();
+
+        let unmapped_for_dir = UnmappedPage::map(self.page_directory_location);
+        let page_dir = PageTable::at_address(unmapped_for_dir.virtual_address());
+        if !page_dir.get(dir_index).is_present() {
+            return None;
+        }
+        let table_location = page_dir.get(dir_index).get_address();
+
+        let unmapped_for_table = UnmappedPage::map(table_location);
+        let page_table = PageTable::at_address(unmapped_for_table.virtual_address());
+        if !page_table.get(table_index).is_present() {
+            return None;
+        }
+        let backing = page_table.get(table_index).get_address();
+        page_table.get_mut(table_index).clear_present();
+        Some(backing)
+    }
+}

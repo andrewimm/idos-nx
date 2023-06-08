@@ -18,7 +18,7 @@
 //! the other task. The receiving task must be trusted to not mess with
 //! anything outside of that explicitly shared range.
 
-use crate::task::actions::memory::map_memory_for_task;
+use crate::task::actions::memory::{map_memory_for_task, unmap_memory_for_task};
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::paging::get_current_physical_address;
@@ -26,6 +26,7 @@ use crate::task::switching::get_current_id;
 use super::address::{PhysicalAddress, VirtualAddress};
 
 pub struct SharedMemoryRange {
+    pub unmap_on_drop: bool,
     pub owner: TaskID,
     pub mapped_to: VirtualAddress,
     pub physical_frame: PhysicalAddress,
@@ -45,6 +46,7 @@ impl SharedMemoryRange {
         let owner = get_current_id();
 
         Self {
+            unmap_on_drop: false,
             owner,
             mapped_to,
             physical_frame,
@@ -62,6 +64,7 @@ impl SharedMemoryRange {
             crate::kprint!("SHARING to {:?}. {:?} / {:?} -> {:?}\n", id, self.mapped_to, mapped_to, self.physical_frame);
 
             Self {
+                unmap_on_drop: true,
                 owner: id,
                 mapped_to,
                 physical_frame: self.physical_frame,
@@ -72,6 +75,7 @@ impl SharedMemoryRange {
             // in the kernel space, all memory is shared, so nothing needs to
             // be mapped or unmapped. Just create a new instance of the struct.
             Self {
+                unmap_on_drop: false,
                 owner: id,
                 mapped_to: self.mapped_to,
                 physical_frame: self.physical_frame,
@@ -98,6 +102,17 @@ impl SharedMemoryRange {
 
         let start_ptr = self.get_range_start() as *mut T;
         unsafe { Some(core::slice::from_raw_parts_mut(start_ptr, len as usize)) }
+    }
+}
+
+impl Drop for SharedMemoryRange {
+    fn drop(&mut self) {
+        if !self.unmap_on_drop {
+            return;
+        }
+        crate::kprint!("SHARE: Unmap {:?} for {:?}, no longer in use\n", self.mapped_to, self.owner);
+
+        unmap_memory_for_task(self.owner, self.mapped_to, 4096);
     }
 }
 
