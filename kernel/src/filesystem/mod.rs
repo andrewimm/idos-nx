@@ -15,6 +15,7 @@ use crate::task::id::TaskID;
 use crate::devices::zero::ZeroDriver;
 
 use self::drivers::devfs::DevFileSystem;
+use self::kernel::KernelFileSystem;
 
 static DRIVE_MAP: DriveMap = DriveMap::new();
 
@@ -31,6 +32,8 @@ pub fn init_fs() {
     let async_demo = create_kernel_task(drivers::demofs::demo_fs_task);
     DRIVE_MAP.install_async("DEMO", async_demo);
 
+    crate::pipes::install_fs();
+
     create_kernel_task(arbiter::arbiter_task);
 }
 
@@ -40,6 +43,10 @@ pub fn get_drive_id_by_name(name: &str) -> Result<DriveID, FsError> {
 
 pub fn get_driver_by_id(id: DriveID) -> Result<FileSystemDriver, ()> {
     DRIVE_MAP.get_driver(id).ok_or_else(|| ())
+}
+
+pub fn install_kernel_fs(name: &str, fs: Box<dyn KernelFileSystem + Sync + Send>) -> DriveID {
+    DRIVE_MAP.install(name, fs)
 }
 
 pub fn install_async_fs(name: &str, task: TaskID) {

@@ -29,6 +29,7 @@ pub mod io;
 pub mod log;
 pub mod memory;
 pub mod panic;
+pub mod pipes;
 pub mod task;
 pub mod time;
 
