@@ -4,6 +4,8 @@ use crate::files::cursor::SeekMethod;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::filesystem::kernel::KernelFileSystem;
+use crate::task::actions::lifecycle::wait_for_io;
+use crate::task::switching::{get_current_id, get_task};
 use spin::RwLock;
 use super::Pipe;
 
@@ -38,34 +40,47 @@ impl PipeDriver {
     }
 
     fn write_pipe(pipe_index: usize, buffer: &[u8]) -> Result<usize, ()> {
-        let ring_buffer = PIPES.read()
+        let (ring_buffer, blocked) = PIPES.read()
             .get(pipe_index)
             .ok_or(())
-            .map(|pipe| pipe.get_ring_buffer())?;
+            .map(|pipe| (pipe.get_ring_buffer(), pipe.get_blocked_reader()))?;
 
         let mut index = 0;
         while index < buffer.len() {
             if !ring_buffer.write(buffer[index]) {
-                return Ok(index);
+                break;
             }
             index += 1;
+        }
+        if index > 0 {
+            let task_lock = blocked.and_then(|id| get_task(id));
+            if let Some(lock) = task_lock {
+                let mut task = lock.write();
+                task.io_complete();
+            }
         }
         Ok(index)
     }
 
     fn read_pipe(pipe_index: usize, buffer: &mut [u8]) -> Result<usize, ()> {
-        let ring_buffer = PIPES.read()
-            .get(pipe_index)
-            .ok_or(())
-            .map(|pipe| pipe.get_ring_buffer())?;
-
+        let ring_buffer = {
+            let mut pipes = PIPES.write();
+            let pipe = pipes.get_mut(pipe_index).ok_or(())?;
+            pipe.set_blocked_reader(get_current_id());
+            pipe.get_ring_buffer()
+        };
         let mut index = 0;
         while index < buffer.len() {
             match ring_buffer.read() {
                 Some(value) => buffer[index] = value,
-                None => return Ok(index),
+                None => wait_for_io(None),
             }
             index += 1;
+        }
+        {
+            let mut pipes = PIPES.write();
+            let pipe = pipes.get_mut(pipe_index).unwrap();
+            pipe.clear_blocked_reader();
         }
         Ok(index)
     }

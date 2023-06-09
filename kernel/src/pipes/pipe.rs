@@ -1,12 +1,14 @@
 use alloc::{vec::Vec, boxed::Box, sync::Arc};
 
 use crate::collections::RingBuffer;
+use crate::task::id::TaskID;
 
 const DEFAULT_SIZE: usize = 256;
 
 pub struct Pipe<'buffer> {
     ring_buffer: Arc<RingBuffer<'buffer, u8>>,
     buffer_raw: *mut [u8],
+    blocked_reader: Option<TaskID>,
 }
 
 impl<'buffer> Pipe<'buffer> {
@@ -29,12 +31,25 @@ impl<'buffer> Pipe<'buffer> {
         Self {
             ring_buffer: Arc::new(rb),
             buffer_raw,
+            blocked_reader: None,
         }
     }
 
     pub fn get_ring_buffer(&self) -> Arc<RingBuffer<'buffer, u8>> {
         self.ring_buffer.clone()
     } 
+
+    pub fn set_blocked_reader(&mut self, task: TaskID) {
+        self.blocked_reader = Some(task);
+    }
+
+    pub fn clear_blocked_reader(&mut self) {
+        self.blocked_reader = None;
+    }
+
+    pub fn get_blocked_reader(&self) -> Option<TaskID> {
+        self.blocked_reader
+    }
 }
 
 impl<'buffer> Drop for Pipe<'buffer> {

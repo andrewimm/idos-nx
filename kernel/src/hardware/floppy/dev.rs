@@ -6,9 +6,11 @@ use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::hardware::dma::DmaChannelRegisters;
 use crate::interrupts::pic::install_interrupt_handler;
 use crate::memory::address::{VirtualAddress, PhysicalAddress};
+use crate::task::actions::io::{open_pipe, transfer_handle, write_file, read_file};
 use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::{read_message_blocking, send_message, yield_coop};
+use crate::task::files::FileHandle;
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::paging::page_on_demand;
@@ -356,6 +358,8 @@ fn run_driver() -> ! {
     driver_impl.init().unwrap();
 
     crate::kprint!("Detected {} Floppy drive(s)\n", fd_count);
+
+    write_file(FileHandle::new(0), &[1]);
  
     loop {
         let (message_read, _) = read_message_blocking(None);
@@ -387,5 +391,9 @@ pub fn floppy_interrupt_handler(_irq: u32) {
 
 
 pub fn install_drivers() {
-    create_kernel_task(run_driver);
+    let (pipe_read, pipe_write) = open_pipe().unwrap();
+    let driver_task = create_kernel_task(run_driver);
+    transfer_handle(pipe_write, driver_task).unwrap();
+
+    read_file(pipe_read, &mut [0u8]).unwrap();
 }

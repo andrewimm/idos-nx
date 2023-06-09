@@ -2,8 +2,10 @@ use alloc::vec::Vec;
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
+use crate::task::actions::io::{transfer_handle, open_pipe, read_file, write_file};
 use crate::task::actions::lifecycle::{create_kernel_task, terminate};
 use crate::task::actions::{read_message_blocking, send_message};
+use crate::task::files::FileHandle;
 use crate::task::messaging::Message;
 use crate::task::switching::get_current_id;
 use crate::filesystem::install_device_driver;
@@ -156,6 +158,8 @@ fn run_driver() -> ! {
 
     crate::kprint!("Detected {} ATA device(s)\n", ata_count);
 
+    write_file(FileHandle::new(0), &[1]);
+
     loop {
         let (message_read, _) = read_message_blocking(None);
         if let Some(packet) = message_read {
@@ -178,8 +182,11 @@ pub fn install_drivers() {
 
     let mut driver_no = 0;
     for (base_port, control_port) in configs {
+        let (pipe_read, pipe_write) = open_pipe().unwrap();
         let task = create_kernel_task(run_driver);
+        transfer_handle(pipe_write, task).unwrap();
         send_message(task, Message(driver_no, base_port, control_port, 0), 0xffffffff);
+        read_file(pipe_read, &mut [0u8]).unwrap();
         driver_no += 1;
     }
 }

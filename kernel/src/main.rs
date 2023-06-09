@@ -148,7 +148,6 @@ fn task_a_body() -> ! {
 
 
     crate::kprint!("With the floppy available, mount a FAT drive\n");
-    task::actions::sleep(2000);
     filesystem::drivers::fatfs::mount_fat_fs();
     let kernelbin = task::actions::io::open_path("A:\\KERNEL.BIN").unwrap();
     task::actions::io::read_file(kernelbin, &mut buf).unwrap();

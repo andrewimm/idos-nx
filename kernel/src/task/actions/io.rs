@@ -5,7 +5,8 @@ use crate::filesystem::drive::DriveID;
 use crate::filesystem::{get_driver_by_id, get_drive_id_by_name};
 use crate::pipes::{create_pipe, get_pipe_drive_id};
 use crate::task::files::{OpenFile, CurrentDrive};
-use crate::task::switching::get_current_task;
+use crate::task::id::TaskID;
+use crate::task::switching::{get_current_task, get_task};
 
 use super::super::files::FileHandle;
 
@@ -113,6 +114,23 @@ pub fn open_pipe() -> Result<(FileHandle, FileHandle), IOError> {
         FileHandle::new(read_handle_index),
         FileHandle::new(write_handle_index),
     ))
+}
+
+/// Transfer an open file handle to another task
+pub fn transfer_handle(handle: FileHandle, task: TaskID) -> Result<FileHandle, IOError> {
+    let open_file = {
+        let task_lock = get_current_task();
+        let mut task = task_lock.write();
+        task.open_files.remove(handle.into()).ok_or(IOError::FileHandleInvalid)?
+    };
+
+    let new_index = {
+        let task_lock = get_task(task).ok_or(IOError::NotFound)?;
+        let mut task = task_lock.write();
+        task.open_files.insert(open_file)
+    };
+
+    Ok(FileHandle::new(new_index))
 }
 
 /// Open a directory at a specified path. Similar to opening a file,
