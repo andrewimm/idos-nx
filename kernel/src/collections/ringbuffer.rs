@@ -12,7 +12,6 @@ pub struct RingBuffer<'buffer, T: Sized> {
 
 impl<'buffer, T: Sized + Copy> RingBuffer<'buffer, T> {
     pub fn for_buffer(data: &'buffer [T]) -> Self {
-        crate::kprint!("RB Size: {}\n", data.len() - 1);
         Self {
             data,
             size: data.len() - 1,

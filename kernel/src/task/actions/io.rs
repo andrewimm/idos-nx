@@ -3,6 +3,7 @@ use crate::files::cursor::SeekMethod;
 use crate::files::path::Path;
 use crate::filesystem::drive::DriveID;
 use crate::filesystem::{get_driver_by_id, get_drive_id_by_name};
+use crate::pipes::{create_pipe, get_pipe_drive_id};
 use crate::task::files::{OpenFile, CurrentDrive};
 use crate::task::switching::get_current_task;
 
@@ -81,6 +82,37 @@ pub fn open_path<'path>(path_string: &'path str) -> Result<FileHandle, IOError> 
     };
 
     Ok(FileHandle::new(open_handle_index))
+}
+
+pub fn open_pipe() -> Result<(FileHandle, FileHandle), IOError> {
+    let (read_handle, write_handle) = create_pipe();
+    let drive_id = get_pipe_drive_id();
+
+    let (read_handle_index, write_handle_index) = {
+        let task_lock = get_current_task();
+        let mut task = task_lock.write();
+        let read = task.open_files.insert(
+            OpenFile {
+                drive: drive_id,
+                driver_handle: read_handle,
+                filename: Path::from_str("READ PIPE"),
+            }
+        );
+        let write = task.open_files.insert(
+            OpenFile {
+                drive: drive_id,
+                driver_handle: write_handle,
+                filename: Path::from_str("WRITE PIPE"),
+            }
+        );
+
+        (read, write)
+    };
+
+    Ok((
+        FileHandle::new(read_handle_index),
+        FileHandle::new(write_handle_index),
+    ))
 }
 
 /// Open a directory at a specified path. Similar to opening a file,
