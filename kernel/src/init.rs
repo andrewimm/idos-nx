@@ -72,6 +72,7 @@ pub unsafe fn init_memory() {
         offset = in(reg) stack_offset,
     );
     crate::kprint!("STACK RELOCATED\n");
+    crate::memory::physical::with_allocator(|alloc| alloc.move_to_highmem());
 
     // enable the heap, so that the alloc crate can be used
     heap::init_allocator(heap_start);

@@ -26,6 +26,7 @@ pub mod hardware;
 pub mod init;
 pub mod interrupts;
 pub mod io;
+pub mod loader;
 pub mod log;
 pub mod memory;
 pub mod panic;
@@ -149,12 +150,17 @@ fn task_a_body() -> ! {
 
     crate::kprint!("With the floppy available, mount a FAT drive\n");
     filesystem::drivers::fatfs::mount_fat_fs();
-    let kernelbin = task::actions::io::open_path("A:\\KERNEL.BIN").unwrap();
-    task::actions::io::read_file(kernelbin, &mut buf).unwrap();
+    let testbin = task::actions::io::open_path("A:\\TEST.BIN").unwrap();
+    task::actions::io::read_file(testbin, &mut buf).unwrap();
     for i in 0..buf.len() {
         crate::kprint!("{:#04X} ", buf[i]);
     }
     crate::kprint!("\n");
+
+    let exec_child = task::actions::lifecycle::create_task();
+    task::actions::lifecycle::attach_executable_to_task(exec_child, "A:\\TEST.BIN");
+    task::actions::lifecycle::wait_for_child(exec_child, None);
+
 
     crate::kprint!("\n\nReading from COM1:\n");
     let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();

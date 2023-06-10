@@ -44,10 +44,9 @@ pub fn set_active_drive(drive_name: &str) -> Result<DriveID, IOError> {
     }
 }
 
-/// Open a file at a specified path. If the provided string is not an absolute
-/// path, it will be opened relative to the current task's working directory.
-/// On success, a new File Handle will be opened and returned.
-pub fn open_path<'path>(path_string: &'path str) -> Result<FileHandle, IOError> {
+/// Do the actual work of opening a file from a filesystem driver, but don't
+/// attach it to the current task yet
+pub fn prepare_open_file(path_string: &str) -> Result<OpenFile, IOError> {
     let (drive_id, path) = if Path::is_absolute(path_string) {
         let mut parts = path_string.split(':');
         let drive_name = parts.next().ok_or(IOError::NotFound)?;
@@ -70,16 +69,25 @@ pub fn open_path<'path>(path_string: &'path str) -> Result<FileHandle, IOError> 
         .open(path.clone())
         .map_err(|_| IOError::NotFound)?;
 
+    Ok(
+        OpenFile {
+            drive: drive_id,
+            driver_handle,
+            filename: path,
+        }
+    )
+}
+
+/// Open a file at a specified path. If the provided string is not an absolute
+/// path, it will be opened relative to the current task's working directory.
+/// On success, a new File Handle will be opened and returned.
+pub fn open_path<'path>(path_string: &'path str) -> Result<FileHandle, IOError> {
+    let open_file = prepare_open_file(path_string)?;
+
     let open_handle_index = {
         let task_lock = get_current_task();
         let mut task = task_lock.write();
-        task.open_files.insert(
-            OpenFile {
-                drive: drive_id,
-                driver_handle,
-                filename: path,
-            }
-        )
+        task.open_files.insert(open_file)
     };
 
     Ok(FileHandle::new(open_handle_index))

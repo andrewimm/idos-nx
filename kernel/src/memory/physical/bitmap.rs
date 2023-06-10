@@ -56,6 +56,17 @@ impl FrameBitmap {
         }
     }
 
+    /// The map was originally initialized relative to a physical address.
+    /// Once paging is enabled, this reference needs to be moved to the upper
+    /// portion of memory with the rest of the kernel.
+    pub fn move_to_highmem(&mut self) {
+        let location = (self.map.as_ptr() as usize) | 0xc0000000;
+        let size = self.map.len();
+        self.map = unsafe {
+            core::slice::from_raw_parts_mut(location as *mut u8, size)
+        };
+    }
+
     /// Reset the entire table to being allocated. This is the first step when
     /// initializing a new table. It is safest to assume nothing is free, and
     /// then clear out the areas marked as free by the BIOS memory map.

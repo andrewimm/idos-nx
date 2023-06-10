@@ -26,6 +26,16 @@ pub fn create_task() -> TaskID {
     task_id
 }
 
+/// The current task will load an executable file, interpret it with the
+/// loader, and assign the executable segments to
+pub fn attach_executable_to_task(id: TaskID, exec_path: &str) {
+    let task_lock = super::super::switching::get_task(id).unwrap();
+    let (file, env) = crate::loader::load_executable(exec_path).unwrap();
+
+    task_lock.write().attach_executable(file, env);
+    task_lock.write().make_runnable();
+}
+
 pub fn terminate_id(id: TaskID, exit_code: u32) {
     let parent_id = {
         let terminated_task = super::switching::get_task(id);

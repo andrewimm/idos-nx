@@ -14,9 +14,9 @@ use self::driver::FatDriver;
 use super::asyncfs::AsyncDriver;
 
 fn run_driver() -> ! {
-    crate::kprint!("Mount FAT FS on ATA1\n");
+    crate::kprint!("Mount FAT FS on FD1\n");
 
-    let mut driver_impl = FatDriver::new("DEV:\\ATA1");
+    let mut driver_impl = FatDriver::new("DEV:\\FD1");
 
     write_file(FileHandle::new(0), &[1]).unwrap();
 

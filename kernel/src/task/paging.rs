@@ -60,7 +60,7 @@ pub fn create_page_directory() -> PhysicalAddress {
         let unmapped = UnmappedPage::map(addr);
         let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
         let new_dir = PageTable::at_address(unmapped.virtual_address());
-        for i in 0..0x400 {
+        for i in 0x300..0x400 {
             *(new_dir.get_mut(i)) = *(current_dir.get(i));
         }
         // Maintain the self-mapping property of the topmost entry!

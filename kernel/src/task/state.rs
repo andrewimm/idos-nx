@@ -1,8 +1,9 @@
 use alloc::boxed::Box;
 use crate::files::path::Path;
+use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
 
-use super::files::{OpenFileMap, CurrentDrive};
+use super::files::{OpenFileMap, CurrentDrive, OpenFile};
 use super::id::TaskID;
 use super::memory::TaskMemory;
 use super::messaging::{Message, MessagePacket, MessageQueue};
@@ -241,6 +242,24 @@ impl Task {
             }
             _ => 0,
         }
+    }
+
+    pub fn attach_executable(&mut self, file: OpenFile, env: ExecutionEnvironment) {
+        let ExecutionEnvironment {
+            registers,
+            segments,
+        } = env;
+        self.memory_mapping.set_execution_segments(segments);
+        //self.reset_stack_pointer();
+
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0);
+        self.stack_push_u32(0); // IP
     }
 }
 

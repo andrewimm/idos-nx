@@ -39,13 +39,121 @@ pub enum MemoryBacking {
     DMA,
 }
 
+/// When executing a program, the kernel builds a mapping between sections of
+/// the executable file and locations where they should appear in virtual
+/// memory.
+/// Formats like ELF formally define these mappings. The kernel is designed to
+/// be flexible enough to support interpretation of multiple execution formats.
+/// An ExecutionSection is core to this mapping. When an area of virtual memory
+/// needs to be initialized, this mapping determines how to load the bytes from
+/// the source.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct ExecutionSection {
+    /// Where in the parent segment does this section get loaded to?
+    pub segment_offset: u32,
+    /// Where is this section found in the executable file. If None, no data
+    /// needs to be loaded from the file, and the memory will be zeroed out
+    pub executable_file_offset: Option<usize>,
+    /// Section size, in bytes
+    pub size: u32,
+}
+
+impl ExecutionSection {
+    /// Constructs a `Range` of addresses that are covered by this section.
+    /// This is useful for determining if this section contains a specific
+    /// address
+    pub fn address_range(&self, segment_start: VirtualAddress) -> Range<VirtualAddress> {
+        let start = segment_start + self.segment_offset;
+        let end = start + self.size;
+        start..end
+    }
+
+    /// True if the segment contains no addresses
+    pub fn is_empty(&self) -> bool {
+        self.size == 0
+    }
+}
+
+/// An ExecutionSegment associates a series of virtual memory pages with data
+/// stored in an executable file.
+/// Each segment has a single set of read/write permissions, and must be
+/// page-aligned. These values determine how the page table entry is
+/// constructed.
+pub struct ExecutionSegment {
+    /// Where the segment begins in virtual memory. Must be page-aligned.
+    pub address: VirtualAddress,
+    /// The size of the segment, in pages
+    pub size_in_pages: u32,
+    /// The full set of sections found within this segment. Because segments
+    /// are rounded up to the next page boundary, not all addresses may map to
+    /// a section.
+    pub sections: Vec<ExecutionSection>,
+    /// Is the section user-writable?
+    pub can_write: bool,
+}
+
+impl ExecutionSegment {
+    /// Construct a new ExecutionSegment that begins at the specified virtual
+    /// address, and contains the requested number of pages
+    pub fn at_address(address: VirtualAddress, size_in_pages: u32) -> Result<Self, TaskMemoryError> {
+        if !address.is_page_aligned() {
+            return Err(TaskMemoryError::SegmentWrongAlignment);
+        }
+        Ok(
+            Self {
+                address,
+                size_in_pages,
+                sections: Vec::new(),
+                can_write: false,
+            }
+        )
+    }
+
+    pub fn get_starting_address(&self) -> VirtualAddress {
+        self.address
+    }
+
+    pub fn size_in_bytes(&self) -> u32 {
+        self.size_in_pages * 0x1000
+    }
+
+    pub fn add_section(&mut self, section: ExecutionSection) -> Result<(), TaskMemoryError> {
+        if section.segment_offset + section.size > self.size_in_bytes() {
+            return Err(TaskMemoryError::SectionOutOfBounds);
+        }
+        self.sections.push(section);
+        Ok(())
+    }
+
+    pub fn set_user_write_flag(&mut self, flag: bool) {
+        self.can_write = flag;
+    }
+
+    pub fn can_user_write(&self) -> bool {
+        self.can_write
+    }
+
+    pub fn contains_address(&self, address: VirtualAddress) -> bool {
+        for section in self.sections.iter() {
+            if section.address_range(self.address).contains(&address) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 pub struct TaskMemory {
+    /// A series of execution segments representing the program's code and data
+    execution_segments: Vec<ExecutionSegment>,
+    /// Collection of mem-mapped regions allocated to the task
     mapped_regions: BTreeMap<VirtualAddress, MemMappedRegion>,
 }
 
 impl TaskMemory {
     pub fn new() -> Self {
         Self {
+            execution_segments: Vec::new(),
             mapped_regions: BTreeMap::new(),
         }
     }
@@ -191,6 +299,15 @@ impl TaskMemory {
         // TODO: Check this doesn't intersect with other allocated memory
         Some((prev_start - size).prev_page_barrier())
     }
+
+    pub fn has_execution_segments(&self) -> bool {
+        !self.execution_segments.is_empty()
+    }
+
+    /// Apply the set of execution segments, returning the previously set one
+    pub fn set_execution_segments(&mut self, segments: Vec<ExecutionSegment>) -> Vec<ExecutionSegment> {
+        core::mem::replace(&mut self.execution_segments, segments)
+    }
 }
 
 pub fn ranges_overlap(a: &Range<VirtualAddress>, b: &Range<VirtualAddress>) -> bool {
@@ -205,10 +322,12 @@ pub fn ranges_overlap(a: &Range<VirtualAddress>, b: &Range<VirtualAddress>) -> b
 pub enum TaskMemoryError {
     MapOutOfBounds,
     MappingWrongAlignment,
+    NoTask,
     NotEnoughMemory,
     NotMapped,
+    SegmentWrongAlignment,
+    SectionOutOfBounds,
     UnmapNotPageMultiple,
-    NoTask,
 }
 
 #[cfg(test)]
