@@ -253,6 +253,7 @@ impl AsyncDriver for FloppyDriver {
         self.read(drive_select, chs).unwrap();
 
         let dma_buffer = self.get_dma_buffer();
+
         for i in 0..buffer.len() {
             buffer[i] = dma_buffer[read_offset + i];
         }
@@ -331,9 +332,9 @@ impl ChsGeometry {
 }
 
 fn run_driver() -> ! {
-    crate::kprint!("Install Floppy device driver\n");
-
     let task_id = get_current_id();
+    crate::kprint!("Install Floppy device driver ({:?})\n", task_id);
+
     let mut fd_count = 0;
 
     let drives = DriveType::read_cmos();

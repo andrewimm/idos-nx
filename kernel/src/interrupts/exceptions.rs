@@ -112,6 +112,7 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
             let vaddr = VirtualAddress::new(address);
             if !page_on_demand(vaddr).is_none() {
                 // Return back to the failed memory access
+
                 return;
             }
         } else if error & 2 == 2 {

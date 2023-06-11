@@ -151,8 +151,6 @@ fn task_a_body() -> ! {
     crate::kprint!("\n");
     crate::kprint!("\nDone\n");
 
-    loop {}
-
     crate::kprint!("With the floppy available, mount a FAT drive\n");
     filesystem::drivers::fatfs::mount_fat_fs();
     let testbin = task::actions::io::open_path("A:\\TEST.BIN").unwrap();
@@ -161,7 +159,7 @@ fn task_a_body() -> ! {
         crate::kprint!("{:#04X} ", buf[i]);
     }
     crate::kprint!("\n");
-
+    
     let exec_child = task::actions::lifecycle::create_task();
     task::actions::lifecycle::attach_executable_to_task(exec_child, "A:\\TEST.BIN");
     task::actions::lifecycle::wait_for_child(exec_child, None);

@@ -2,6 +2,7 @@ use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::physical::allocate_frame;
 use crate::memory::physical::allocated_frame::AllocatedFrame;
 use crate::memory::virt::invalidate_page;
+use crate::memory::virt::page_entry::PageTableEntry;
 use crate::memory::virt::page_table::PageTable;
 use crate::memory::virt::scratch::UnmappedPage;
 use super::id::TaskID;
@@ -48,7 +49,7 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
         .get_execution_segment_containing_address(&address)
         .cloned();
 
-    if let Some(segment) = exec_segment {
+    /*if let Some(segment) = exec_segment {
         let allocated_frame = allocate_frame().ok()?;
         let flags = PermissionFlags::new(PermissionFlags::USER_ACCESS);
         let page_start = address.prev_page_barrier();
@@ -59,17 +60,19 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             segment.fill_frame(exec, page_start);
         }
         return Some(paddr);
-    }
+    }*/
 
-    {
-        let task = task_lock.read();
-        if let Some(mapping) = task.memory_mapping.get_mapping_containing_address(&address) {
-            let allocated_frame = get_frame_for_region(mapping).expect("Failed to allocate memory for page");
-            let flags = get_flags_for_region(mapping);
-            return Some(current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags));
-        }
-    }
+    let mem_mapping = task_lock
+        .read()
+        .memory_mapping
+        .get_mapping_containing_address(&address)
+        .cloned();
 
+    if let Some(mapping) = mem_mapping {
+        let allocated_frame = get_frame_for_region(mapping).expect("Failed to allocate memory for page");
+        let flags = get_flags_for_region(mapping);
+        return Some(current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags));
+    }
     None
 }
 
@@ -83,6 +86,9 @@ pub fn create_page_directory() -> PhysicalAddress {
         let unmapped = UnmappedPage::map(addr);
         let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
         let new_dir = PageTable::at_address(unmapped.virtual_address());
+        for i in 0..0x300 {
+            *(new_dir.get_mut(i)) = PageTableEntry::new();
+        }
         for i in 0x300..0x400 {
             *(new_dir.get_mut(i)) = *(current_dir.get(i));
         }
@@ -187,7 +193,7 @@ pub fn get_current_physical_address(vaddr: VirtualAddress) -> Option<PhysicalAdd
     Some(table_entry.get_address() + offset)
 }
 
-pub fn get_frame_for_region(region: &MemMappedRegion) -> Option<AllocatedFrame> {
+pub fn get_frame_for_region(region: MemMappedRegion) -> Option<AllocatedFrame> {
     match region.backed_by {
         MemoryBacking::Anonymous => allocate_frame().ok(),
         // TODO: needs a way to guarantee <16MiB
@@ -197,7 +203,7 @@ pub fn get_frame_for_region(region: &MemMappedRegion) -> Option<AllocatedFrame> 
     }
 }
 
-pub fn get_flags_for_region(region: &MemMappedRegion) -> PermissionFlags {
+pub fn get_flags_for_region(region: MemMappedRegion) -> PermissionFlags {
     let mut flags = PermissionFlags::USER_ACCESS | PermissionFlags::WRITE_ACCESS;
 
     // Physical memory explicitly backing a region should not be freed when a

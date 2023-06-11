@@ -6,6 +6,7 @@ use super::files::OpenFile;
 
 /// MemMappedRegion represents a section of memory that has been mapped to a
 /// Task.
+#[derive(Copy, Clone)]
 pub struct MemMappedRegion {
     pub address: VirtualAddress,
     pub size: u32,
