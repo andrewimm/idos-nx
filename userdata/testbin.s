@@ -9,4 +9,6 @@ start:
   int 0x2b
 
 loop:
+  mov eax, 0x06
+  int 0x2b
   jmp loop

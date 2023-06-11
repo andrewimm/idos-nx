@@ -161,21 +161,23 @@ pub fn switch_to(id: TaskID) {
         &(current.stack_pointer) as *const usize as u32
     };
     let next_task_lock = get_task(id).expect("Switching to task that does not exist");
-    let (next_sp, pagedir_addr) = {
+    let (next_sp, pagedir_addr, stack_top) = {
         let next = next_task_lock.read();
-        (next.stack_pointer as u32, next.page_directory.as_u32())
+        (next.stack_pointer as u32, next.page_directory.as_u32(), next.get_stack_top())
     };
     let next_task_state = next_task_lock.read().state;
 
-    crate::arch::gdt::set_tss_stack_pointer(next_sp);
-
+    crate::arch::gdt::set_tss_stack_pointer(stack_top as u32);
+    
     {
         *CURRENT_ID.write() = id;
     }
 
     if let RunState::Initialized = next_task_state {
+        {
+            next_task_lock.write().state = RunState::Running;
+        }
         unsafe {
-            crate::kprint!("New stack {:#X}\n", next_sp);
             asm!(
                 "push eax",
                 "push ecx",
@@ -201,33 +203,31 @@ pub fn switch_to(id: TaskID) {
             );
         }
     } else {
-    
-    unsafe {
-        asm!(
-            "push eax",
-            "push ecx",
-            "push edx",
-            "push ebx",
-            "push ebp",
-            "push esi",
-            "push edi",
+        unsafe {
+            asm!(
+                "push eax",
+                "push ecx",
+                "push edx",
+                "push ebx",
+                "push ebp",
+                "push esi",
+                "push edi",
 
-            "call switch_inner",
+                "call switch_inner",
 
-            "pop edi",
-            "pop esi",
-            "pop ebp",
-            "pop ebx",
-            "pop edx",
-            "pop ecx",
-            "pop eax",
+                "pop edi",
+                "pop esi",
+                "pop ebp",
+                "pop ebx",
+                "pop edx",
+                "pop ecx",
+                "pop eax",
 
-            in("eax") pagedir_addr,
-            in("ecx") current_sp_addr,
-            in("edx") next_sp,
-        );
-    }
-
+                in("eax") pagedir_addr,
+                in("ecx") current_sp_addr,
+                in("edx") next_sp,
+            );
+        }
     }
 }
 

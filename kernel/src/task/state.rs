@@ -89,10 +89,15 @@ impl Task {
         }
     }
 
+    pub fn get_stack_top(&self) -> usize {
+        let stack = self.get_kernel_stack();
+        (stack.as_ptr() as usize) + stack.len()
+    }
+
     pub fn reset_stack_pointer(&mut self) {
-        let stack = self.get_kernel_stack_mut();
-        let pointer = (stack.as_ptr() as usize) + stack.len() - core::mem::size_of::<u32>();
-        self.stack_pointer = pointer;
+        //let stack = self.get_kernel_stack_mut();
+        //let pointer = (stack.as_ptr() as usize) + stack.len() - core::mem::size_of::<u32>();
+        self.stack_pointer = self.get_stack_top();
     }
 
     /// Push a u8 value onto the kernel stack
