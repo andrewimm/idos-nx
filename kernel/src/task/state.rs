@@ -279,6 +279,23 @@ impl Task {
             fs: 0,
             gs: 0,
         };
+
+        self.stack_push_u32(registers.gs);
+        self.stack_push_u32(registers.fs);
+        self.stack_push_u32(registers.es);
+        self.stack_push_u32(registers.ds);
+        self.stack_push_u32(registers.ss);
+        self.stack_push_u32(registers.esp);
+        self.stack_push_u32(registers.flags);
+        self.stack_push_u32(registers.cs);
+        self.stack_push_u32(registers.eip);
+        self.stack_push_u32(registers.edi);
+        self.stack_push_u32(registers.esi);
+        self.stack_push_u32(registers.ebp);
+        self.stack_push_u32(registers.ebx);
+        self.stack_push_u32(registers.edx);
+        self.stack_push_u32(registers.ecx);
+        self.stack_push_u32(registers.eax);
     }
 }
 

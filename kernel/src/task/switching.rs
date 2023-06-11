@@ -175,9 +175,32 @@ pub fn switch_to(id: TaskID) {
 
     if let RunState::Initialized = next_task_state {
         unsafe {
-            loop {}
+            crate::kprint!("New stack {:#X}\n", next_sp);
+            asm!(
+                "push eax",
+                "push ecx",
+                "push edx",
+                "push ebx",
+                "push ebp",
+                "push esi",
+                "push edi",
+
+                "call switch_init_inner",
+
+                "pop edi",
+                "pop esi",
+                "pop ebp",
+                "pop ebx",
+                "pop edx",
+                "pop ecx",
+                "pop eax",
+
+                in("eax") pagedir_addr,
+                in("ecx") current_sp_addr,
+                in("edx") next_sp,
+            );
         }
-    }
+    } else {
     
     unsafe {
         asm!(
@@ -204,6 +227,8 @@ pub fn switch_to(id: TaskID) {
             in("edx") next_sp,
         );
     }
+
+    }
 }
 
 global_asm!(r#"
@@ -214,5 +239,25 @@ switch_inner:
     mov [ecx], esp
     mov esp, edx
     ret
+"#);
+
+global_asm!(r#"
+.global switch_init_inner
+
+switch_init_inner:
+.inner_loop:
+    jmp .inner_loop
+    mov cr3, eax
+    mov [ecx], esp
+    mov esp, edx
+
+    pop eax
+    pop ecx
+    pop edx
+    pop ebx
+    pop ebp
+    pop esi
+    pop edi
+    iretd
 "#);
 

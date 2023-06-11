@@ -49,7 +49,7 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
         .get_execution_segment_containing_address(&address)
         .cloned();
 
-    /*if let Some(segment) = exec_segment {
+    if let Some(segment) = exec_segment {
         let allocated_frame = allocate_frame().ok()?;
         let flags = PermissionFlags::new(PermissionFlags::USER_ACCESS);
         let page_start = address.prev_page_barrier();
@@ -60,7 +60,7 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             segment.fill_frame(exec, page_start);
         }
         return Some(paddr);
-    }*/
+    }
 
     let mem_mapping = task_lock
         .read()
