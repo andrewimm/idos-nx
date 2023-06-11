@@ -10,7 +10,7 @@ pub fn create_kernel_task(task_body: fn() -> !) -> TaskID {
     {
         let mut task_state = task_state_lock.write();
         task_state.set_entry_point(task_body);
-        task_state.make_runnable();
+        task_state.state = super::super::state::RunState::Running;
     }
 
     task_id

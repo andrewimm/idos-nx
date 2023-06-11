@@ -64,7 +64,7 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
     {
         let task = task_lock.read();
         if let Some(mapping) = task.memory_mapping.get_mapping_containing_address(&address) {
-            let allocated_frame = get_frame_for_region(mapping)?;
+            let allocated_frame = get_frame_for_region(mapping).expect("Failed to allocate memory for page");
             let flags = get_flags_for_region(mapping);
             return Some(current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags));
         }

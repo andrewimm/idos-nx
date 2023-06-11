@@ -18,8 +18,14 @@ pub fn build_environment(drive: DriveID, driver_handle: DriverHandle) -> Result<
             segments,
             registers: InitialRegisters {
                 eax: Some(0),
+                ecx: Some(0),
+                edx: Some(0),
+                ebx: Some(0),
+                ebp: Some(0),
+                edi: Some(0),
+                esi: Some(0),
 
-                eip: Some(0),
+                eip: 0,
                 esp: Some(0xc0000000),
 
                 cs: None,

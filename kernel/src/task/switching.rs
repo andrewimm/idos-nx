@@ -4,7 +4,7 @@ use spin::RwLock;
 use crate::memory::address::PhysicalAddress;
 
 use super::id::{TaskID, IdGenerator};
-use super::state::Task;
+use super::state::{Task, RunState};
 
 /// A TaskMap makes it easy to look up a Task by its ID number
 pub type TaskMap = BTreeMap<TaskID, Arc<RwLock<Task>>>;
@@ -153,18 +153,19 @@ pub fn clean_up_task(id: TaskID) {
 /// though the call to the inner switch method never happened.
 pub fn switch_to(id: TaskID) {
     // Uncomment this to debug switching:
-    //crate::kprint!("    SWITCH TO {:?}\r\n", id);
+    crate::kprint!("    SWITCH TO {:?}\r\n", id);
     
     let current_sp_addr: u32 = {
         let current_lock = get_current_task();
         let current = current_lock.read();
         &(current.stack_pointer) as *const usize as u32
     };
+    let next_task_lock = get_task(id).expect("Switching to task that does not exist");
     let (next_sp, pagedir_addr) = {
-        let next_lock = get_task(id).expect("Switching to task that does not exist");
-        let next = next_lock.read();
+        let next = next_task_lock.read();
         (next.stack_pointer as u32, next.page_directory.as_u32())
     };
+    let next_task_state = next_task_lock.read().state;
 
     crate::arch::gdt::set_tss_stack_pointer(next_sp);
 
@@ -172,6 +173,12 @@ pub fn switch_to(id: TaskID) {
         *CURRENT_ID.write() = id;
     }
 
+    if let RunState::Initialized = next_task_state {
+        unsafe {
+            loop {}
+        }
+    }
+    
     unsafe {
         asm!(
             "push eax",

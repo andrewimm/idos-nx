@@ -8,8 +8,14 @@ pub struct ExecutionEnvironment {
 
 pub struct InitialRegisters {
     pub eax: Option<u32>,
+    pub ecx: Option<u32>,
+    pub edx: Option<u32>,
+    pub ebx: Option<u32>,
+    pub ebp: Option<u32>,
+    pub esi: Option<u32>,
+    pub edi: Option<u32>,
 
-    pub eip: Option<u32>,
+    pub eip: u32,
     pub esp: Option<u32>,
 
     pub cs: Option<u32>,

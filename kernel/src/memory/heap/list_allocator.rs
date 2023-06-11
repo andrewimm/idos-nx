@@ -192,6 +192,15 @@ impl ListAllocator {
                     }
 
                     node.set_size(trailing_start - current);
+                } else if next == 0 {
+                    // if next is 0, we cannot have the start of the list be
+                    // an invalid pointer
+                    let end = self.start + self.size;
+                    self.size += 0x1000;
+                    let new_empty = end as *mut AllocNode;
+                    (&mut *new_empty).init(0x1000);
+                    self.first_free = end;
+                    crate::kprint!("Heap expanded (B)\n");
                 } else {
                     self.first_free = next as usize;
                 }

@@ -7,6 +7,7 @@ use super::files::{OpenFileMap, CurrentDrive, OpenFile};
 use super::id::TaskID;
 use super::memory::TaskMemory;
 use super::messaging::{Message, MessagePacket, MessageQueue};
+use super::registers::EnvironmentRegisters;
 use super::stack::free_stack;
 
 pub struct Task {
@@ -70,7 +71,7 @@ impl Task {
         let id = TaskID::new(0);
         let stack = super::stack::create_initial_stack();
         let mut task = Self::new(id, id, stack);
-        task.make_runnable();
+        task.state = RunState::Running;
         task
     }
 
@@ -134,6 +135,7 @@ impl Task {
     /// Determine if the scheduler can re-enter this task
     pub fn can_resume(&self) -> bool {
         match self.state {
+            RunState::Initialized => true,
             RunState::Running => true,
             RunState::Resuming(_) => true,
             _ => false,
@@ -142,7 +144,7 @@ impl Task {
 
     pub fn make_runnable(&mut self) {
         if let RunState::Uninitialized = self.state {
-            self.state = RunState::Running;
+            self.state = RunState::Initialized;
         }
     }
 
@@ -255,14 +257,28 @@ impl Task {
         self.memory_mapping.set_execution_segments(segments);
         self.current_executable.replace(file);
 
-        self.stack_push_u32(0);
-        self.stack_push_u32(0);
-        self.stack_push_u32(0);
-        self.stack_push_u32(0);
-        self.stack_push_u32(0);
-        self.stack_push_u32(0);
-        self.stack_push_u32(0);
-        self.stack_push_u32(0); // IP
+        let flags = 0;
+
+        let registers = EnvironmentRegisters {
+            eax: registers.eax.unwrap_or(0),
+            ecx: registers.ecx.unwrap_or(0),
+            edx: registers.edx.unwrap_or(0),
+            ebx: registers.ebx.unwrap_or(0),
+            ebp: registers.ebp.unwrap_or(0),
+            esi: registers.esi.unwrap_or(0),
+            edi: registers.edi.unwrap_or(0),
+
+            eip: registers.eip,
+            cs: registers.cs.unwrap_or(0x18 | 3),
+            flags,
+            esp: registers.esp.unwrap_or(0xc0000000),
+            ss: registers.ss.unwrap_or(0x20 | 3),
+
+            ds: registers.ds.unwrap_or(0x20 | 3),
+            es: registers.es.unwrap_or(0x20 | 3),
+            fs: 0,
+            gs: 0,
+        };
     }
 }
 
@@ -299,9 +315,13 @@ impl Drop for Task {
 /// contains information on what conditions will allow the task to resume
 /// execution, as well as an optional timeout. This allows every blocking
 /// operation to 
+#[derive(Copy, Clone)]
 pub enum RunState {
     /// The Task has been created, but is not ready to be executed
     Uninitialized,
+    /// The Task is executable, but has not run yet. This requires some special
+    /// code to safely switch into from another running task
+    Initialized,
     /// The Task can be safely run by the scheduler
     Running,
     /// The Task has ended, but still needs to be cleaned up

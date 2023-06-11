@@ -136,9 +136,10 @@ fn run_driver() -> ! {
         },
     };
 
-    crate::kprint!("Install ATA device driver ({:#x}, {:#x})\n", base_port, control_port);
-
     let task_id = get_current_id();
+
+    crate::kprint!("Install ATA device driver ({:#x}, {:#x}) {:?}\n", base_port, control_port, task_id);
+
     let mut ata_count = 0;
 
     let mut bus = AtaController::new(base_port, control_port);

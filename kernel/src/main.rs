@@ -78,6 +78,8 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn init_system() -> ! {
+    let id = task::switching::get_current_id();
+    crate::kprint!("INIT task: {:?}\n", id);
     // initialize drivers that rely on multitasking
     {
         crate::kprint!("Query ATA bus...\n");
@@ -101,6 +103,8 @@ fn wait_task_body() -> ! {
 }
 
 fn task_a_body() -> ! {
+    let mut buf: [u8; 5] = [b'A'; 5];
+    /*
     {
         let wait_id = task::actions::lifecycle::create_kernel_task(wait_task_body);
         let return_code = task::actions::lifecycle::wait_for_child(wait_id, None);
@@ -111,12 +115,12 @@ fn task_a_body() -> ! {
 
     task::actions::io::set_active_drive("DEMO").unwrap();
     let file = task::actions::io::open_path("TEST.TXT").unwrap();
-    let mut buf: [u8; 5] = [b'A'; 5];
     let read_len = task::actions::io::read_file(file, &mut buf).unwrap();
     let res = core::str::from_utf8(&buf[..read_len]).unwrap();
     kprint!("Read file content from initfs: {}\n\n", res);
 
     task::actions::io::close_file(file).unwrap();
+    */
 
     crate::kprint!("Okay let's read a raw HDD\n");
     let hd1 = task::actions::io::open_path("DEV:\\ATA1").unwrap();
@@ -147,6 +151,7 @@ fn task_a_body() -> ! {
     crate::kprint!("\n");
     crate::kprint!("\nDone\n");
 
+    loop {}
 
     crate::kprint!("With the floppy available, mount a FAT drive\n");
     filesystem::drivers::fatfs::mount_fat_fs();
