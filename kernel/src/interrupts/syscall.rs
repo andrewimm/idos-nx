@@ -1,5 +1,7 @@
 use core::arch::global_asm;
 
+use crate::task::actions;
+
 use super::stack::StackFrame;
 
 global_asm!(r#"
@@ -69,6 +71,13 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
     crate::kprint!("REG: {:?}\n", registers);
     let eax = registers.eax;
     match eax {
+        0x00 => {
+            let code = registers.ebx;
+            actions::lifecycle::terminate(code);
+        },
+        0x06 => {
+            actions::yield_coop();
+        },
         0xffff => {
             crate::kprint!("\n\nSyscall: DEBUG\n");
             registers.eax = 0;
