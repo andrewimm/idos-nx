@@ -1,6 +1,8 @@
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::Range;
-use crate::memory::address::{VirtualAddress, PhysicalAddress};
+use crate::{memory::address::{VirtualAddress, PhysicalAddress}, filesystem::get_driver_by_id};
+
+use super::files::OpenFile;
 
 /// MemMappedRegion represents a section of memory that has been mapped to a
 /// Task.
@@ -53,7 +55,7 @@ pub struct ExecutionSection {
     pub segment_offset: u32,
     /// Where is this section found in the executable file. If None, no data
     /// needs to be loaded from the file, and the memory will be zeroed out
-    pub executable_file_offset: Option<usize>,
+    pub executable_file_offset: Option<u32>,
     /// Section size, in bytes
     pub size: u32,
 }
@@ -72,6 +74,33 @@ impl ExecutionSection {
     pub fn is_empty(&self) -> bool {
         self.size == 0
     }
+
+    /// Trim the start or end of a section to fit within a specific range of
+    /// segment offsets. This is used to determine how much of a section fits
+    /// within a page of memory
+    pub fn clip_to(&self, range: Range<u32>) -> Option<ExecutionSection> {
+        if self.segment_offset >= range.end {
+            return None;
+        }
+        if self.segment_offset + self.size < range.start {
+            return None;
+        }
+        let (start, offset) = if self.segment_offset < range.start {
+            let delta = range.start - self.segment_offset;
+            (range.start, self.executable_file_offset.map(|off| off + delta))
+        } else {
+            (self.segment_offset, self.executable_file_offset)
+        };
+        let end = range.end.min(self.segment_offset + self.size);
+        let size = if end > start { end - start } else { 0 };
+        Some(
+            ExecutionSection {
+                segment_offset: start,
+                executable_file_offset: offset,
+                size,
+            }
+        )
+    }
 }
 
 /// An ExecutionSegment associates a series of virtual memory pages with data
@@ -79,6 +108,7 @@ impl ExecutionSection {
 /// Each segment has a single set of read/write permissions, and must be
 /// page-aligned. These values determine how the page table entry is
 /// constructed.
+#[derive(Clone)]
 pub struct ExecutionSegment {
     /// Where the segment begins in virtual memory. Must be page-aligned.
     pub address: VirtualAddress,
@@ -133,13 +163,60 @@ impl ExecutionSegment {
         self.can_write
     }
 
-    pub fn contains_address(&self, address: VirtualAddress) -> bool {
+    pub fn contains_address(&self, address: &VirtualAddress) -> bool {
         for section in self.sections.iter() {
-            if section.address_range(self.address).contains(&address) {
+            if section.address_range(self.address).contains(address) {
                 return true;
             }
         }
         false
+    }
+
+    pub fn sections_iter(&self) -> impl Iterator<Item = &ExecutionSection> {
+        self.sections.iter()
+    }
+
+    pub fn fill_frame(&self, open_file: OpenFile, page_start: VirtualAddress) {
+        // because the segment is guaranteed to start on a page boundary, if it
+        // intersects with this frame it must begin before or at page_start
+        let start_offset = page_start.as_u32() - self.address.as_u32();
+        let end_offset = start_offset + 0x1000;
+        let clipped = self
+            .sections_iter()
+            .map(|s| s.clip_to(start_offset..end_offset));
+
+        for clipped_section in clipped {
+            let section = match clipped_section {
+                Some(section) => {
+                    if section.is_empty() {
+                        continue;
+                    }
+                    section
+                },
+                None => continue,
+            };
+
+            let write_to = self.get_starting_address() + section.segment_offset;
+            let write_len = section.size as usize;
+
+            let mut buffer = unsafe {
+                let write_ptr = write_to.as_u32() as *mut u8;
+                core::slice::from_raw_parts_mut(write_ptr, write_len)
+            };
+
+            match section.executable_file_offset {
+                Some(file_offset) => {
+                    crate::kprint!("Filling exec memory from \"{}\"\n", open_file.filename.as_str());
+                    get_driver_by_id(open_file.drive).unwrap()
+                        .read(open_file.driver_handle, &mut buffer).unwrap();
+                },
+                None => {
+                    for i in 0..buffer.len() {
+                        buffer[i] = 0;
+                    }
+                },
+            }
+        }
     }
 }
 
@@ -263,6 +340,15 @@ impl TaskMemory {
         for (_, region) in self.mapped_regions.iter() {
             if region.contains_address(addr) {
                 return Some(region);
+            }
+        }
+        None
+    }
+
+    pub fn get_execution_segment_containing_address(&self, addr: &VirtualAddress) -> Option<&ExecutionSegment> {
+        for segment in self.execution_segments.iter() {
+            if segment.contains_address(addr) {
+                return Some(segment);
             }
         }
         None

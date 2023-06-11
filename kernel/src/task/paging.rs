@@ -42,12 +42,35 @@ impl PermissionFlags {
 /// appropriate frame to the current page table.
 pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
     let task_lock = get_current_task();
-    let task = task_lock.read();
-    let mapping = task.memory_mapping.get_mapping_containing_address(&address)?;
-    let allocated_frame = get_frame_for_region(mapping)?;
-    let flags = get_flags_for_region(mapping);
+    let exec_segment = task_lock
+        .read()
+        .memory_mapping
+        .get_execution_segment_containing_address(&address)
+        .cloned();
 
-    Some(current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags))
+    if let Some(segment) = exec_segment {
+        let allocated_frame = allocate_frame().ok()?;
+        let flags = PermissionFlags::new(PermissionFlags::USER_ACCESS);
+        let page_start = address.prev_page_barrier();
+        let paddr = current_pagedir_map(allocated_frame, page_start, flags);
+
+        let current_exec = task_lock.read().current_executable.clone();
+        if let Some(exec) = current_exec {
+            segment.fill_frame(exec, page_start);
+        }
+        return Some(paddr);
+    }
+
+    {
+        let task = task_lock.read();
+        if let Some(mapping) = task.memory_mapping.get_mapping_containing_address(&address) {
+            let allocated_frame = get_frame_for_region(mapping)?;
+            let flags = get_flags_for_region(mapping);
+            return Some(current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags));
+        }
+    }
+
+    None
 }
 
 /// Create a new page directory, copying the kernel-space entries from the

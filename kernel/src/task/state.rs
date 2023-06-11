@@ -43,6 +43,8 @@ pub struct Task {
     pub working_dir: Path,
     /// Store references to all currently open files
     pub open_files: OpenFileMap,
+    /// Store the open handle to the currently executing binary, if one exists
+    pub current_executable: Option<OpenFile>,
 }
 
 impl Task {
@@ -60,6 +62,7 @@ impl Task {
             current_drive: CurrentDrive::empty(),
             working_dir: Path::from_str(""),
             open_files: OpenFileMap::new(),
+            current_executable: None,
         }
     }
 
@@ -250,7 +253,7 @@ impl Task {
             segments,
         } = env;
         self.memory_mapping.set_execution_segments(segments);
-        //self.reset_stack_pointer();
+        self.current_executable.replace(file);
 
         self.stack_push_u32(0);
         self.stack_push_u32(0);

@@ -19,6 +19,7 @@ impl CurrentDrive {
     }
 }
 
+#[derive(Clone)]
 pub struct OpenFile {
     pub drive: DriveID,
     pub driver_handle: DriverHandle,
