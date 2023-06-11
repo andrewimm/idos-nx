@@ -28,6 +28,8 @@ extern "x86-interrupt" {
     fn pic_irq_d(frame: StackFrame) -> ();
     fn pic_irq_e(frame: StackFrame) -> ();
     fn pic_irq_f(frame: StackFrame) -> ();
+
+    fn syscall_handler(frame: StackFrame) -> ();
 }
 
 /// An IDT Entry tells the x86 CPU how to handle an interrupt.
@@ -150,8 +152,8 @@ pub unsafe fn init_idt() {
     // DOS interrupts. The only one used by the kernel is 0x2b, which is the
     // entrypoint for user-mode programs to make a syscall.
 
-    //IDT[0x2b].set_handler(syscall_handler);
-    //IDT[0x2b].make_usermode_accessible();
+    IDT[0x2b].set_handler(syscall_handler);
+    IDT[0x2b].make_usermode_accessible();
 
     // Interrupts 0x30-0x3f are reserved for PIC hardware interrupts.
     // This is where we begin to allow processes to install their own interrupt

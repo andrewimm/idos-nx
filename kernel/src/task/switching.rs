@@ -245,8 +245,6 @@ global_asm!(r#"
 .global switch_init_inner
 
 switch_init_inner:
-.inner_loop:
-    jmp .inner_loop
     mov cr3, eax
     mov [ecx], esp
     mov esp, edx
