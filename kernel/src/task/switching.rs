@@ -1,6 +1,8 @@
+use alloc::vec::Vec;
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::arch::{asm, global_asm};
 use spin::RwLock;
+use crate::filesystem::get_driver_by_id;
 use crate::memory::address::PhysicalAddress;
 
 use super::id::{TaskID, IdGenerator};
@@ -128,10 +130,27 @@ pub fn clean_up_task(id: TaskID) {
         }
     };
 
-    let _task = task_lock.write();
+    let mut files_to_close = Vec::new();
+    {
+        let mut task = task_lock.write();
+        if let Some(file) = task.current_executable.take() {
+            files_to_close.push(file);
+        }
+        for i in 0..task.open_files.len() {
+            let removed = task.open_files.remove(i);
+            if let Some(file) = removed {
+                files_to_close.push(file);
+            }
+        }
+    }
     crate::kprint!("Clean up {:?}\n", id);
+    for file in files_to_close {
+        crate::kprint!("  Closing {}\n", file.filename.as_str());
+        let _result = get_driver_by_id(file.drive)
+            .and_then(|driver| driver.close(file.driver_handle));
+    }
+
     // TODO: add cleanup actions here (free remaining memory, etc)
-    // Files should be release at termination time, not here
 
     // At this point, the Task state will be Dropped, and all heap objects held
     // within the struct itself will be freed
