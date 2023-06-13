@@ -90,6 +90,14 @@ impl VirtualAddress {
     pub fn prev_page_barrier(&self) -> Self {
         Self::new(self.0 & 0xfffff000)
     }
+
+    pub fn as_ptr<T>(&self) -> *const T {
+        self.0 as usize as *const T
+    }
+
+    pub fn as_ptr_mut<T>(&self) -> *mut T {
+        self.0 as usize as *mut T
+    }
 }
 
 impl From<VirtualAddress> for u32 {

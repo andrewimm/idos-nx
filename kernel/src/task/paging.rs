@@ -69,7 +69,8 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
         .cloned();
 
     if let Some(mapping) = mem_mapping {
-        let allocated_frame = get_frame_for_region(mapping).expect("Failed to allocate memory for page");
+        let offset = address.prev_page_barrier() - mapping.address;
+        let allocated_frame = get_frame_for_region(mapping, offset).expect("Failed to allocate memory for page");
         let flags = get_flags_for_region(mapping);
         return Some(current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags));
     }
@@ -193,12 +194,12 @@ pub fn get_current_physical_address(vaddr: VirtualAddress) -> Option<PhysicalAdd
     Some(table_entry.get_address() + offset)
 }
 
-pub fn get_frame_for_region(region: MemMappedRegion) -> Option<AllocatedFrame> {
+pub fn get_frame_for_region(region: MemMappedRegion, offset: u32) -> Option<AllocatedFrame> {
     match region.backed_by {
         MemoryBacking::Anonymous => allocate_frame().ok(),
         // TODO: needs a way to guarantee <16MiB
         MemoryBacking::DMA => allocate_frame().ok(),
-        MemoryBacking::Direct(paddr) => Some(AllocatedFrame::new(paddr)),
+        MemoryBacking::Direct(paddr) => Some(AllocatedFrame::new(paddr + offset)),
         _ => panic!("Unsupported physical backing"),
     }
 }

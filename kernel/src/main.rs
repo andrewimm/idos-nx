@@ -86,6 +86,8 @@ fn init_system() -> ! {
         hardware::ata::dev::install_drivers();
 
         hardware::floppy::dev::install_drivers();
+
+        hardware::ethernet::dev::install_driver();
     }
     // do other boot stuff
     // right now this just runs demos / tests

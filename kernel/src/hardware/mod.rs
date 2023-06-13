@@ -1,6 +1,7 @@
 pub mod ata;
 pub mod devicetree;
 pub mod dma;
+pub mod ethernet;
 pub mod floppy;
 pub mod pci;
 pub mod pic;
