@@ -43,12 +43,33 @@ pub fn read_config_u32(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
     Port::new(0xcfc).read_u32()
 }
 
+pub fn write_config_u32(bus: u8, device: u8, function: u8, offset: u8, value: u32) {
+    let config_address =
+        0x80000000 | // enable
+        ((bus as u32) << 16) |
+        ((device as u32) << 11) |
+        ((function as u32) << 8) |
+        ((offset as u32) & 0xfc);
+
+    Port::new(0xcf8).write_u32(config_address);
+
+    Port::new(0xcfc).write_u32(value);
+}
+
 pub fn get_vendor_id(bus: u8, device: u8, function: u8) -> u16 {
     read_config_u16(bus, device, function, 0)
 }
 
 pub fn get_device_id(bus: u8, device: u8, function: u8) -> u16 {
     read_config_u16(bus, device, function, 2)
+}
+
+pub fn get_command(bus: u8, device: u8, function: u8) -> u16 {
+    read_config_u16(bus, device, function, 4)
+}
+
+pub fn get_status(bus: u8, device: u8, function: u8) -> u16 {
+    read_config_u16(bus, device, function, 6)
 }
 
 /// Return a u16 containing both the class code and subclass
@@ -161,8 +182,11 @@ pub fn add_device(device_tree: &mut DeviceTree, parent: DeviceID, bus: u8, devic
     } else {
         DeviceNode::new(DeviceNodeType::Unknown)
     };
-
-    crate::kprint!("\n");
+    let device_id = get_device_id(bus, device, function);
+    let vendor_id = get_vendor_id(bus, device, function);
+    let status = get_status(bus, device, function);
+    let command = get_command(bus, device, function);
+    crate::kprint!("    {:04X}-{:04X} STATUS: {:X}, CMD: {:X}\n", vendor_id, device_id, status, command);
 
     device_tree.insert_node(parent, node)
 }
