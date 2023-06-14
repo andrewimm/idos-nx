@@ -1,5 +1,5 @@
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
-use crate::memory::physical::allocate_frame;
+use crate::memory::physical::{allocate_frame, allocate_frames};
 use crate::memory::physical::allocated_frame::AllocatedFrame;
 use crate::memory::virt::invalidate_page;
 use crate::memory::virt::page_entry::PageTableEntry;
@@ -11,6 +11,7 @@ use super::switching::{get_current_task, get_task};
 
 /// PermissionFlags are used by kernel or user code to request the extra
 /// permission bits applied to paged memory
+#[derive(Copy, Clone)]
 pub struct PermissionFlags(u8);
 
 impl PermissionFlags {
@@ -70,11 +71,35 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
 
     if let Some(mapping) = mem_mapping {
         let offset = address.prev_page_barrier() - mapping.address;
-        let allocated_frame = get_frame_for_region(mapping, offset).expect("Failed to allocate memory for page");
         let flags = get_flags_for_region(mapping);
-        return Some(current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags));
+
+        match mapping.backed_by {
+            MemoryBacking::DMA => {
+                // if a memory region is DMA, we want to allocate the entire
+                // span as a contiguous set of pages
+                let page_count = mapping.page_count();
+                let map_to = mapping.address;
+                let allocated_range = allocate_frames(page_count).expect("Failed to allocate DMA memory");
+                let range_start = allocated_range.to_physical_address();
+                
+                for i in 0..page_count {
+                    let offset = i as u32 * 0x1000;
+                    current_pagedir_map_explicit(
+                        range_start + offset,
+                        map_to + offset,
+                        flags,
+                    );
+                }
+                Some(range_start)
+            },
+            _ => {
+                let allocated_frame = get_frame_for_region(mapping, offset).expect("Failed to allocate memory for page");
+                Some(current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags))
+            },
+        }
+    } else {
+        None
     }
-    None
 }
 
 /// Create a new page directory, copying the kernel-space entries from the

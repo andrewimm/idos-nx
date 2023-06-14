@@ -4,7 +4,7 @@
 use crate::hardware::ethernet::frame::EthernetFrame;
 use crate::memory::address::PhysicalAddress;
 use crate::task::actions::lifecycle::create_kernel_task;
-use crate::task::actions::memory::map_memory;
+use crate::task::actions::memory::{map_memory, DmaRange};
 use crate::task::actions::yield_coop;
 use crate::task::memory::MemoryBacking;
 use crate::task::paging::page_on_demand;
@@ -21,14 +21,10 @@ const TX_DESC_COUNT: usize = 4;
 pub struct EthernetDriver {
     controller: E1000Controller,
 
-    rx_buffer_ptr: *mut u8,
-    rx_buffer_len: usize,
+    rx_buffer_dma: DmaRange,
+    tx_buffer_dma: DmaRange,
+    descriptor_dma: DmaRange,
 
-    tx_buffer_ptr: *mut u8,
-    tx_buffer_len: usize,
-
-    rx_ring_ptr: *mut RxDescriptor,
-    tx_ring_ptr: *mut TxDescriptor,
     tx_ring_index: usize,
 }
 
@@ -36,55 +32,36 @@ impl EthernetDriver {
     pub fn new(controller: E1000Controller) -> Self {
         // Allocate 3 DMA buffers: raw RX bytes, raw TX bytes, and one
         // containing the descriptor rings
-        let mut rx_buffer_space = BUFFER_SIZE * RX_DESC_COUNT;
-        // round up to the nearest page
-        if rx_buffer_space & 0xfff != 0 {
-            rx_buffer_space &= 0xfffff000;
-            rx_buffer_space += 0x1000;
-        }
-        let mut tx_buffer_space = BUFFER_SIZE * TX_DESC_COUNT;
-        if tx_buffer_space & 0xfff != 0 {
-            tx_buffer_space &= 0xfffff000;
-            tx_buffer_space += 0x1000;
-        }
+        let rx_buffer_dma = DmaRange::for_byte_length(BUFFER_SIZE * RX_DESC_COUNT).unwrap();
+        let tx_buffer_dma = DmaRange::for_byte_length(BUFFER_SIZE * TX_DESC_COUNT).unwrap();
 
-        let rx_buffer_address = map_memory(None, rx_buffer_space as u32, MemoryBacking::DMA).unwrap();
-        let rx_buffer_phys = page_on_demand(rx_buffer_address).unwrap();
-        let tx_buffer_address = map_memory(None, tx_buffer_space as u32, MemoryBacking::DMA).unwrap();
-        let tx_buffer_phys = page_on_demand(tx_buffer_address).unwrap();
+        // Store both the RX descriptor and TX descriptor rings in the same DMA
+        // range, one after the other
+        let rx_ring_length = core::mem::size_of::<RxDescriptor>() * RX_DESC_COUNT;
+        let tx_ring_length = core::mem::size_of::<TxDescriptor>() * TX_DESC_COUNT;
+        let descriptor_dma = DmaRange::for_byte_length(rx_ring_length + tx_ring_length).unwrap();
 
-        let rx_ring_space = core::mem::size_of::<RxDescriptor>() * RX_DESC_COUNT;
-        let tx_ring_space = core::mem::size_of::<TxDescriptor>() * TX_DESC_COUNT;
-
-        let mut ring_space = rx_ring_space + tx_ring_space;
-        if ring_space & 0xfff != 0 {
-            ring_space &= 0xfffff000;
-            ring_space += 0x1000;
-        }
-
-        let descriptor_buffer_address = map_memory(None, ring_space as u32, MemoryBacking::DMA).unwrap();
-        let descriptor_buffer_phys = page_on_demand(descriptor_buffer_address).unwrap();
-
-        let rx_ring_ptr = descriptor_buffer_address.as_ptr_mut::<RxDescriptor>();
+        let rd_ring_ptr = descriptor_dma.vaddr_start.as_ptr_mut::<RxDescriptor>();
         for i in 0..RX_DESC_COUNT {
             let desc = unsafe {
-                &mut *rx_ring_ptr.add(i)
+                &mut *rd_ring_ptr.add(i)
             };
             let offset = (i * BUFFER_SIZE) as u32;
-            desc.addr_low = (rx_buffer_phys + offset).as_u32();
+            desc.addr_low = (rx_buffer_dma.paddr_start + offset).as_u32();
             desc.addr_high = 0;
         }
-        let tx_ring_offset = rx_ring_space as u32;
-        let tx_ring_ptr = (descriptor_buffer_address + tx_ring_offset).as_ptr_mut::<TxDescriptor>();
-        let tx_ring_phys = descriptor_buffer_phys + tx_ring_offset;
+
+        let td_ring_offset = rx_ring_length as u32;
+        let td_ring_ptr = (descriptor_dma.vaddr_start + td_ring_offset).as_ptr_mut::<TxDescriptor>();
         for i in 0..TX_DESC_COUNT {
             let desc = unsafe {
-                &mut *tx_ring_ptr.add(i)
+                &mut *td_ring_ptr.add(i)
             };
             let offset = (i * BUFFER_SIZE) as u32;
-            desc.addr_low = (tx_buffer_phys + offset).as_u32();
+            desc.addr_low = (tx_buffer_dma.paddr_start + offset).as_u32();
             desc.addr_high = 0;
         }
+        let td_ring_phys = descriptor_dma.paddr_start + td_ring_offset;
 
         // Set general configuration
         controller.set_flags(0, 1 << 26); // RST
@@ -102,12 +79,12 @@ impl EthernetDriver {
         // have been allocated:
 
         // RDBAL - RX Descriptor Base Low
-        controller.write_register(0x2800, descriptor_buffer_phys.as_u32());
+        controller.write_register(0x2800, descriptor_dma.paddr_start.as_u32());
         // RDBAH - RX Descriptor Base High
         controller.write_register(0x2804, 0);
 
         // TDBAL - TX Descriptor Base Low
-        controller.write_register(0x3800, tx_ring_phys.as_u32());
+        controller.write_register(0x3800, td_ring_phys.as_u32());
         // TDBAH - TX Descriptor Base High
         controller.write_register(0x3804, 0);
         // TDLEN - TX Descriptor Length (in bytes)
@@ -131,36 +108,38 @@ impl EthernetDriver {
         Self {
             controller,
 
-            rx_buffer_ptr: rx_buffer_address.as_ptr_mut::<u8>(),
-            rx_buffer_len: rx_buffer_space,
-
-            tx_buffer_ptr: tx_buffer_address.as_ptr_mut::<u8>(),
-            tx_buffer_len: tx_buffer_space,
-
-            rx_ring_ptr,
-            tx_ring_ptr,
-
+            rx_buffer_dma,
+            tx_buffer_dma,
+            descriptor_dma,
             tx_ring_index: 0,
         }
     }
 
     fn get_rx_buffer(&self, index: usize) -> &mut [u8] {
         unsafe {
-            let ptr = self.rx_buffer_ptr.add(BUFFER_SIZE * index);
+            let ptr = self.rx_buffer_dma
+                .vaddr_start
+                .as_ptr_mut::<u8>()
+                .add(BUFFER_SIZE * index);
             core::slice::from_raw_parts_mut(ptr, BUFFER_SIZE)
         }
     }
 
     fn get_tx_buffer(&self, index: usize) -> &mut [u8] {
         unsafe {
-            let ptr = self.tx_buffer_ptr.add(BUFFER_SIZE * index);
+            let ptr = self.tx_buffer_dma
+                .vaddr_start
+                .as_ptr_mut::<u8>()
+                .add(BUFFER_SIZE * index);
             core::slice::from_raw_parts_mut(ptr, BUFFER_SIZE)
         }
     }
 
     fn get_tx_descriptor(&self, index: usize) -> &mut TxDescriptor {
+        let rd_ring_length = (core::mem::size_of::<RxDescriptor>() * RX_DESC_COUNT) as u32;
+        let td_ring_ptr = (self.descriptor_dma.vaddr_start + rd_ring_length).as_ptr_mut::<TxDescriptor>();
         unsafe {
-            let ptr = self.tx_ring_ptr.add(index);
+            let ptr = td_ring_ptr.add(index);
             &mut *ptr
         }
     }

@@ -68,6 +68,15 @@ pub fn allocate_frame() -> Result<AllocatedFrame, BitmapError> {
     frame_address.map(|addr| AllocatedFrame::new(addr))
 }
 
+pub fn allocate_frames(count: usize) -> Result<AllocatedFrame, BitmapError> {
+    let first_frame_address = with_allocator(|alloc| {
+        alloc
+            .allocate_frames(count)
+            .map(|range| range.get_starting_address())
+    });
+    first_frame_address.map(|addr| AllocatedFrame::new(addr))
+}
+
 pub fn release_frame(address: PhysicalAddress) -> Result<(), BitmapError> {
     let range = FrameRange::new(address, FRAME_SIZE);
     with_allocator(|alloc| {

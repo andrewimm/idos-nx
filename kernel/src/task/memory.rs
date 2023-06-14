@@ -23,6 +23,14 @@ impl MemMappedRegion {
     pub fn contains_address(&self, addr: &VirtualAddress) -> bool {
         self.get_address_range().contains(addr)
     }
+
+    pub fn page_count(&self) -> usize {
+        let mut count = self.size as usize / 0x1000;
+        if self.size & 0xfff != 0 {
+            count += 1;
+        }
+        count
+    }
 }
 
 /// The backing type of a mem-mapped region determines how it behaves when a
@@ -415,6 +423,7 @@ pub enum TaskMemoryError {
     SegmentWrongAlignment,
     SectionOutOfBounds,
     UnmapNotPageMultiple,
+    MappingFailed,
 }
 
 #[cfg(test)]
