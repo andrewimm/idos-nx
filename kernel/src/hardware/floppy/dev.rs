@@ -2,6 +2,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
+use crate::files::error::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::hardware::dma::DmaChannelRegisters;
 use crate::interrupts::pic::install_interrupt_handler;
@@ -220,10 +221,10 @@ impl FloppyDriver {
 }
 
 impl AsyncDriver for FloppyDriver {
-    fn open(&mut self, path: &str) -> u32 {
+    fn open(&mut self, path: &str) -> Result<u32, IOError> {
         let index = path.parse::<usize>().unwrap();
         match self.attached.get(index) {
-            None => panic!("Sub ID does not exist"),
+            None => return Err(IOError::NotFound),
             _ => (),
         }
         let drive = match index {
@@ -234,13 +235,13 @@ impl AsyncDriver for FloppyDriver {
             drive,
             position: 0,
         };
-        self.open_handle_map.insert(handle) as u32
+        Ok(self.open_handle_map.insert(handle) as u32)
     }
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> u32 {
+    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
         let (drive_select, position) = match self.open_handle_map.get(instance as usize) {
             Some(handle) => (handle.drive, handle.position),
-            None => return 0, // handle doesn't exist
+            None => return Err(IOError::FileHandleInvalid), // handle doesn't exist
         };
 
         let first_sector = position / SECTOR_SIZE;
@@ -262,25 +263,29 @@ impl AsyncDriver for FloppyDriver {
 
         self.open_handle_map.get_mut(instance as usize).unwrap().position += bytes_read;
 
-        bytes_read as u32
+        Ok(bytes_read as u32)
     }
 
-    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> u32 {
-        0
+    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> Result<u32, IOError> {
+        Err(IOError::UnsupportedOperation)
     }
 
-    fn close(&mut self, handle: u32) {
-        self.open_handle_map.remove(handle as usize);
+    fn close(&mut self, handle: u32) -> Result<(), IOError> {
+        if self.open_handle_map.remove(handle as usize).is_some() {
+            Ok(())
+        } else {
+            Err(IOError::FileHandleInvalid)
+        }
     }
 
-    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
+    fn seek(&mut self, instance: u32, offset: SeekMethod) -> Result<u32, IOError> {
         let current_position = match self.open_handle_map.get(instance as usize) {
             Some(handle) => handle.position,
-            None => return 0,
+            None => return Err(IOError::FileHandleInvalid),
         };
         let new_position = offset.from_current_position(current_position);
         self.open_handle_map.get_mut(instance as usize).unwrap().position = new_position;
-        new_position as u32
+        Ok(new_position as u32)
     }
 }
 

@@ -1,4 +1,6 @@
 use core::sync::atomic::{AtomicU32, Ordering};
+use crate::files::error::IOError;
+
 use super::SyncDriver;
 
 /// DEV:\\ZERO is a synchronous, in-kernel device that simply reads out zeroes
@@ -15,27 +17,23 @@ impl ZeroDriver {
 }
 
 impl SyncDriver for ZeroDriver {
-    fn open(&self) -> Result<u32, ()> {
+    fn open(&self) -> Result<u32, IOError> {
         let handle = self.next_handle.fetch_add(1, Ordering::SeqCst);
         Ok(handle)
     }
 
-    fn close(&self, _index: u32) -> Result<(),  ()> {
+    fn close(&self, _index: u32) -> Result<(),  IOError> {
         Ok(())
     }
 
-    fn read(&self, _index: u32, buffer: &mut [u8]) -> Result<usize, ()> {
+    fn read(&self, _index: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
         for i in 0..buffer.len() {
             buffer[i] = 0;
         }
-        Ok(buffer.len())
+        Ok(buffer.len() as u32)
     }
 
-    fn write(&self, _index: u32, buffer: &[u8]) -> Result<usize, ()> {
-        Ok(buffer.len())
-    }
-
-    fn seek(&self, _index: u32, _offset: crate::files::cursor::SeekMethod) -> Result<usize, ()> {
-        Err(())
+    fn write(&self, _index: u32, buffer: &[u8]) -> Result<u32, IOError> {
+        Ok(buffer.len() as u32)
     }
 }

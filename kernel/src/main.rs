@@ -157,7 +157,7 @@ fn task_a_body() -> ! {
 
     crate::kprint!("\n\nReading from COM1:\n");
     let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();
-    let read_len = task::actions::io::read_file(com1, &mut buf).unwrap();
+    let read_len = task::actions::io::read_file(com1, &mut buf).unwrap() as usize;
     let res = core::str::from_utf8(&buf[..read_len]).unwrap();
     kprint!("Read {} bytes from COM1. Value was \"{}\"\n", read_len, res);
     crate::kprint!("Write to COM...\n");

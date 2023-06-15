@@ -1,5 +1,6 @@
 use alloc::string::ToString;
 use crate::files::cursor::SeekMethod;
+use crate::files::error::IOError;
 use crate::files::path::Path;
 use crate::filesystem::drive::DriveID;
 use crate::filesystem::{get_driver_by_id, get_drive_id_by_name};
@@ -9,24 +10,6 @@ use crate::task::id::TaskID;
 use crate::task::switching::{get_current_task, get_task};
 
 use super::super::files::FileHandle;
-
-#[derive(Debug)]
-pub enum IOError {
-    /// A File or Directory with the given path does not exist
-    NotFound,
-    /// The file handle used for IO is not currently open
-    FileHandleInvalid,
-    /// The file handle used for IO is not the correct type for that operation
-    FileHandleWrongType,
-    /// A read operation failed
-    ReadFailed,
-    /// A write operation failed
-    WriteFailed,
-    /// A close operation failed
-    CloseFailed,
-
-    SeekFailed,
-}
 
 pub fn set_active_drive(drive_name: &str) -> Result<DriveID, IOError> {
     let found_id = get_drive_id_by_name(drive_name);
@@ -150,7 +133,7 @@ pub fn open_directory<'path>(_path_string: &'path str) -> Result<FileHandle, IOE
 
 /// Read bytes from an open file into a mutable byte buffer. On success, return
 /// the number of bytes read.
-pub fn read_file(handle: FileHandle, buffer: &mut [u8]) -> Result<usize, IOError> {
+pub fn read_file(handle: FileHandle, buffer: &mut [u8]) -> Result<u32, IOError> {
     let (drive_id, driver_handle) = {
         let task_lock = get_current_task();
         let task = task_lock.read();
@@ -161,12 +144,12 @@ pub fn read_file(handle: FileHandle, buffer: &mut [u8]) -> Result<usize, IOError
     get_driver_by_id(drive_id)
         .map_err(|_| IOError::NotFound)?
         .read(driver_handle, buffer)
-        .map_err(|_| IOError::ReadFailed)
+        .map_err(|_| IOError::OperationFailed)
 }
 
 /// Write bytes from a byte buffer to a file. On success, return the number of
 /// bytes written.
-pub fn write_file(handle: FileHandle, buffer: &[u8]) -> Result<usize, IOError> {
+pub fn write_file(handle: FileHandle, buffer: &[u8]) -> Result<u32, IOError> {
     //return Err(IOError::FileHandleInvalid);
     let (drive_id, driver_handle) = {
         let task_lock = get_current_task();
@@ -178,7 +161,7 @@ pub fn write_file(handle: FileHandle, buffer: &[u8]) -> Result<usize, IOError> {
     get_driver_by_id(drive_id)
         .map_err(|_| IOError::NotFound)?
         .write(driver_handle, buffer)
-        .map_err(|_| IOError::WriteFailed)
+        .map_err(|_| IOError::OperationFailed)
 }
 
 /// Close a currently opened file. Upon return, regardless of success or error,
@@ -194,10 +177,10 @@ pub fn close_file(handle: FileHandle) -> Result<(), IOError> {
     get_driver_by_id(drive_id)
         .map_err(|_| IOError::NotFound)?
         .close(driver_handle)
-        .map_err(|_| IOError::CloseFailed)
+        .map_err(|_| IOError::OperationFailed)
 }
 
-pub fn seek_file(handle: FileHandle, method: SeekMethod) -> Result<usize, IOError> {
+pub fn seek_file(handle: FileHandle, method: SeekMethod) -> Result<u32, IOError> {
     let (drive_id, driver_handle) = {
         let task_lock = get_current_task();
         let task = task_lock.read();
@@ -208,5 +191,5 @@ pub fn seek_file(handle: FileHandle, method: SeekMethod) -> Result<usize, IOErro
     get_driver_by_id(drive_id)
         .map_err(|_| IOError::NotFound)?
         .seek(driver_handle, method)
-        .map_err(|_| IOError::SeekFailed)
+        .map_err(|_| IOError::OperationFailed)
 }

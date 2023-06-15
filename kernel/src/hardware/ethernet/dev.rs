@@ -7,6 +7,7 @@ use alloc::vec::Vec;
 
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
+use crate::files::error::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::filesystem::install_device_driver;
 use crate::hardware::ethernet::frame::EthernetFrame;
@@ -205,24 +206,24 @@ impl EthernetDriver {
 }
 
 impl AsyncDriver for EthernetDriver {
-    fn open(&mut self, _path: &str) -> u32 {
-        self.open_handles.insert(()) as u32
+    fn open(&mut self, _path: &str) -> Result<u32, IOError> {
+        Ok(self.open_handles.insert(()) as u32)
     }
 
-    fn read(&mut self, _instance: u32, _buffer: &mut [u8]) -> u32 {
-        0
+    fn read(&mut self, _instance: u32, _buffer: &mut [u8]) -> Result<u32, IOError> {
+        Ok(0)
     }
 
-    fn write(&mut self, _instance: u32, buffer: &[u8]) -> u32 {
-        self.tx(buffer) as u32
+    fn write(&mut self, _instance: u32, buffer: &[u8]) -> Result<u32, IOError> {
+        Ok(self.tx(buffer) as u32)
     }
 
-    fn close(&mut self, handle: u32) {
-        self.open_handles.remove(handle as usize);
-    }
-
-    fn seek(&mut self, _instance: u32, _offset: SeekMethod) -> u32 {
-        0
+    fn close(&mut self, handle: u32) -> Result<(), IOError> {
+        if self.open_handles.remove(handle as usize).is_some() {
+            Ok(())
+        } else {
+            Err(IOError::FileHandleInvalid)
+        }
     }
 }
 

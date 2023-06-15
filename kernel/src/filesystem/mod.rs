@@ -26,9 +26,6 @@ pub fn init_fs() {
         DRIVE_MAP.install("DEV", Box::new(dev_fs));
     }
 
-    let async_demo = create_kernel_task(drivers::demofs::demo_fs_task);
-    DRIVE_MAP.install_async("DEMO", async_demo);
-
     crate::pipes::install_fs();
 
     create_kernel_task(arbiter::arbiter_task);

@@ -2,6 +2,7 @@ use alloc::string::ToString;
 use alloc::sync::Arc;
 use spin::Mutex;
 use crate::files::cursor::SeekMethod;
+use crate::files::error::IOError;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::memory::shared::SharedMemoryRange;
@@ -32,9 +33,9 @@ impl AsyncFileSystem {
     /// The Arbiter will take repsonsibility for queuing up the request, and
     /// eventually passing it to the driver task. On completion, the Arbiter
     /// will wake the current task.
-    fn async_op(&self, request: AsyncIO) -> Option<u32> {
+    fn async_op(&self, request: AsyncIO) -> Option<Result<u32, u32>> {
         
-        let response: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+        let response: Arc<Mutex<Option<Result<u32, u32>>>> = Arc::new(Mutex::new(None));
 
         // send the request
         begin_io(self.task, request, response.clone());
@@ -47,7 +48,7 @@ impl AsyncFileSystem {
 }
 
 impl KernelFileSystem for AsyncFileSystem {
-    fn open(&self, path: Path) -> Result<DriverHandle, ()> {
+    fn open(&self, path: Path) -> Result<DriverHandle, IOError> {
         let path_str = path.as_str();
         let path_slice = path_str.as_bytes();
 
@@ -61,15 +62,10 @@ impl KernelFileSystem for AsyncFileSystem {
             )
         );
 
-        // TODO: clean up shared range
-
-        match response {
-            Some(handle) => Ok(DriverHandle(handle)),
-            None => Err(()),
-        }
+        unwrap_async_response(response).map(|handle| DriverHandle(handle))
     }
 
-    fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<usize, ()> {
+    fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<u32, IOError> {
         let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
         let shared_to_driver = shared_range.share_with_task(self.task);
 
@@ -81,14 +77,10 @@ impl KernelFileSystem for AsyncFileSystem {
             )
         );
 
-        match response {
-            Some(count) => Ok(count as usize),
-            None => Err(()),
-        }
-        
+        unwrap_async_response(response)        
     }
 
-    fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()> {
+    fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<u32, IOError> {
         let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
         let shared_to_driver = shared_range.share_with_task(self.task);
 
@@ -100,24 +92,18 @@ impl KernelFileSystem for AsyncFileSystem {
             )
         );
 
-        match response {
-            Some(count) => Ok(count as usize),
-            None => Err(()),
-        }
+        unwrap_async_response(response)
     }
     
-    fn close(&self, handle: DriverHandle) -> Result<(),  ()> {
+    fn close(&self, handle: DriverHandle) -> Result<(),  IOError> {
         let response = self.async_op(
             AsyncIO::Close(handle.into())
         );
-        
-        match response {
-            Some(_) => Ok(()),
-            None => Err(()),
-        }
+
+        unwrap_async_response(response).map(|_| ())
     }
 
-    fn seek(&self, handle: DriverHandle, offset: SeekMethod) -> Result<usize, ()> {
+    fn seek(&self, handle: DriverHandle, offset: SeekMethod) -> Result<u32, IOError> {
         let (method, delta) = offset.encode();
         let response = self.async_op(
             AsyncIO::Seek(
@@ -127,10 +113,15 @@ impl KernelFileSystem for AsyncFileSystem {
             )
         );
 
-        match response {
-            Some(index) => Ok(index as usize),
-            None => Err(()),
-        }
+        unwrap_async_response(response)
+    }
+}
+
+fn unwrap_async_response(response: Option<Result<u32, u32>>) -> Result<u32, IOError> {
+    match response {
+        Some(Ok(res)) => Ok(res),
+        Some(Err(err)) => Err(IOError::try_from(err).unwrap()),
+        None => Err(IOError::FileSystemError),
     }
 }
 
@@ -200,13 +191,17 @@ pub trait AsyncDriver {
                     core::slice::from_raw_parts(path_str_start, path_str_len)
                 };
                 let path = core::str::from_utf8(path_slice).ok()?;
-                let handle = self.open(path);
-                Some((handle, 0, 0))
+                match self.open(path) {
+                    Ok(handle) => Some((handle, 0, 0)),
+                    Err(err) => Some((0, err as u32, 0)),
+                }
             },
             AsyncCommand::OpenRaw => {
                 let id_as_path = message.1.to_string();
-                let handle = self.open(id_as_path.as_str());
-                Some((handle, 0, 0))
+                match self.open(id_as_path.as_str()) {
+                    Ok(handle) => Some((handle, 0, 0)),
+                    Err(err) => Some((0, err as u32, 0)),
+                }
             },
             AsyncCommand::Read => {
                 let open_instance = message.1;
@@ -215,8 +210,10 @@ pub trait AsyncDriver {
                 let buffer = unsafe {
                     core::slice::from_raw_parts_mut(buffer_start, buffer_len)
                 };
-                let written = self.read(open_instance, buffer);
-                Some((written, 0, 0))
+                match self.read(open_instance, buffer) {
+                    Ok(written) => Some((written, 0, 0)),
+                    Err(err) => Some((0, err as u32, 0)),
+                }
             },
             AsyncCommand::Write => {
                 let open_instance = message.1;
@@ -225,8 +222,10 @@ pub trait AsyncDriver {
                 let buffer = unsafe {
                     core::slice::from_raw_parts(buffer_start, buffer_len)
                 };
-                let written = self.write(open_instance, buffer);
-                Some((written, 0,  0))
+                match self.write(open_instance, buffer) {
+                    Ok(written) => Some((written, 0, 0)),
+                    Err(err) => Some((0, err as u32, 0)),
+                }
             },
             AsyncCommand::Close => {
                 let handle = message.1 as u32;
@@ -238,8 +237,10 @@ pub trait AsyncDriver {
                 let method = message.2;
                 let delta = message.3;
                 let offset = SeekMethod::decode(method, delta).unwrap();
-                let new_position = self.seek(open_instance, offset);
-                Some((new_position, 0, 0))
+                match self.seek(open_instance, offset) {
+                    Ok(new_position) => Some((new_position, 0, 0)),
+                    Err(err) => Some((0, err as u32, 0)),
+                }
             },
             _ => {
                 crate::kprint!("Async driver: unknown request\n");
@@ -248,14 +249,16 @@ pub trait AsyncDriver {
         }.map(|(a, b, c)| Message(ASYNC_RESPONSE_MAGIC, a, b, c))
     }
 
-    fn open(&mut self, path: &str) -> u32;
+    fn open(&mut self, path: &str) -> Result<u32, IOError>;
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> u32;
+    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> Result<u32, IOError>;
 
-    fn write(&mut self, instance: u32, buffer: &[u8]) -> u32;
+    fn write(&mut self, instance: u32, buffer: &[u8]) -> Result<u32, IOError>;
 
-    fn close(&mut self, handle: u32);
+    fn close(&mut self, handle: u32) -> Result<(), IOError>;
 
-    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32;
+    fn seek(&mut self, instance: u32, offset: SeekMethod) -> Result<u32, IOError> {
+        Err(IOError::UnsupportedOperation)
+    }
 }
 

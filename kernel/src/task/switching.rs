@@ -147,7 +147,7 @@ pub fn clean_up_task(id: TaskID) {
     for file in files_to_close {
         crate::kprint!("  Closing {}\n", file.filename.as_str());
         let _result = get_driver_by_id(file.drive)
-            .and_then(|driver| driver.close(file.driver_handle));
+            .and_then(|driver| driver.close(file.driver_handle).map_err(|_| ()));
     }
 
     // TODO: add cleanup actions here (free remaining memory, etc)

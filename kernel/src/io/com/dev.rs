@@ -2,6 +2,7 @@
 
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
+use crate::files::error::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::filesystem::install_device_driver;
 use crate::interrupts::pic::install_interrupt_handler;
@@ -68,14 +69,14 @@ impl ComDeviceDriver {
 }
 
 impl AsyncDriver for ComDeviceDriver {
-    fn open(&mut self, _path: &str) -> u32 {
+    fn open(&mut self, _path: &str) -> Result<u32, IOError> {
         let index = self.open_handles.insert(());
-        index as u32
+        Ok(index as u32)
     }
 
-    fn read(&mut self, handle: u32, buffer: &mut [u8]) -> u32 {
+    fn read(&mut self, handle: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
         if self.open_handles.get(handle as usize).is_none() {
-            return 0;
+            return Err(IOError::FileHandleInvalid);
         }
         let mut index = 0;
         while index < buffer.len() {
@@ -87,12 +88,12 @@ impl AsyncDriver for ComDeviceDriver {
                 wait_for_io(None);
             }
         }
-        buffer.len() as u32
+        Ok(buffer.len() as u32)
     }
 
-    fn write(&mut self, handle: u32, buffer: &[u8]) -> u32 {
+    fn write(&mut self, handle: u32, buffer: &[u8]) -> Result<u32, IOError> {
         if self.open_handles.get(handle as usize).is_none() {
-            return 0;
+            return Err(IOError::FileHandleInvalid);
         }
         // TODO: make this not blocking
         let mut written = 0;
@@ -100,15 +101,15 @@ impl AsyncDriver for ComDeviceDriver {
             self.port.send_byte(*value);
             written += 1;
         }
-        written
+        Ok(written)
     }
 
-    fn close(&mut self, handle: u32) {
-        self.open_handles.remove(handle as usize);
-    }
-
-    fn seek(&mut self, _instance: u32, _offset: SeekMethod) -> u32 {
-        0
+    fn close(&mut self, handle: u32) -> Result<(), IOError> {
+        if self.open_handles.remove(handle as usize).is_some() {
+            Ok(())
+        } else {
+            Err(IOError::FileHandleInvalid)
+        }
     }
 }
 

@@ -178,7 +178,7 @@ impl AtaController {
             // need at least 400ns for the status register to be correct
             sleep(1);
             let read_start = sector * SECTOR_SIZE;
-            self.poll().unwrap();
+            self.poll()?;
             for i in 0..256 {
                 // ATA spec suggests reading one word at a time
                 let data = self.data.read_u16();

@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
+use crate::files::error::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::task::actions::io::{transfer_handle, open_pipe, read_file, write_file};
 use crate::task::actions::lifecycle::{create_kernel_task, terminate};
@@ -41,35 +42,38 @@ impl AtaDeviceDriver {
 }
 
 impl AsyncDriver for AtaDeviceDriver {
-    fn open(&mut self, path: &str) -> u32 {
+    fn open(&mut self, path: &str) -> Result<u32, IOError> {
         crate::kprint!("ATA Open Path {}\n", path);
-        // TODO: Parse path to determine which drive to open
+        let index = path.parse::<usize>().unwrap() - 1;
+        if index >= self.attached.len() {
+            return Err(IOError::NotFound);
+        }
         let handle = OpenHandle {
-            drive: 0,
+            drive: index,
             position: 0,
         };
-        self.open_handle_map.insert(handle) as u32
+        Ok(self.open_handle_map.insert(handle) as u32)
     }
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> u32 {
+    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
         let (drive_index, position) = match self.open_handle_map.get(instance as usize) {
             Some(handle) => (handle.drive, handle.position),
-            None => return 0, // handle doesn't exist
+            None => return Err(IOError::FileHandleInvalid),
         };
         let location = match self.attached.get(drive_index) {
             Some(drive) => drive.location,
-            None => return 0,
+            None => return Err(IOError::FileSystemError),
         };
 
         if position % SECTOR_SIZE == 0 && buffer.len() % SECTOR_SIZE == 0 {
             // if the read is sector aligned, we can optimize by writing direct
             // from the disk to the buffer
             let first_sector = (position / SECTOR_SIZE) as u32;
-            let sectors_read = self.controller.read_sectors(location, first_sector, buffer).unwrap();
+            let sectors_read = self.controller.read_sectors(location, first_sector, buffer).map_err(|_| IOError::FileSystemError)?;
             let bytes_read = sectors_read as usize * SECTOR_SIZE;
 
             self.open_handle_map.get_mut(instance as usize).unwrap().position += bytes_read;
-            return bytes_read as u32;
+            return Ok(bytes_read as u32);
         }
 
         // unoptimized flow, using an intermediate buffer
@@ -83,7 +87,7 @@ impl AsyncDriver for AtaDeviceDriver {
             let bytes_remaining_in_sector = SECTOR_SIZE - sector_offset;
             let bytes_remaining_in_buffer = buffer.len() - bytes_read;
 
-            self.controller.read_sectors(location, sector_index as u32, &mut pio_buffer).unwrap();
+            self.controller.read_sectors(location, sector_index as u32, &mut pio_buffer).map_err(|_| IOError::FileSystemError);
 
             let bytes_to_copy = bytes_remaining_in_sector.min(bytes_remaining_in_buffer);
 
@@ -98,25 +102,29 @@ impl AsyncDriver for AtaDeviceDriver {
         }
 
         self.open_handle_map.get_mut(instance as usize).unwrap().position += bytes_read;
-        return bytes_read as u32;
+        return Ok(bytes_read as u32);
     }
 
-    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> u32 {
+    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> Result<u32, IOError> {
         panic!("Write to ATA not supported yet");
     }
 
-    fn close(&mut self, handle: u32) {
-        self.open_handle_map.remove(handle as usize);
+    fn close(&mut self, handle: u32) -> Result<(), IOError> {
+        if self.open_handle_map.remove(handle as usize).is_some() {
+            Ok(())
+        } else {
+            Err(IOError::FileHandleInvalid)
+        }
     }
 
-    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
+    fn seek(&mut self, instance: u32, offset: SeekMethod) -> Result<u32, IOError> {
         let current_position = match self.open_handle_map.get(instance as usize) {
             Some(handle) => handle.position,
-            None => return 0,
+            None => return Err(IOError::FileHandleInvalid),
         };
         let new_position = offset.from_current_position(current_position);
         self.open_handle_map.get_mut(instance as usize).unwrap().position = new_position;
-        new_position as u32
+        Ok(new_position as u32)
     }
 }
 

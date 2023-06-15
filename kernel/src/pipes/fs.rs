@@ -1,5 +1,6 @@
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
+use crate::files::error::IOError;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::filesystem::kernel::KernelFileSystem;
@@ -38,10 +39,10 @@ impl PipeDriver {
         Self {}
     }
 
-    fn write_pipe(pipe_index: usize, buffer: &[u8]) -> Result<usize, ()> {
+    fn write_pipe(pipe_index: usize, buffer: &[u8]) -> Result<u32, IOError> {
         let (ring_buffer, blocked) = PIPES.read()
             .get(pipe_index)
-            .ok_or(())
+            .ok_or(IOError::FileSystemError)
             .map(|pipe| (pipe.get_ring_buffer(), pipe.get_blocked_reader()))?;
 
         let mut index = 0;
@@ -58,13 +59,13 @@ impl PipeDriver {
                 task.io_complete();
             }
         }
-        Ok(index)
+        Ok(index as u32)
     }
 
-    fn read_pipe(pipe_index: usize, buffer: &mut [u8]) -> Result<usize, ()> {
+    fn read_pipe(pipe_index: usize, buffer: &mut [u8]) -> Result<u32, IOError> {
         let ring_buffer = {
             let mut pipes = PIPES.write();
-            let pipe = pipes.get_mut(pipe_index).ok_or(())?;
+            let pipe = pipes.get_mut(pipe_index).ok_or(IOError::FileSystemError)?;
             pipe.set_blocked_reader(get_current_id());
             pipe.get_ring_buffer()
         };
@@ -81,41 +82,43 @@ impl PipeDriver {
             let pipe = pipes.get_mut(pipe_index).unwrap();
             pipe.clear_blocked_reader();
         }
-        Ok(index)
+        Ok(index as u32)
     }
 }
 
 impl KernelFileSystem for PipeDriver {
-    fn open(&self, _path: Path) -> Result<DriverHandle, ()> {
-        Err(())
+    fn open(&self, _path: Path) -> Result<DriverHandle, IOError> {
+        Err(IOError::UnsupportedOperation)
     }
 
-    fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<usize, ()> {
+    fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<u32, IOError> {
         let pipe_index = {
-            match PIPE_HANDLES.read().get(handle.into()).ok_or(())? {
+            match PIPE_HANDLES.read().get(handle.into()).ok_or(IOError::FileHandleInvalid)? {
                 PipeHandle::Reader(index) => *index,
-                _ => return Err(()),
+                _ => return Err(IOError::FileHandleWrongType),
             }
         };
         PipeDriver::read_pipe(pipe_index, buffer)
     }
 
-    fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<usize, ()> {
+    fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<u32, IOError> {
         let pipe_index = {
-            match PIPE_HANDLES.read().get(handle.into()).ok_or(())? {
+            match PIPE_HANDLES.read().get(handle.into()).ok_or(IOError::FileHandleInvalid)? {
                 PipeHandle::Writer(index) => *index,
-                _ => return Err(()),
+                _ => return Err(IOError::FileHandleWrongType),
             }
         };
         PipeDriver::write_pipe(pipe_index, buffer)
     }
 
-    fn close(&self, _handle: DriverHandle) -> Result<(), ()> {
-        Err(())
+    fn close(&self, _handle: DriverHandle) -> Result<(), IOError> {
+        // TODO: Closing should actually be supported, and closing one end can
+        // break the other
+        Err(IOError::UnsupportedOperation)
     }
 
-    fn seek(&self, _handle: DriverHandle, _offset: SeekMethod) -> Result<usize, ()> {
-        Err(())
+    fn seek(&self, _handle: DriverHandle, _offset: SeekMethod) -> Result<u32, IOError> {
+        Err(IOError::UnsupportedOperation)
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
+use crate::files::error::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use super::disk::DiskAccess;
 use super::fs::FatFS;
@@ -40,40 +41,45 @@ pub enum HandleObject {
 }
 
 impl AsyncDriver for FatDriver {
-    fn open(&mut self, path: &str) -> u32 {
+    fn open(&mut self, path: &str) -> Result<u32, IOError> {
         crate::kprint!("FAT: Open \"{}\"\n", path);
 
         let root = self.fs.get_root_directory();
-        let file = root.find_entry(path, &mut self.fs.disk).unwrap();
+        let file = root.find_entry(path, &mut self.fs.disk).ok_or(IOError::NotFound)?;
         let open_handle = OpenHandle {
             handle_object: HandleObject::File(file),
             cursor: 0,
         };
         let index = self.open_handle_map.insert(open_handle);
-        index as u32
+        Ok(index as u32)
     }
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> u32 {
-        let handle = self.open_handle_map.get(instance as usize).unwrap();
+    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
+        let handle = self.open_handle_map.get(instance as usize).ok_or(IOError::FileHandleInvalid)?;
         let file = match handle.handle_object {
             HandleObject::File(f) => f.clone(),
-            _ => panic!("Not a file, can't read"),
+            _ => return Err(IOError::FileHandleWrongType),
         };
         let cursor = handle.cursor;
         
-        file.read(buffer, cursor, self.get_table(), self.get_disk_access())
+        // TODO: Integrate more error handling into the actual file reading
+        Ok(file.read(buffer, cursor, self.get_table(), self.get_disk_access()))
     }
 
-    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> u32 {
-        0
+    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> Result<u32, IOError> {
+        Err(IOError::OperationFailed)
     }
 
-    fn close(&mut self, handle: u32) {
-        self.open_handle_map.remove(handle as usize);
+    fn close(&mut self, handle: u32) -> Result<(), IOError> {
+        if self.open_handle_map.remove(handle as usize).is_some() {
+            Ok(())
+        } else {
+            Err(IOError::FileHandleInvalid)
+        }
     }
 
-    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
-        let handle = self.open_handle_map.get_mut(instance as usize).unwrap();
+    fn seek(&mut self, instance: u32, offset: SeekMethod) -> Result<u32, IOError> {
+        let handle = self.open_handle_map.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
         let new_cursor = match handle.handle_object {
             HandleObject::File(f) => {
                 let mut new_cursor = offset.from_current_position(handle.cursor as usize) as u32;
@@ -82,11 +88,11 @@ impl AsyncDriver for FatDriver {
                 }
                 new_cursor
             },
-            _ => panic!("Not a file, can't seek"),
+            _ => return Err(IOError::FileHandleWrongType),
         };
         handle.cursor = new_cursor;
 
-        new_cursor
+        Ok(new_cursor)
     }
 }
 

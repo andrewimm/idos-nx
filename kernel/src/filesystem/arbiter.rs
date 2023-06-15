@@ -27,7 +27,7 @@ pub enum AsyncIO {
     Seek(u32, u32, u32),
 }
 
-pub type AsyncResponse = Arc<Mutex<Option<u32>>>;
+pub type AsyncResponse = Arc<Mutex<Option<Result<u32, u32>>>>;
 
 /// Enqueue a new IO request. Assuming the target is a valid FS driver, the
 /// current task will be IO-blocked until the request completes. The Arbiter
@@ -121,8 +121,12 @@ pub fn arbiter_task() -> ! {
                 // it's a response to a request
                 match pop_pending_request(sender) {
                     Some(request) => {
-                        // TODO: error handling
-                        request.response.lock().replace(message.1);
+                        if message.2 != 0 {
+                            // nonzero error code indicates an Err Result
+                            request.response.lock().replace(Err(message.2));
+                        } else {
+                            request.response.lock().replace(Ok(message.1));
+                        }
 
                         //crate::kprint!("  IO complete, resume {:?}\n", request.requestor_id);
                         if let Some(task_lock) = get_task(request.requestor_id) {
