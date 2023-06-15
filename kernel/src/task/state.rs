@@ -254,6 +254,15 @@ impl Task {
         }
     }
 
+    pub fn unblock(&mut self) {
+        match self.state {
+            RunState::Blocked(_, _) => {
+                self.state = RunState::Running;
+            },
+            _ => return,
+        }
+    }
+
     pub fn attach_executable(&mut self, file: OpenFile, env: ExecutionEnvironment) {
         let ExecutionEnvironment {
             registers,

@@ -1,13 +1,23 @@
 //! Device driver for Intel e1000 ethernet controller, which is provded by
 //! qemu and other emulators.
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
+use crate::collections::SlotList;
+use crate::files::cursor::SeekMethod;
+use crate::filesystem::drivers::asyncfs::AsyncDriver;
+use crate::filesystem::install_device_driver;
 use crate::hardware::ethernet::frame::EthernetFrame;
+use crate::interrupts::pic::install_interrupt_handler;
 use crate::memory::address::PhysicalAddress;
+use crate::task::actions::io::{open_pipe, transfer_handle, read_file, write_file};
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::{map_memory, DmaRange};
-use crate::task::actions::yield_coop;
+use crate::task::actions::{yield_coop, read_message_blocking, send_message};
+use crate::task::files::FileHandle;
+use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
-use crate::task::paging::page_on_demand;
+use crate::task::switching::{get_task, get_current_id};
 
 use super::controller::E1000Controller;
 
@@ -26,6 +36,8 @@ pub struct EthernetDriver {
     descriptor_dma: DmaRange,
 
     tx_ring_index: usize,
+
+    open_handles: SlotList<()>,
 }
 
 impl EthernetDriver {
@@ -112,6 +124,8 @@ impl EthernetDriver {
             tx_buffer_dma,
             descriptor_dma,
             tx_ring_index: 0,
+
+            open_handles: SlotList::new(),
         }
     }
 
@@ -183,6 +197,28 @@ impl EthernetDriver {
             core::slice::from_raw_parts(buffer_ptr, buffer_size)
         };
         self.tx(buffer)
+    }
+}
+
+impl AsyncDriver for EthernetDriver {
+    fn open(&mut self, path: &str) -> u32 {
+        self.open_handles.insert(()) as u32
+    }
+
+    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> u32 {
+        0
+    }
+
+    fn write(&mut self, _instance: u32, buffer: &[u8]) -> u32 {
+        self.tx(buffer) as u32
+    }
+
+    fn close(&mut self, handle: u32) {
+        self.open_handles.remove(handle as usize);
+    }
+
+    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
+        0
     }
 }
 
@@ -265,7 +301,11 @@ impl ARP {
     }
 }
 
+static mut MAC_ADDR: [u8; 6] = [0; 6];
+
 fn run_driver() -> ! {
+    let task_id = get_current_id();
+
     let mmio_address = map_memory(
         None,
         0x10000,
@@ -280,29 +320,37 @@ fn run_driver() -> ! {
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
     );
 
+    unsafe {
+        MAC_ADDR = mac;
+    }
+
     // enable bus mastering
     // this is cheating, it needs to actually read the pci bus
     let pci_config = crate::hardware::pci::config::read_config_u32(0, 3, 0, 4);
     crate::hardware::pci::config::write_config_u32(0, 3, 0, 4, pci_config | 4);
 
+    install_interrupt_handler(11, interrupt_handler);
     let mut driver_impl = EthernetDriver::new(controller);
 
-    let send_buffer_size = core::mem::size_of::<EthernetFrame>() + core::mem::size_of::<ARP>();
-    let mut send_buffer_vec = alloc::vec![0u8; send_buffer_size];
-    let send_buffer = &mut send_buffer_vec[0..send_buffer_size];
-    unsafe {
-        let frame = &mut *(&mut send_buffer[0] as *mut u8 as *mut EthernetFrame);
-        *frame = EthernetFrame::broadcast_arp(mac);
-        let arp_offset = core::mem::size_of::<EthernetFrame>();
-        let arp = &mut *(&mut send_buffer[arp_offset] as *mut u8 as *mut ARP);
-        *arp = ARP::announce(mac, [192, 168, 20, 12]);
+    // Install as DEV:\\ETH
+    install_device_driver("ETH", task_id, 0);
 
-        driver_impl.tx(send_buffer);
-    }
+    crate::kprint!("Network driver installed as DEV:\\ETH\n");
+
+    write_file(FileHandle::new(0), &[1]);
+
+    
 
     loop {
-        crate::task::actions::lifecycle::wait_for_io(None);
-        yield_coop();
+        let (message_read, _) = read_message_blocking(None);
+        if let Some(packet) = message_read {
+            let (sender, message) = packet.open();
+
+            match driver_impl.handle_request(message) {
+                Some(response) => send_message(sender, response, 0xffffffff),
+                None => continue,
+            }
+        }
     }
 }
 
@@ -310,10 +358,41 @@ pub fn install_driver() {
     // TODO: actually crawl the device tree and look for supported PCI devices
     // Then, use the BAR registers to find the appropriate IO port numbers, etc
 
-    let task = create_kernel_task(run_driver);
+    let (pipe_read, pipe_write) = open_pipe().unwrap();
+    let driver_task = create_kernel_task(run_driver);
+    transfer_handle(pipe_write, driver_task).unwrap();
+
+    read_file(pipe_read, &mut [0u8]).unwrap();
+
+    {
+        let net_dev = crate::task::actions::io::open_path("DEV:\\ETH").unwrap();
+        let send_buffer_size = core::mem::size_of::<EthernetFrame>() + core::mem::size_of::<ARP>();
+        let mut send_buffer_vec = alloc::vec![0u8; send_buffer_size];
+        let send_buffer = &mut send_buffer_vec[0..send_buffer_size];
+        unsafe {
+            let frame = &mut *(&mut send_buffer[0] as *mut u8 as *mut EthernetFrame);
+            *frame = EthernetFrame::broadcast_arp(MAC_ADDR);
+            let arp_offset = core::mem::size_of::<EthernetFrame>();
+            let arp = &mut *(&mut send_buffer[arp_offset] as *mut u8 as *mut ARP);
+            *arp = ARP::announce(MAC_ADDR, [192, 168, 20, 12]);
+
+            write_file(net_dev, &send_buffer).unwrap();
+        }
+        crate::task::actions::io::close_file(net_dev).unwrap();
+    }
 }
 
+static BLOCKED_DRIVER_TASK: AtomicU32 = AtomicU32::new(0);
+
 pub fn interrupt_handler(_irq: u32) {
-    
+    let task_complete = BLOCKED_DRIVER_TASK.swap(0, Ordering::SeqCst);
+    if task_complete == 0 {
+        return;
+    }
+
+    let task_lock = get_task(TaskID::new(task_complete));
+    if let Some(lock) = task_lock {
+        lock.write().io_complete();
+    }
 }
 
