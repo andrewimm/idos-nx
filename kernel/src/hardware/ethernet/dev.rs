@@ -3,11 +3,15 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use alloc::vec::Vec;
+
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::filesystem::install_device_driver;
 use crate::hardware::ethernet::frame::EthernetFrame;
+use crate::hardware::pci::devices::PciDevice;
+use crate::hardware::pci::get_bus_devices;
 use crate::interrupts::pic::install_interrupt_handler;
 use crate::memory::address::PhysicalAddress;
 use crate::task::actions::io::{open_pipe, transfer_handle, read_file, write_file};
@@ -304,12 +308,21 @@ impl ARP {
 static mut MAC_ADDR: [u8; 6] = [0; 6];
 
 fn run_driver() -> ! {
-    let task_id = get_current_id();
+    let args_reader = FileHandle::new(0);
+    let response_writer = FileHandle::new(1);
 
+    let mut args: [u8; 3] = [0; 3];
+    read_file(args_reader, &mut args).unwrap();
+
+    crate::kprint!("Install Ethernet driver for PCI device at {:x}:{:x}:{:x}\n", args[0], args[1], args[2]);
+    let pci_dev = PciDevice::read_from_bus(args[0], args[1], args[2]);
+    // bus mastering is needed to perform DMA
+    pci_dev.enable_bus_master();
+    let mmio_location = pci_dev.bar[0].unwrap().get_address();
     let mmio_address = map_memory(
         None,
         0x10000,
-        MemoryBacking::Direct(PhysicalAddress::new(0xfebc0000)),
+        MemoryBacking::Direct(PhysicalAddress::new(mmio_location)),
     ).unwrap();
 
     let controller = E1000Controller::new(mmio_address);
@@ -324,22 +337,18 @@ fn run_driver() -> ! {
         MAC_ADDR = mac;
     }
 
-    // enable bus mastering
-    // this is cheating, it needs to actually read the pci bus
-    let pci_config = crate::hardware::pci::config::read_config_u32(0, 3, 0, 4);
-    crate::hardware::pci::config::write_config_u32(0, 3, 0, 4, pci_config | 4);
-
-    install_interrupt_handler(11, interrupt_handler);
+    if let Some(irq) = pci_dev.irq {
+        install_interrupt_handler(irq as u32, interrupt_handler);
+    }
     let mut driver_impl = EthernetDriver::new(controller);
 
     // Install as DEV:\\ETH
+    let task_id = get_current_id();
     install_device_driver("ETH", task_id, 0);
 
     crate::kprint!("Network driver installed as DEV:\\ETH\n");
-
-    write_file(FileHandle::new(0), &[1]);
-
-    
+    // inform the parent task
+    write_file(response_writer, &[1]); 
 
     loop {
         let (message_read, _) = read_message_blocking(None);
@@ -355,14 +364,33 @@ fn run_driver() -> ! {
 }
 
 pub fn install_driver() {
-    // TODO: actually crawl the device tree and look for supported PCI devices
-    // Then, use the BAR registers to find the appropriate IO port numbers, etc
+    let pci_devices = get_bus_devices();
+    let supported: Vec<[u8; 3]> = pci_devices.into_iter()
+        .filter(|dev| {
+            dev.vendor_id == 0x8086 &&
+            dev.device_id == 0x100e
+        })
+        .map(|dev| [dev.bus, dev.device, dev.function])
+        .collect();
 
-    let (pipe_read, pipe_write) = open_pipe().unwrap();
+    if supported.is_empty() {
+        return;
+    }
+
+    let bus_addr = supported.get(0).unwrap();
+
+    let (args_reader, args_writer) = open_pipe().unwrap();
+    let (response_reader, response_writer) = open_pipe().unwrap();
+
     let driver_task = create_kernel_task(run_driver);
-    transfer_handle(pipe_write, driver_task).unwrap();
+    transfer_handle(args_reader, driver_task).unwrap();
+    transfer_handle(response_writer, driver_task).unwrap();
+    
+    // send the PCI identifier to the driver
+    write_file(args_writer, bus_addr).unwrap();
 
-    read_file(pipe_read, &mut [0u8]).unwrap();
+    // wait for a response from the driver indicating initialization
+    read_file(response_reader, &mut [0u8]).unwrap();
 
     {
         let net_dev = crate::task::actions::io::open_path("DEV:\\ETH").unwrap();

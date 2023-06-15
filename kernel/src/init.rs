@@ -84,7 +84,7 @@ pub fn init_hardware() {
     // set the PIT interrupt to approximately 100Hz
     PIT::new().set_divider(11932);
 
-    crate::hardware::pci::init();
+    crate::hardware::pci::get_bus_devices();
 
     crate::hardware::ps2::PS2Controller::new().init();
 }

@@ -1,10 +1,18 @@
-use super::devicetree::{DeviceTree, DeviceNode};
-
 pub mod config;
 pub mod devices;
 
-pub fn init() {
-    let root_node = DeviceNode::root_pci_bus();
-    let mut device_tree = DeviceTree::new(root_node);
-    config::enumerate(&mut device_tree);
+use alloc::vec::Vec;
+use spin::Once;
+
+use self::devices::PciDevice;
+
+static PCI_BUS: Once<Vec<PciDevice>> = Once::new();
+
+pub fn get_bus_devices() -> &'static Vec<PciDevice> {
+    PCI_BUS.call_once(|| {
+        let mut devices = Vec::new();
+        config::enumerate(&mut devices);
+        devices
+    })
 }
+
