@@ -25,7 +25,7 @@ impl DiskAccess {
 
         let buffer_location = map_memory(None, buffer_size as u32, MemoryBacking::Anonymous).unwrap();
 
-        let mut disk = Self {
+        let disk = Self {
             mount_handle,
             buffer_location,
             buffer_size,
@@ -76,7 +76,7 @@ impl DiskAccess {
             );
             let cache_buffer = self.get_buffer_sector(index);
             let seek_to = lba as usize * 512;
-            seek_file(self.mount_handle, SeekMethod::Absolute(seek_to));
+            seek_file(self.mount_handle, SeekMethod::Absolute(seek_to)).unwrap();
             read_file(self.mount_handle, cache_buffer).unwrap();
 
             index
@@ -90,7 +90,7 @@ impl DiskAccess {
     pub fn read_bytes_from_disk(&mut self, offset: u32, buffer: &mut [u8]) -> u32 {
         let sectors = sectors_for_byte_range(offset, buffer.len());
         let mut sector_offset = offset % 512;
-        let mut to_read = buffer.len() as u32;
+        let to_read = buffer.len() as u32;
         let mut bytes_read = 0;
         for sector in sectors {
             let index = self.cache_sector(sector);

@@ -1,7 +1,7 @@
 use crate::asm;
 use crate::memory::address::VirtualAddress;
 use crate::task::actions::lifecycle::exception;
-use crate::task::paging::{page_on_demand, PermissionFlags};
+use crate::task::paging::page_on_demand;
 use crate::task::switching::get_current_id;
 
 use super::stack::StackFrame;

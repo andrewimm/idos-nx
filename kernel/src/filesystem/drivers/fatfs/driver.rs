@@ -64,7 +64,7 @@ impl AsyncDriver for FatDriver {
         file.read(buffer, cursor, self.get_table(), self.get_disk_access())
     }
 
-    fn write(&mut self, instance: u32, buffer: &[u8]) -> u32 {
+    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> u32 {
         0
     }
 
@@ -75,7 +75,7 @@ impl AsyncDriver for FatDriver {
     fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
         let handle = self.open_handle_map.get_mut(instance as usize).unwrap();
         let new_cursor = match handle.handle_object {
-            HandleObject::File(mut f) => {
+            HandleObject::File(f) => {
                 let mut new_cursor = offset.from_current_position(handle.cursor as usize) as u32;
                 if new_cursor > f.byte_size() {
                     new_cursor = f.byte_size();

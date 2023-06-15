@@ -7,7 +7,6 @@ pub mod kernel;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use drive::{DriveID, DriveMap, FileSystemDriver};
-use drivers::initfs::InitFileSystem;
 use error::FsError;
 
 use crate::task::actions::lifecycle::create_kernel_task;
@@ -20,8 +19,6 @@ use self::kernel::KernelFileSystem;
 static DRIVE_MAP: DriveMap = DriveMap::new();
 
 pub fn init_fs() {
-    DRIVE_MAP.install("INIT", Box::new(InitFileSystem::new()));
-
     {
         let dev_fs = DevFileSystem::new();
         dev_fs.install_sync_driver("ZERO", Arc::new(Box::new(ZeroDriver::new())));

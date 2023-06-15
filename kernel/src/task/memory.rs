@@ -1,6 +1,6 @@
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::Range;
-use crate::{memory::address::{VirtualAddress, PhysicalAddress}, filesystem::get_driver_by_id};
+use crate::{memory::address::{VirtualAddress, PhysicalAddress}, filesystem::get_driver_by_id, files::cursor::SeekMethod};
 
 use super::files::OpenFile;
 
@@ -216,8 +216,9 @@ impl ExecutionSegment {
             match section.executable_file_offset {
                 Some(file_offset) => {
                     crate::kprint!("Filling exec memory from \"{}\"\n", open_file.filename.as_str());
-                    get_driver_by_id(open_file.drive).unwrap()
-                        .read(open_file.driver_handle, &mut buffer).unwrap();
+                    let driver = get_driver_by_id(open_file.drive).unwrap();
+                    driver.seek(open_file.driver_handle, SeekMethod::Absolute(file_offset as usize)).unwrap();
+                    driver.read(open_file.driver_handle, &mut buffer).unwrap();
                 },
                 None => {
                     for i in 0..buffer.len() {

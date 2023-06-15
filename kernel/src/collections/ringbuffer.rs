@@ -69,6 +69,10 @@ impl<'buffer, T: Sized + Copy> RingBuffer<'buffer, T> {
         self.read_index.store(next_index, Ordering::Release);
         return Some(value);
     }
+
+    pub fn capacity(&self) -> usize {
+        self.size
+    }
 }
 
 pub struct Reader<'buffer, T: Sized + Copy> {

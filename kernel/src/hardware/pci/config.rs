@@ -71,7 +71,7 @@ pub fn lookup_device(devices: &mut Vec<PciDevice>, bus: u8, device: u8) {
     if header_type & 0x80 != 0 {
         for function in 1..8 {
             let mf_vendor = get_vendor_id(bus, device, function);
-            if vendor == 0xffff {
+            if mf_vendor == 0xffff {
                 continue;
             }
             add_device(devices, bus, device, function);

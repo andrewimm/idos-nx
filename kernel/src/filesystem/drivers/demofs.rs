@@ -27,7 +27,7 @@ impl AsyncDriver for DemoFS {
         
     }
 
-    fn seek(&mut self, instance: u32, offset: crate::files::cursor::SeekMethod) -> u32 {
+    fn seek(&mut self, _instance: u32, _offset: crate::files::cursor::SeekMethod) -> u32 {
         0
     }
 }

@@ -65,12 +65,12 @@ impl FloppyDriver {
         if !self.attached[0].is_none() {
             self.controller.ensure_motor_on(DriveSelect::Primary);
 
-            self.recalibrate(DriveSelect::Primary);
+            self.recalibrate(DriveSelect::Primary)?;
         }
         if !self.attached[1].is_none() {
             self.controller.ensure_motor_on(DriveSelect::Secondary);
 
-            self.recalibrate(DriveSelect::Secondary);
+            self.recalibrate(DriveSelect::Secondary)?;
         }
 
         Ok(())
@@ -265,7 +265,7 @@ impl AsyncDriver for FloppyDriver {
         bytes_read as u32
     }
 
-    fn write(&mut self, instance: u32, buffer: &[u8]) -> u32 {
+    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> u32 {
         0
     }
 
@@ -308,14 +308,6 @@ struct ChsGeometry {
 }
 
 impl ChsGeometry {
-    pub fn new(cylinder: usize, head: usize, sector: usize) -> Self {
-        Self {
-            cylinder,
-            head,
-            sector,
-        }
-    }
-
     pub fn from_lba(lba: usize) -> Self {
         let sectors_per_cylinder = 2 * SECTORS_PER_TRACK;
         let cylinder = lba / sectors_per_cylinder;
@@ -353,14 +345,14 @@ fn run_driver() -> ! {
         fd_count += 1;
         let dev_name = alloc::format!("FD{}", fd_count);
         crate::kprint!("Install driver as DEV:\\{}\n", dev_name);
-        install_device_driver(dev_name.as_str(), task_id, sub_id);
+        install_device_driver(dev_name.as_str(), task_id, sub_id).unwrap();
     }
 
     driver_impl.init().unwrap();
 
     crate::kprint!("Detected {} Floppy drive(s)\n", fd_count);
 
-    write_file(FileHandle::new(0), &[1]);
+    write_file(FileHandle::new(0), &[1]).unwrap();
  
     loop {
         let (message_read, _) = read_message_blocking(None);

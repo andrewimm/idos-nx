@@ -68,7 +68,7 @@ impl ComDeviceDriver {
 }
 
 impl AsyncDriver for ComDeviceDriver {
-    fn open(&mut self, path: &str) -> u32 {
+    fn open(&mut self, _path: &str) -> u32 {
         let index = self.open_handles.insert(());
         index as u32
     }
@@ -107,7 +107,7 @@ impl AsyncDriver for ComDeviceDriver {
         self.open_handles.remove(handle as usize);
     }
 
-    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
+    fn seek(&mut self, _instance: u32, _offset: SeekMethod) -> u32 {
         0
     }
 }

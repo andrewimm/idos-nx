@@ -8,8 +8,16 @@ pub struct E1000Controller {
 }
 
 impl E1000Controller {
-    pub fn new(mmio_base: VirtualAddress) -> Self {
+    pub fn with_mmio(mmio_base: VirtualAddress) -> Self {
         let io = ControllerIO::MMIO(MMIO { base: mmio_base });
+
+        Self {
+            io,
+        }
+    }
+
+    pub fn with_pio() -> Self {
+        let io = ControllerIO::PIO(PIO {});
 
         Self {
             io,
@@ -22,7 +30,7 @@ impl E1000Controller {
                 let ptr = mmio.get_pointer(address);
                 unsafe { core::ptr::write_volatile(ptr, command); }
             },
-            ControllerIO::PIO(pio) => {
+            ControllerIO::PIO(_pio) => {
                 panic!("PIO controller not implemented yet");
             },
         }
@@ -34,7 +42,7 @@ impl E1000Controller {
                 let ptr = mmio.get_pointer(address);
                 unsafe { core::ptr::read_volatile(ptr) }
             },
-            ControllerIO::PIO(pio) => {
+            ControllerIO::PIO(_pio) => {
                 panic!("PIO controller not implemented yet");
             },
         }

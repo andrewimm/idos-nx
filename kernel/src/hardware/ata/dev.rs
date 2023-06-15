@@ -83,7 +83,7 @@ impl AsyncDriver for AtaDeviceDriver {
             let bytes_remaining_in_sector = SECTOR_SIZE - sector_offset;
             let bytes_remaining_in_buffer = buffer.len() - bytes_read;
 
-            self.controller.read_sectors(location, sector_index as u32, &mut pio_buffer);
+            self.controller.read_sectors(location, sector_index as u32, &mut pio_buffer).unwrap();
 
             let bytes_to_copy = bytes_remaining_in_sector.min(bytes_remaining_in_buffer);
 
@@ -101,8 +101,8 @@ impl AsyncDriver for AtaDeviceDriver {
         return bytes_read as u32;
     }
 
-    fn write(&mut self, instance: u32, buffer: &[u8]) -> u32 {
-        0
+    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> u32 {
+        panic!("Write to ATA not supported yet");
     }
 
     fn close(&mut self, handle: u32) {
@@ -142,7 +142,7 @@ fn run_driver() -> ! {
 
     let mut ata_count = 0;
 
-    let mut bus = AtaController::new(base_port, control_port);
+    let bus = AtaController::new(base_port, control_port);
     let disks = bus.identify();
     let mut driver_impl = AtaDeviceDriver::new(bus);
     for disk in disks {
@@ -153,13 +153,13 @@ fn run_driver() -> ! {
             let dev_name = alloc::format!("ATA{}", ata_index);
             crate::kprint!("Install driver as DEV:\\{}\n", dev_name);
             let sub_id = driver_impl.add_device(info.location);
-            install_device_driver(dev_name.as_str(), task_id, sub_id);
+            install_device_driver(dev_name.as_str(), task_id, sub_id).unwrap();
         }
     }
 
     crate::kprint!("Detected {} ATA device(s)\n", ata_count);
 
-    write_file(FileHandle::new(0), &[1]);
+    write_file(FileHandle::new(0), &[1]).unwrap();
 
     loop {
         let (message_read, _) = read_message_blocking(None);

@@ -35,8 +35,8 @@ impl PS2Controller {
     }
 }
 
-pub fn handle_interrupt(irq: u32) {
+pub fn handle_interrupt(_irq: u32) {
     crate::kprint!("!");
-    let data = Port::new(0x60).read_u8();
+    let _data = Port::new(0x60).read_u8();
 }
 

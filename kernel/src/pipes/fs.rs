@@ -1,4 +1,3 @@
-use core::sync::atomic::{AtomicU32, Ordering};
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
 use crate::files::handle::DriverHandle;
@@ -87,7 +86,7 @@ impl PipeDriver {
 }
 
 impl KernelFileSystem for PipeDriver {
-    fn open(&self, path: Path) -> Result<DriverHandle, ()> {
+    fn open(&self, _path: Path) -> Result<DriverHandle, ()> {
         Err(())
     }
 
@@ -111,11 +110,11 @@ impl KernelFileSystem for PipeDriver {
         PipeDriver::write_pipe(pipe_index, buffer)
     }
 
-    fn close(&self, handle: DriverHandle) -> Result<(), ()> {
+    fn close(&self, _handle: DriverHandle) -> Result<(), ()> {
         Err(())
     }
 
-    fn seek(&self, handle: DriverHandle, offset: SeekMethod) -> Result<usize, ()> {
+    fn seek(&self, _handle: DriverHandle, _offset: SeekMethod) -> Result<usize, ()> {
         Err(())
     }
 }

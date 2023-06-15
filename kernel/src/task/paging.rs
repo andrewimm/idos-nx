@@ -225,7 +225,6 @@ pub fn get_frame_for_region(region: MemMappedRegion, offset: u32) -> Option<Allo
         // TODO: needs a way to guarantee <16MiB
         MemoryBacking::DMA => allocate_frame().ok(),
         MemoryBacking::Direct(paddr) => Some(AllocatedFrame::new(paddr + offset)),
-        _ => panic!("Unsupported physical backing"),
     }
 }
 

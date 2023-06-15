@@ -1,5 +1,4 @@
 use core::arch::asm;
-use crate::filesystem::install_device_driver;
 use crate::hardware::{pic::PIC, pit::PIT};
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::heap;

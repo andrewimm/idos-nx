@@ -106,23 +106,11 @@ fn wait_task_body() -> ! {
 
 fn task_a_body() -> ! {
     let mut buf: [u8; 5] = [b'A'; 5];
-    /*
     {
         let wait_id = task::actions::lifecycle::create_kernel_task(wait_task_body);
         let return_code = task::actions::lifecycle::wait_for_child(wait_id, None);
         kprint!("Child task returned: {}\n\n", return_code);
     }
-
-    kprint!("Okay, time to read from a file...\n");
-
-    task::actions::io::set_active_drive("DEMO").unwrap();
-    let file = task::actions::io::open_path("TEST.TXT").unwrap();
-    let read_len = task::actions::io::read_file(file, &mut buf).unwrap();
-    let res = core::str::from_utf8(&buf[..read_len]).unwrap();
-    kprint!("Read file content from initfs: {}\n\n", res);
-
-    task::actions::io::close_file(file).unwrap();
-    */
 
     crate::kprint!("Okay let's read a raw HDD\n");
     let hd1 = task::actions::io::open_path("DEV:\\ATA1").unwrap();

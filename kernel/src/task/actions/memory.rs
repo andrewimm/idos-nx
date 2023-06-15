@@ -18,7 +18,7 @@ pub fn unmap_memory_for_task(task_id: TaskID, addr: VirtualAddress, size: u32) -
     {
         let task_lock = get_task(task_id).ok_or(TaskMemoryError::NoTask)?;
         let mut task = task_lock.write();
-        task.memory_mapping.unmap_memory(addr, size);
+        task.memory_mapping.unmap_memory(addr, size)?;
     }
     if task_id == get_current_id() {
         let mut offset = 0;

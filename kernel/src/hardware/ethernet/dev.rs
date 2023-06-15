@@ -205,11 +205,11 @@ impl EthernetDriver {
 }
 
 impl AsyncDriver for EthernetDriver {
-    fn open(&mut self, path: &str) -> u32 {
+    fn open(&mut self, _path: &str) -> u32 {
         self.open_handles.insert(()) as u32
     }
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> u32 {
+    fn read(&mut self, _instance: u32, _buffer: &mut [u8]) -> u32 {
         0
     }
 
@@ -221,7 +221,7 @@ impl AsyncDriver for EthernetDriver {
         self.open_handles.remove(handle as usize);
     }
 
-    fn seek(&mut self, instance: u32, offset: SeekMethod) -> u32 {
+    fn seek(&mut self, _instance: u32, _offset: SeekMethod) -> u32 {
         0
     }
 }
@@ -325,7 +325,7 @@ fn run_driver() -> ! {
         MemoryBacking::Direct(PhysicalAddress::new(mmio_location)),
     ).unwrap();
 
-    let controller = E1000Controller::new(mmio_address);
+    let controller = E1000Controller::with_mmio(mmio_address);
 
     let mac = controller.get_mac_address();
     crate::kprint!(
@@ -344,11 +344,11 @@ fn run_driver() -> ! {
 
     // Install as DEV:\\ETH
     let task_id = get_current_id();
-    install_device_driver("ETH", task_id, 0);
+    install_device_driver("ETH", task_id, 0).unwrap();
 
     crate::kprint!("Network driver installed as DEV:\\ETH\n");
     // inform the parent task
-    write_file(response_writer, &[1]); 
+    write_file(response_writer, &[1]).unwrap(); 
 
     loop {
         let (message_read, _) = read_message_blocking(None);

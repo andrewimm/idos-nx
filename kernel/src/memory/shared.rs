@@ -58,7 +58,6 @@ impl SharedMemoryRange {
     /// Map the page containing the range
     pub fn share_with_task(&self, id: TaskID) -> Self {
         if self.mapped_to < VirtualAddress::new(0xc0000000) {
-            // TODO: we're going to need to clean this up when sharing is done
             let mapped_to = map_memory_for_task(id, None, 4096, MemoryBacking::Direct(self.physical_frame)).unwrap();
 
             crate::kprint!("SHARING to {:?}. {:?} / {:?} -> {:?}\n", id, self.mapped_to, mapped_to, self.physical_frame);
@@ -112,7 +111,7 @@ impl Drop for SharedMemoryRange {
         }
         crate::kprint!("SHARE: Unmap {:?} for {:?}, no longer in use\n", self.mapped_to, self.owner);
 
-        unmap_memory_for_task(self.owner, self.mapped_to, 4096);
+        unmap_memory_for_task(self.owner, self.mapped_to, 4096).unwrap();
     }
 }
 
