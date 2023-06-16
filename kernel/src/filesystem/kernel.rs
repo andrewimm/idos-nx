@@ -2,6 +2,7 @@ use crate::files::cursor::SeekMethod;
 use crate::files::error::IOError;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
+use crate::files::stat::FileStatus;
 
 pub trait KernelFileSystem {
     #![allow(unused_variables)]
@@ -15,6 +16,10 @@ pub trait KernelFileSystem {
     fn close(&self, handle: DriverHandle) -> Result<(), IOError>;
 
     fn seek(&self, handle: DriverHandle, offset: SeekMethod) -> Result<u32, IOError>;
+
+    fn stat(&self, handle: DriverHandle) -> Result<FileStatus, IOError> {
+        Err(IOError::UnsupportedOperation)
+    }
 
     fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) -> Result<u32, IOError> {
         Err(IOError::UnsupportedOperation)

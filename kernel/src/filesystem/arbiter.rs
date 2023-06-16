@@ -25,6 +25,8 @@ pub enum AsyncIO {
     Close(u32),
     // Seek(handle id, method, delta)
     Seek(u32, u32, u32),
+    // Stat(handle id, stat pointer, stat length)
+    Stat(u32, u32, u32),
 }
 
 pub type AsyncResponse = Arc<Mutex<Option<Result<u32, u32>>>>;

@@ -1,6 +1,7 @@
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
 use crate::files::error::IOError;
+use crate::files::stat::FileStatus;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use super::disk::DiskAccess;
 use super::fs::FatFS;
@@ -93,6 +94,18 @@ impl AsyncDriver for FatDriver {
         handle.cursor = new_cursor;
 
         Ok(new_cursor)
+    }
+
+    fn stat(&mut self, instance: u32, status: &mut FileStatus) -> Result<(), IOError> {
+        let handle = self.open_handle_map.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
+        match handle.handle_object {
+            HandleObject::File(f) => {
+                status.byte_size = f.byte_size();
+                status.file_type = 1;
+            },
+            _ => panic!("Need to implement stat for other handle types"),
+        }
+        Ok(())
     }
 }
 

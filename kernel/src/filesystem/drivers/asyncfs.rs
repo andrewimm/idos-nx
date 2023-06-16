@@ -5,6 +5,7 @@ use crate::files::cursor::SeekMethod;
 use crate::files::error::IOError;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
+use crate::files::stat::FileStatus;
 use crate::memory::shared::SharedMemoryRange;
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;
@@ -115,6 +116,26 @@ impl KernelFileSystem for AsyncFileSystem {
 
         unwrap_async_response(response)
     }
+
+    fn stat(&self, handle: DriverHandle) -> Result<FileStatus, IOError> {
+        let mut status = FileStatus::new();
+        let shared_range = SharedMemoryRange::for_struct(&status);
+        let shared_to_driver = shared_range.share_with_task(self.task);
+
+        let response = self.async_op(
+            AsyncIO::Stat(
+                handle.into(),
+                shared_to_driver.get_range_start(),
+                shared_to_driver.range_length,
+            )
+        );
+
+        match response {
+            Some(Ok(_)) => Ok(status),
+            Some(Err(err)) => Err(IOError::try_from(err).unwrap()),
+            None => Err(IOError::FileSystemError),
+        }
+    }
 }
 
 fn unwrap_async_response(response: Option<Result<u32, u32>>) -> Result<u32, IOError> {
@@ -135,6 +156,7 @@ pub enum AsyncCommand {
     Write,
     Close,
     Seek,
+    Stat,
     // Every time a new command is added, modify the From<u32> impl below
 
     Invalid = 0xffffffff,
@@ -142,7 +164,7 @@ pub enum AsyncCommand {
 
 impl From<u32> for AsyncCommand {
     fn from(value: u32) -> Self {
-        if value >= 1 && value <= 6 {
+        if value >= 1 && value <= 7 {
             unsafe { core::mem::transmute(value) }
         } else {
             AsyncCommand::Invalid
@@ -177,6 +199,10 @@ pub fn encode_request(request: AsyncIO) -> Message {
         AsyncIO::Seek(open_instance, method, delta) => {
             let code = AsyncCommand::Seek as u32;
             Message(code, open_instance, method, delta)
+        },
+        AsyncIO::Stat(open_instance, buffer_start, buffer_len) => {
+            let code = AsyncCommand::Stat as u32;
+            Message(code, open_instance, buffer_start, buffer_len)
         },
     }
 }
@@ -242,6 +268,17 @@ pub trait AsyncDriver {
                     Err(err) => Some((0, err as u32, 0)),
                 }
             },
+            AsyncCommand::Stat => {
+                let open_instance = message.1;
+                let buffer_start = message.2 as *mut FileStatus;
+                // assuming the length is the size of a file status
+                // not sure if that's a good idea or not
+                let status = unsafe { &mut *buffer_start };
+                match self.stat(open_instance, status) {
+                    Ok(_) => Some((0, 0, 0)),
+                    Err(err) => Some((0, err as u32, 0)),
+                }
+            },
             _ => {
                 crate::kprint!("Async driver: unknown request\n");
                 None
@@ -258,6 +295,10 @@ pub trait AsyncDriver {
     fn close(&mut self, handle: u32) -> Result<(), IOError>;
 
     fn seek(&mut self, instance: u32, offset: SeekMethod) -> Result<u32, IOError> {
+        Err(IOError::UnsupportedOperation)
+    }
+
+    fn stat(&mut self, instance: u32, status: &mut FileStatus) -> Result<(), IOError> {
         Err(IOError::UnsupportedOperation)
     }
 }

@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 
 use crate::filesystem::drive::DriveID;
 use crate::files::handle::DriverHandle;
+use crate::filesystem::get_driver_by_id;
 use crate::memory::address::VirtualAddress;
 use crate::task::memory::{ExecutionSegment, ExecutionSection};
 
@@ -9,10 +10,12 @@ use super::LoaderError;
 use super::environment::{ExecutionEnvironment, InitialRegisters};
 
 pub fn build_environment(drive: DriveID, driver_handle: DriverHandle) -> Result<ExecutionEnvironment, LoaderError> {
-    // TODO: needs file stat to read the actual size
-    let file_size = 32;
+    let status = get_driver_by_id(drive)
+        .map_err(|_| LoaderError::FileNotFound)?
+        .stat(driver_handle)
+        .map_err(|_| LoaderError::InternalError)?;
 
-    let segments = build_single_section_environment(file_size, 0)?;
+    let segments = build_single_section_environment(status.byte_size, 0)?;
     Ok(
         ExecutionEnvironment {
             segments,

@@ -2,6 +2,7 @@ use alloc::string::ToString;
 use crate::files::cursor::SeekMethod;
 use crate::files::error::IOError;
 use crate::files::path::Path;
+use crate::files::stat::FileStatus;
 use crate::filesystem::drive::DriveID;
 use crate::filesystem::{get_driver_by_id, get_drive_id_by_name};
 use crate::pipes::{create_pipe, get_pipe_drive_id};
@@ -191,5 +192,19 @@ pub fn seek_file(handle: FileHandle, method: SeekMethod) -> Result<u32, IOError>
     get_driver_by_id(drive_id)
         .map_err(|_| IOError::NotFound)?
         .seek(driver_handle, method)
+        .map_err(|_| IOError::OperationFailed)
+}
+
+pub fn file_stat(handle: FileHandle) -> Result<FileStatus, IOError> {
+    let (drive_id, driver_handle) = {
+        let task_lock = get_current_task();
+        let mut task = task_lock.write();
+        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        (entry.drive, entry.driver_handle)
+    };
+
+    get_driver_by_id(drive_id)
+        .map_err(|_| IOError::NotFound)?
+        .stat(driver_handle)
         .map_err(|_| IOError::OperationFailed)
 }

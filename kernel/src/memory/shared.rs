@@ -55,6 +55,26 @@ impl SharedMemoryRange {
         }
     }
 
+    pub fn for_struct<T>(s: &T) -> Self {
+        let start = s as *const T as u32;
+
+        let mapped_to = VirtualAddress::new(start).prev_page_barrier();
+        let physical_frame = get_current_physical_address(mapped_to).expect("Cannot share unpaged memory!");
+        let range_offset = start - mapped_to.as_u32();
+        let range_length = core::mem::size_of::<T>() as u32;
+
+        let owner = get_current_id();
+
+        Self {
+            unmap_on_drop: false,
+            owner,
+            mapped_to,
+            physical_frame,
+            range_offset,
+            range_length,
+        }
+    }
+
     /// Map the page containing the range
     pub fn share_with_task(&self, id: TaskID) -> Self {
         if self.mapped_to < VirtualAddress::new(0xc0000000) {
