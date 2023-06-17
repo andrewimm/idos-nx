@@ -4,6 +4,9 @@ use alloc::alloc::{GlobalAlloc, Layout};
 use list_allocator::ListAllocator;
 use spin::Mutex;
 
+use crate::task::paging::{get_current_physical_address, current_pagedir_map, PermissionFlags};
+use crate::memory::physical::allocate_frame;
+
 use super::address::VirtualAddress;
 
 struct Allocator {
@@ -51,9 +54,15 @@ pub fn init_allocator(location: VirtualAddress) {
     // Initial heap size is from the start location to the end of the frame.
     // This memory should already have been allocated and mapped by previous
     // initialization tasks.
-    // TODO: Until the heap is expandable, pre-allocating more memory. This
-    // also needs to page memory
-    let heap_end = location.next_page_barrier() + 0x1000;
+    if get_current_physical_address(location).is_none() {
+        let frame = allocate_frame().unwrap();
+        current_pagedir_map(frame, location.prev_page_barrier(), PermissionFlags::empty());
+    }
+    // add at least one more page
+    let extra_page = location + 0x1000;
+    let extra_frame = allocate_frame().unwrap();
+    current_pagedir_map(extra_frame, extra_page.prev_page_barrier(), PermissionFlags::empty());
+    let heap_end = (location + 0x1000).next_page_barrier();
     let byte_size = heap_end.as_u32() - location.as_u32();
 
     ALLOCATOR.update_implementation(location.as_u32() as usize, byte_size as usize);

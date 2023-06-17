@@ -1,6 +1,10 @@
 use alloc::alloc::Layout;
 use core::ptr::null_mut;
 
+use crate::memory::address::VirtualAddress;
+use crate::memory::physical::allocate_frame;
+use crate::task::paging::{current_pagedir_map, PermissionFlags};
+
 /// Allocator using a linked list of free blocks to easily find available
 /// space. To avoid too much overhead in memory, most of the properties are
 /// stored as 32-bit pointers.
@@ -149,11 +153,17 @@ impl ListAllocator {
     }
 
     pub fn expand(&mut self, page_count: usize) {
+        let prev_end = VirtualAddress::new((self.start + self.size) as u32);
         let expanded_bytes = 0x1000 * page_count;
         let last_node = self.find_last_node();
         last_node.size += expanded_bytes as u32;
         self.size += expanded_bytes;
-        crate::kprint!("Heap expanded\n");
+        for i in 0..page_count {
+            let page_start = prev_end + (i as u32 * 0x1000);
+            let frame = allocate_frame().unwrap();
+            current_pagedir_map(frame, page_start, PermissionFlags::empty());
+        }
+        crate::kprint!("Heap expanded by {} pages\n", page_count);
     }
 
     pub unsafe fn alloc(&mut self, layout: Layout) -> *mut u8 {

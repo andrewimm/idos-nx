@@ -34,6 +34,7 @@ pub mod page_table;
 pub mod scratch;
 
 use core::arch::asm;
+use core::ops::Range;
 use page_table::{PageTable, PageTableReference};
 use crate::task::stack::get_initial_kernel_stack_location;
 
@@ -43,7 +44,7 @@ use super::address::{PhysicalAddress, VirtualAddress};
 use super::physical::allocate_frame;
 
 /// Create the initial page directory need to enable paging.
-pub fn create_initial_pagedir() -> PageTableReference {
+pub fn create_initial_pagedir(initial_range: Range<VirtualAddress>) -> PageTableReference {
     let dir_address = allocate_frame().unwrap().to_physical_address();
     zero_frame(dir_address);
 
@@ -54,23 +55,39 @@ pub fn create_initial_pagedir() -> PageTableReference {
 
     // Identity-map the kernel
     {
-        let table_zero_frame = allocate_frame().unwrap().to_physical_address();
-        zero_frame(table_zero_frame);
-        // TODO: Actually map kernel bounds
-        // Right now this is just identity-mapping the lower 4MiB as a hack
-        dir.get_mut(0).set_address(table_zero_frame);
-        dir.get_mut(0).set_present();
+        let first_dir_index = initial_range.start.get_page_directory_index();
+        let last_dir_index = initial_range.end.get_page_directory_index();
+        for dir_index in first_dir_index..=last_dir_index {
+            let table_frame = allocate_frame().unwrap().to_physical_address();
+            zero_frame(table_frame);
+            dir.get_mut(dir_index).set_address(table_frame);
+            dir.get_mut(dir_index).set_present();
 
-        let table_zero = PageTable::at_address(VirtualAddress::new(table_zero_frame.into()));
-        for index in 0..1024 {
-            table_zero.get_mut(index).set_address(PhysicalAddress::new(0x1000 * index as u32));
-            table_zero.get_mut(index).set_present();
+            let table = PageTable::at_address(VirtualAddress::new(table_frame.into()));
+            let first_table_index = if dir_index == first_dir_index {
+                initial_range.start.get_page_table_index()
+            } else {
+                0
+            };
+            let last_table_index = if dir_index == last_dir_index {
+                initial_range.end.get_page_table_index()
+            } else {
+                1023
+            };
+            for table_index in first_table_index..=last_table_index {
+                let identity_map = PhysicalAddress::new(
+                    dir_index as u32 * 0x400 * 0x1000 +
+                    table_index as u32 * 0x1000
+                );
+                table.get_mut(table_index).set_address(identity_map);
+                table.get_mut(table_index).set_present();
+            }
+
+            // Copy the same table to high memory, so that the kernel is
+            // accessible above 0xc0000000
+            dir.get_mut(dir_index + 0x300).set_address(table_frame);
+            dir.get_mut(dir_index + 0x300).set_present();
         }
-
-        // Copy the same table to high memory, so that the kernel is accessible
-        // at 0xc0000000
-        dir.get_mut(0x300).set_address(table_zero_frame);
-        dir.get_mut(0x300).set_present();
     }
 
     // Create a page table for the second-highest entry in the pagedir.

@@ -60,17 +60,17 @@ pub unsafe fn init_memory() {
     let heap_start = VirtualAddress::new(0xc0000000 + allocator_end);
 
     // activate paging and virtual memory
-    let initial_pagedir = crate::memory::virt::create_initial_pagedir();
+    let initial_mapped_range = VirtualAddress::new(kernel_start_addr)..VirtualAddress::new(allocator_end);
+    let initial_pagedir = crate::memory::virt::create_initial_pagedir(initial_mapped_range);
     initial_pagedir.make_active();
     crate::memory::virt::enable_paging();
-    
+
     // relocate $esp to the virtual location of the initial kernel stack
     let stack_offset = get_kernel_stack_virtual_offset();
     asm!(
         "add esp, {offset}",
         offset = in(reg) stack_offset,
     );
-    crate::kprint!("STACK RELOCATED\n");
     crate::memory::physical::with_allocator(|alloc| alloc.move_to_highmem());
 
     // enable the heap, so that the alloc crate can be used
