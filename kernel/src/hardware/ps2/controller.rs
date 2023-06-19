@@ -47,8 +47,8 @@ pub fn initialize_controller() -> [bool; 2] {
     // get configuration value, so that it can be modified and eventually
     // restored to its original setting
     let mut config = get_configuration();
-    // disable interrupts, translation
-    config &= 0b10111100;
+    // disable interrupts, keep translation
+    config &= 0b11111100;
     set_configuration(config);
 
     // perform a self-test

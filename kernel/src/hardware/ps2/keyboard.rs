@@ -8,6 +8,8 @@ use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::id::TaskID;
 use crate::task::switching::get_current_id;
 
+use super::keycodes::{get_extended_keycode, get_keycode, KeyCode};
+
 pub static OPEN_KEYBOARD_HANDLES: RwLock<SlotList<OpenHandle>> = RwLock::new(SlotList::new());
 
 pub struct KeyboardDriver {
@@ -41,6 +43,7 @@ impl KeyboardDriver {
         for i in 0..to_write {
             buffer[i] = *handle.unread.get(i).unwrap();
         }
+        handle.unread.clear();
         Ok(to_write)
     }
 }
@@ -88,4 +91,63 @@ pub struct OpenHandle {
     pub reader_id: TaskID,
     pub is_reading: bool,
     pub unread: Vec<u8>,
+}
+
+/// State machine tracking raw keyboard scancodes and turning it into useful
+/// input data
+pub struct KeyboardState {
+    receiving_extended_code: bool,
+}
+
+impl KeyboardState {
+    pub const fn new() -> Self {
+        Self {
+            receiving_extended_code: false,
+        }
+    }
+
+    /// Handle a raw stream of scancode bytes from a PS/2 keyboard, one at a
+    /// time. Each byte can trigger at most one key action (such as a press or
+    /// release), so the method returns an optional KeyAction if one has been
+    /// generated.
+    pub fn handle_scan_byte(&mut self, scan_code: u8) -> Option<KeyAction> {
+        if scan_code == 0xe0 {
+            self.receiving_extended_code = true;
+            return None;
+        }
+
+        let key = scan_code & 0x7f;
+        let pressed = scan_code & 0x80 == 0;
+
+        let key_code = if self.receiving_extended_code {
+            get_extended_keycode(key)
+        } else {
+            get_keycode(key)
+        };
+        self.receiving_extended_code = false;
+
+        match key_code {
+            KeyCode::None => None,
+            _ => if pressed {
+                Some(KeyAction::Press(key_code))
+            } else {
+                Some(KeyAction::Release(key_code))
+            },
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum KeyAction {
+    Press(KeyCode),
+    Release(KeyCode),
+}
+
+impl KeyAction {
+    pub fn to_raw(&self) -> [u8; 2] {
+        match self {
+            Self::Press(code) => [1, *code as u8],
+            Self::Release(code) => [2, *code as u8],
+        }
+    }
 }

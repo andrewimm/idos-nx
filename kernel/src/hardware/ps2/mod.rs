@@ -5,6 +5,7 @@ use crate::{interrupts::pic::install_interrupt_handler, task::{actions::lifecycl
 pub mod controller;
 pub mod driver;
 pub mod keyboard;
+pub mod keycodes;
 pub mod mouse;
 
 static DRIVER_ID: AtomicU32 = AtomicU32::new(0);

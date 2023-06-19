@@ -6,7 +6,7 @@ use crate::task::actions::yield_coop;
 use crate::task::id::TaskID;
 use crate::task::switching::get_task;
 
-use super::keyboard::OPEN_KEYBOARD_HANDLES;
+use super::keyboard::{OPEN_KEYBOARD_HANDLES, KeyboardState};
 
 static KEYBOARD_BUFFER_RAW: [u8; 32] = [0; 32];
 pub static KEYBOARD_BUFFER: RingBuffer<u8> = RingBuffer::for_buffer(&KEYBOARD_BUFFER_RAW);
@@ -20,15 +20,21 @@ pub fn ps2_driver_task() -> ! {
 
     let mut keyboard_bytes: Vec<u8> = Vec::new();
     let mut mouse_bytes: Vec<u8> = Vec::new();
+
+    let mut keyboard_state = KeyboardState::new();
     
     loop {
         loop {
-            match KEYBOARD_BUFFER.read() {
+            let action = match KEYBOARD_BUFFER.read() {
                 Some(data) => {
-                    crate::kprint!("K{:X}", data);
-                    keyboard_bytes.push(data);
+                    keyboard_state.handle_scan_byte(data)
                 },
                 None => break,
+            };
+
+            if let Some([a, b]) = action.map(|act| act.to_raw()) {
+                keyboard_bytes.push(a);
+                keyboard_bytes.push(b);
             }
         }
         loop {

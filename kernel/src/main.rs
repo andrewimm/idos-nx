@@ -108,14 +108,20 @@ fn wait_task_body() -> ! {
 }
 
 fn task_a_body() -> ! {
-    let mut buf: [u8; 5] = [b'A'; 5];
     {
+        let mut keybuf: [u8; 6] = [0; 6];
         crate::kprint!("Read from keyboard:\n");
         let kbd = task::actions::io::open_path("DEV:\\KBD").unwrap();
-        task::actions::io::read_file(kbd, &mut buf).unwrap();
+        task::actions::io::read_file(kbd, &mut keybuf).unwrap();
         task::actions::io::close_file(kbd).unwrap();
-        crate::kprint!("DONE\n");
+        crate::kprint!("KEY ACTIONS: ");
+        for i in 0..6 {
+            crate::kprint!("{:02X} ", keybuf[i]);
+        }
+        crate::kprint!("\n\n");
     }
+
+    let mut buf: [u8; 5] = [b'A'; 5];
     {
         let wait_id = task::actions::lifecycle::create_kernel_task(wait_task_body);
         let return_code = task::actions::lifecycle::wait_for_child(wait_id, None);
