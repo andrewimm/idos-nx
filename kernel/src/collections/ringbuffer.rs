@@ -11,7 +11,7 @@ pub struct RingBuffer<'buffer, T: Sized> {
 }
 
 impl<'buffer, T: Sized + Copy> RingBuffer<'buffer, T> {
-    pub fn for_buffer(data: &'buffer [T]) -> Self {
+    pub const fn for_buffer(data: &'buffer [T]) -> Self {
         Self {
             data,
             size: data.len() - 1,
@@ -46,7 +46,7 @@ impl<'buffer, T: Sized + Copy> RingBuffer<'buffer, T> {
         unsafe {
             let data_ptr: *mut T = self.data.as_ptr() as *mut T;
             let dest = data_ptr.offset(write_index as isize);
-            *dest = value;
+            core::ptr::write_volatile(dest, value);
         }
         // Guarantees the write comes before the Reader fetches it
         self.write_index.store(next_index, Ordering::Release);
@@ -63,7 +63,7 @@ impl<'buffer, T: Sized + Copy> RingBuffer<'buffer, T> {
         let value = unsafe {
             let data_ptr: *const T = self.data.as_ptr();
             let src = data_ptr.offset(read_index as isize);
-            *src
+            core::ptr::read_volatile(src)
         };
         let next_index = self.next_index(read_index);
         self.read_index.store(next_index, Ordering::Release);

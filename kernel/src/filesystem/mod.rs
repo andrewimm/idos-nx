@@ -9,6 +9,7 @@ use alloc::sync::Arc;
 use drive::{DriveID, DriveMap, FileSystemDriver};
 use error::FsError;
 
+use crate::hardware::ps2::keyboard::KeyboardDriver;
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::id::TaskID;
 use crate::devices::zero::ZeroDriver;
@@ -22,6 +23,7 @@ pub fn init_fs() {
     {
         let dev_fs = DevFileSystem::new();
         dev_fs.install_sync_driver("ZERO", Arc::new(Box::new(ZeroDriver::new())));
+        dev_fs.install_sync_driver("KBD", Arc::new(Box::new(KeyboardDriver::new())));
 
         DRIVE_MAP.install("DEV", Box::new(dev_fs));
     }

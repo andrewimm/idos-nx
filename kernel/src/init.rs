@@ -84,8 +84,6 @@ pub fn init_hardware() {
     PIT::new().set_divider(11932);
 
     crate::hardware::pci::get_bus_devices();
-
-    crate::hardware::ps2::PS2Controller::new().init();
 }
 
 /// Populate the DEV: FS with drivers for the devices detected on this PC

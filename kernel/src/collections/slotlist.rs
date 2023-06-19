@@ -76,6 +76,14 @@ impl<T: Sized> SlotList<T> {
     pub fn len(&self) -> usize {
         self.slots.len()
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = &T> {
+        self.slots.iter().filter_map(|i| i.as_ref())
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.slots.iter_mut().filter_map(|i| i.as_mut())
+    }
 }
 
 impl<T: Clone> Clone for SlotList<T> {

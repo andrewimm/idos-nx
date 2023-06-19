@@ -207,6 +207,8 @@ impl ListAllocator {
                     // an invalid pointer
                     let end = self.start + self.size;
                     self.size += 0x1000;
+                    let frame = allocate_frame().unwrap();
+                    current_pagedir_map(frame, VirtualAddress::new(end as u32), PermissionFlags::empty());
                     let new_empty = end as *mut AllocNode;
                     (&mut *new_empty).init(0x1000);
                     self.first_free = end;

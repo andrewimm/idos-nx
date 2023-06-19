@@ -42,12 +42,12 @@ impl PIC {
     }
 
     pub fn acknowledge_interrupt(&self, irq: u8) {
-        if irq >= 8 {
-            self.secondary_command.write_u8(0x20);
-        }
         // regardless of whether the interrupt happened on the primary or
         // secondary, the primary still needs to be cleared
         self.primary_command.write_u8(0x20);
+        if irq >= 8 {
+            self.secondary_command.write_u8(0x20);
+        }
     }
 
     /// In order to detect spurious interrupts, the kernel needs to read the

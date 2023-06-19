@@ -19,6 +19,7 @@ extern crate alloc;
 pub mod arch;
 pub mod cleanup;
 pub mod collections;
+pub mod console;
 pub mod devices;
 pub mod files;
 pub mod filesystem;
@@ -82,6 +83,8 @@ fn init_system() -> ! {
     crate::kprint!("INIT task: {:?}\n", id);
     // initialize drivers that rely on multitasking
     {
+        hardware::ps2::install_drivers();
+
         crate::kprint!("Query ATA bus...\n");
         hardware::ata::dev::install_drivers();
 
@@ -106,6 +109,13 @@ fn wait_task_body() -> ! {
 
 fn task_a_body() -> ! {
     let mut buf: [u8; 5] = [b'A'; 5];
+    {
+        crate::kprint!("Read from keyboard:\n");
+        let kbd = task::actions::io::open_path("DEV:\\KBD").unwrap();
+        task::actions::io::read_file(kbd, &mut buf).unwrap();
+        task::actions::io::close_file(kbd).unwrap();
+        crate::kprint!("DONE\n");
+    }
     {
         let wait_id = task::actions::lifecycle::create_kernel_task(wait_task_body);
         let return_code = task::actions::lifecycle::wait_for_child(wait_id, None);
