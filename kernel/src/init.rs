@@ -84,6 +84,9 @@ pub fn init_hardware() {
     PIT::new().set_divider(11932);
 
     crate::hardware::pci::get_bus_devices();
+
+
+    crate::time::system::initialize_time_from_rtc();
 }
 
 /// Populate the DEV: FS with drivers for the devices detected on this PC

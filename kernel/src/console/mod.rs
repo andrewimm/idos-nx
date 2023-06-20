@@ -58,6 +58,8 @@ pub fn manager_task() -> ! {
             conman.handle_action(action);
         }
 
+        conman.update_clock();
+
         wait_for_io(Some(1000));
     }
 }

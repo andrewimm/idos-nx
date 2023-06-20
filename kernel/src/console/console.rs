@@ -18,7 +18,7 @@ impl Console {
             cursor_x: 0,
             cursor_y: 22,
 
-            width: 38,
+            width: 78,
             height: 23,
 
             text_buffer_base,
