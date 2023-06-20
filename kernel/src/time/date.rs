@@ -169,7 +169,7 @@ impl DateTime {
             date: Date {
                 day: day as u8,
                 month: month as u8,
-                year: year_offset as u16,
+                year: year_offset as u16 + 1980,
             },
 
             time: Time {
@@ -183,7 +183,7 @@ impl DateTime {
 
 #[cfg(test)]
 mod tests {
-    use super::{year_offset_from_days};
+    use super::{year_offset_from_days, Date, DateTime, Time, Timestamp};
 
     #[test_case]
     fn year_offset() {
@@ -192,7 +192,82 @@ mod tests {
         assert_eq!(year_offset_from_days(366), 1);
         assert_eq!(year_offset_from_days(366 + 365 + 365 + 365), 4);
         assert_eq!(year_offset_from_days(366 + 365 + 365 + 365 + 365), 4);
-        assert_eq!(year_offset_from_days(366 + 365 + 365 + 365 + 366), 4);
+        assert_eq!(year_offset_from_days(366 + 365 + 365 + 365 + 366), 5);
+    }
+
+    #[test_case]
+    fn extract_time() {
+        let mut time = Timestamp(1).to_datetime().time;
+        assert_eq!(time, Time { hours: 0, minutes: 0, seconds: 1 });
+        time = Timestamp(16332).to_datetime().time;
+        assert_eq!(time, Time { hours: 4, minutes: 32, seconds: 12 });
+        time = Timestamp(93595).to_datetime().time;
+        assert_eq!(time, Time { hours: 1, minutes: 59, seconds: 55 });
+    }
+
+    #[test_case]
+    fn extract_date() {
+        let mut date = Timestamp(10).to_datetime().date;
+        assert_eq!(date, Date { day: 1, month: 1, year: 1980 });
+        date = Timestamp(2592000).to_datetime().date;
+        assert_eq!(date, Date { day: 31, month: 1, year: 1980 });
+        date = Timestamp(2678400).to_datetime().date;
+        assert_eq!(date, Date { day: 1, month: 2, year: 1980 });
+        date = Timestamp(5097600).to_datetime().date;
+        assert_eq!(date, Date { day: 29, month: 2, year: 1980 });
+        date = Timestamp(5184000).to_datetime().date;
+        assert_eq!(date, Date { day: 1, month: 3, year: 1980 });
+        date = Timestamp(7862400).to_datetime().date;
+        assert_eq!(date, Date { day: 1, month: 4, year: 1980 });
+        date = Timestamp(31622400).to_datetime().date;
+        assert_eq!(date, Date { day: 1, month: 1, year: 1981 });
+        date = Timestamp(126230400).to_datetime().date;
+        assert_eq!(date, Date { day: 1, month: 1, year: 1984 });
+        date = Timestamp(131328000).to_datetime().date;
+        assert_eq!(date, Date { day: 29, month: 2, year: 1984 });
+        date = Timestamp(1278713001).to_datetime().date;
+        assert_eq!(date, Date { day: 8, month: 7, year: 2020 });
+    }
+
+    #[test_case]
+    fn to_timestamp() {
+        let dt = Timestamp(1278713001).to_datetime();
+        assert_eq!(dt.to_timestamp(), Timestamp(1278713001));
+    }
+
+    #[test_case]
+    fn from_unix() {
+        assert_eq!(
+            DateTime::from_unix_epoch(951868800),
+            DateTime {
+                date: Date {
+                    day: 1,
+                    month: 3,
+                    year: 2000,
+                },
+                time: Time {
+                    seconds: 0,
+                    minutes: 0,
+                    hours: 0,
+                },
+            },
+        );
+
+        assert_eq!(
+            DateTime::from_unix_epoch(1635291103),
+            DateTime {
+                date: Date {
+                    day: 26,
+                    month: 10,
+                    year: 2021,
+                },
+                time: Time {
+                    hours: 23,
+                    minutes: 31,
+                    seconds: 43,
+                },
+            },
+        );
     }
 }
 

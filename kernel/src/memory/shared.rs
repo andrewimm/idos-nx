@@ -20,7 +20,7 @@
 
 use crate::task::actions::memory::{map_memory_for_task, unmap_memory_for_task};
 use crate::task::id::TaskID;
-use crate::task::memory::MemoryBacking;
+use crate::task::memory::{MemoryBacking, TaskMemoryError};
 use crate::task::paging::get_current_physical_address;
 use crate::task::switching::get_current_id;
 use super::address::{PhysicalAddress, VirtualAddress};
@@ -131,7 +131,11 @@ impl Drop for SharedMemoryRange {
         }
         crate::kprint!("SHARE: Unmap {:?} for {:?}, no longer in use\n", self.mapped_to, self.owner);
 
-        unmap_memory_for_task(self.owner, self.mapped_to, 4096).unwrap();
+        match unmap_memory_for_task(self.owner, self.mapped_to, 4096) {
+            Err(TaskMemoryError::NoTask) => crate::kprint!("Task already dropped, no need to unmap\n"),
+            Err(e) => panic!("{:?}", e),
+            Ok(_) => ()
+        }
     }
 }
 
