@@ -43,6 +43,9 @@ pub fn manager_task() -> ! {
     let text_buffer_base = map_memory(None, 0x1000, MemoryBacking::Direct(PhysicalAddress::new(0xb8000))).unwrap();
 
     let mut conman = ConsoleManager::new(text_buffer_base);
+ 
+    conman.clear_screen();
+    conman.render_top_bar();
 
     loop {
         // read input actions and pass them to the current console for state
@@ -58,3 +61,4 @@ pub fn manager_task() -> ! {
         wait_for_io(Some(1000));
     }
 }
+
