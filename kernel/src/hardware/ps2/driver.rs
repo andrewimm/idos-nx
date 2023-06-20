@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::collections::RingBuffer;
+use crate::{collections::RingBuffer, console::wake_console_manager};
 use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::actions::yield_coop;
 use crate::task::id::TaskID;
@@ -24,17 +24,23 @@ pub fn ps2_driver_task() -> ! {
     let mut keyboard_state = KeyboardState::new();
     
     loop {
+        let mut wake_manager = false;
+
         loop {
-            let action = match KEYBOARD_BUFFER.read() {
+            let maybe_action = match KEYBOARD_BUFFER.read() {
                 Some(data) => {
                     keyboard_state.handle_scan_byte(data)
                 },
                 None => break,
             };
 
-            if let Some([a, b]) = action.map(|act| act.to_raw()) {
+            if let Some(action) = maybe_action {
+                let [a, b] = action.to_raw();
                 keyboard_bytes.push(a);
                 keyboard_bytes.push(b);
+
+                crate::console::INPUT_BUFFER.write(action);
+                wake_manager = true;
             }
         }
         loop {
@@ -77,6 +83,10 @@ pub fn ps2_driver_task() -> ! {
             }
         }
         ids_to_wake.clear();
+
+        if wake_manager {
+            wake_console_manager();
+        }
 
         wait_for_io(None);
     }

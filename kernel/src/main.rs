@@ -91,6 +91,10 @@ fn init_system() -> ! {
         hardware::floppy::dev::install_drivers();
 
         hardware::ethernet::dev::install_driver();
+
+        console::register_console_manager(
+          task::actions::lifecycle::create_kernel_task(console::manager_task)
+        );
     }
     // do other boot stuff
     // right now this just runs demos / tests
