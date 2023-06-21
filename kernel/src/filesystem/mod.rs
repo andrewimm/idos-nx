@@ -25,6 +25,11 @@ pub fn init_fs() {
         dev_fs.install_sync_driver("ZERO", Arc::new(Box::new(ZeroDriver::new())));
         dev_fs.install_sync_driver("KBD", Arc::new(Box::new(KeyboardDriver::new())));
 
+        {
+            let (driver, name) = crate::console::dev::create_new_console();
+            dev_fs.install_sync_driver(name.as_str(), Arc::new(driver));
+        }
+
         DRIVE_MAP.install("DEV", Box::new(dev_fs));
     }
 

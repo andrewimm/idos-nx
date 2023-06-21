@@ -1,9 +1,12 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use alloc::vec::Vec;
+use spin::RwLock;
+
 use crate::hardware::ps2::{keyboard::KeyAction, keycodes::KeyCode};
 use crate::collections::RingBuffer;
 use crate::memory::address::PhysicalAddress;
-use crate::task::actions::lifecycle::wait_for_io;
+use crate::task::actions::lifecycle::{wait_for_io, create_kernel_task};
 use crate::task::actions::memory::map_memory;
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
@@ -11,7 +14,9 @@ use crate::task::switching::get_task;
 
 use self::manager::ConsoleManager;
 
+pub mod buffers;
 pub mod console;
+pub mod dev;
 pub mod input;
 pub mod manager;
 
@@ -19,6 +24,8 @@ static INPUT_BUFFER_RAW: [KeyAction; 32] = [KeyAction::Release(KeyCode::None); 3
 pub static INPUT_BUFFER: RingBuffer<KeyAction> = RingBuffer::for_buffer(&INPUT_BUFFER_RAW);
 
 static CONSOLE_MANAGER_TASK: AtomicU32 = AtomicU32::new(0);
+
+pub static IO_BUFFERS: RwLock<Vec<buffers::ConsoleBuffers>> = RwLock::new(Vec::new());
 
 pub fn register_console_manager(id: TaskID) {
     CONSOLE_MANAGER_TASK.store(id.into(), Ordering::SeqCst);
@@ -58,9 +65,16 @@ pub fn manager_task() -> ! {
             conman.handle_action(action);
         }
 
+        // read pending bytes for each console, and process them
+        conman.process_buffers();
+
         conman.update_clock();
 
         wait_for_io(Some(1000));
     }
+}
+
+pub fn init_console() {
+    register_console_manager(create_kernel_task(manager_task));
 }
 

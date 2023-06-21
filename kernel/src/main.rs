@@ -6,6 +6,7 @@
 #![feature(const_mut_refs)]
 #![feature(custom_test_frameworks)]
 #![feature(naked_functions)]
+#![feature(vec_into_raw_parts)]
 
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
@@ -92,9 +93,7 @@ fn init_system() -> ! {
 
         hardware::ethernet::dev::install_driver();
 
-        console::register_console_manager(
-          task::actions::lifecycle::create_kernel_task(console::manager_task)
-        );
+        console::init_console();
     }
     // do other boot stuff
     // right now this just runs demos / tests
@@ -123,6 +122,13 @@ fn task_a_body() -> ! {
             crate::kprint!("{:02X} ", keybuf[i]);
         }
         crate::kprint!("\n\n");
+    }
+
+    {
+        crate::kprint!("Write to DEV:\\CON1\n");
+        let con1 = task::actions::io::open_path("DEV:\\CON1").unwrap();
+        task::actions::io::write_file(con1, " * HI CONSOLE * ".as_bytes()).unwrap();
+        task::actions::io::close_file(con1);
     }
 
     let mut buf: [u8; 5] = [b'A'; 5];

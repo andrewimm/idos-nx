@@ -1,5 +1,8 @@
+use alloc::vec::Vec;
+
 use crate::hardware::ps2::keyboard::KeyAction;
 use crate::memory::address::VirtualAddress;
+use crate::task::actions::yield_coop;
 use crate::time::system::Timestamp;
 
 use super::console::{Console, Color, ColorCode, TextCell};
@@ -10,18 +13,23 @@ pub struct ConsoleManager {
     text_buffer_base: VirtualAddress,
     current_time: Timestamp,
 
-    // eventually make this an array of consoles
-    pub console: Console,
+    current_console: usize,
+    consoles: Vec<Console>,
 }
 
 impl ConsoleManager {
     pub fn new(text_buffer_base: VirtualAddress) -> Self {
+        let first_console = Console::new(text_buffer_base);
+        let mut consoles = Vec::with_capacity(1);
+        consoles.push(first_console);
+
         Self {
             key_state: KeyState::new(),
             text_buffer_base,
             current_time: crate::time::system::get_system_time().to_timestamp(),
 
-            console: Console::new(text_buffer_base),
+            current_console: 0,
+            consoles,
         }
     }
 
@@ -30,13 +38,38 @@ impl ConsoleManager {
         let result = self.key_state.process_key_action(action, &mut input_buffer);
         if let Some(len) = result {
             // send input buffer to current console
-            self.console.send_input(&input_buffer[..len]);
+            self.consoles.get_mut(self.current_console).unwrap().send_input(&input_buffer[..len]);
+        }
+    }
+
+    pub fn process_buffers(&mut self) {
+        for index in 0..self.consoles.len() {
+            let console = self.consoles.get_mut(index).unwrap();
+            let output_buffer = loop {
+                if let Some(buffers) = super::IO_BUFFERS.try_read() {
+                    break buffers.get(index).unwrap().output_buffer.clone();
+                }
+                yield_coop();
+            };
+            loop {
+                match output_buffer.read() {
+                    Some(value) => {
+                        console.write_character(value);
+                    },
+                    None => break,
+                }
+            }
         }
     }
 
     pub fn render_top_bar(&self) {
         let width = 80;
-        let top_slice = &mut self.console.get_text_buffer()[..width];
+        let top_slice = unsafe {
+            core::slice::from_raw_parts_mut(
+                self.text_buffer_base.as_ptr_mut::<TextCell>(),
+                width,
+            )
+        };
         let title = " IDOS-NX ".as_bytes();
         for i in 0..title.len() {
             top_slice[i].glyph = title[i];
@@ -66,7 +99,12 @@ impl ConsoleManager {
         self.current_time.to_datetime().time.print_short_to_buffer(&mut clock_buffer[1..6]);
         let clock_color = ColorCode::new(Color::White, Color::Blue);
         let clock_start = width - clock_buffer.len();
-        let top_slice = &mut self.console.get_text_buffer()[clock_start..width];
+        let top_slice = unsafe {
+            core::slice::from_raw_parts_mut(
+                self.text_buffer_base.as_ptr_mut::<TextCell>().add(clock_start),
+                clock_buffer.len()
+            )
+        };
         for i in 0..clock_buffer.len() {
             top_slice[i] = TextCell {
                 glyph: clock_buffer[i],

@@ -85,7 +85,6 @@ pub fn init_hardware() {
 
     crate::hardware::pci::get_bus_devices();
 
-
     crate::time::system::initialize_time_from_rtc();
 }
 
