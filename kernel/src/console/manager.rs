@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 
+use crate::arch::port::Port;
 use crate::hardware::ps2::keyboard::KeyAction;
 use crate::memory::address::VirtualAddress;
 use crate::task::actions::yield_coop;
@@ -60,6 +61,17 @@ impl ConsoleManager {
                 }
             }
         }
+    }
+
+    pub fn update_cursor(&self) {
+        let cursor_offset = self.consoles.get(self.current_console).unwrap().get_cursor_offset();
+        let register = Port::new(0x3d4);
+        let register_value = Port::new(0x3d5);
+
+        register.write_u8(0x0f);
+        register_value.write_u8(cursor_offset as u8);
+        register.write_u8(0x0e);
+        register_value.write_u8((cursor_offset >> 8) as u8);
     }
 
     pub fn render_top_bar(&self) {

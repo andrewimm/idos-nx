@@ -68,6 +68,8 @@ pub fn manager_task() -> ! {
         // read pending bytes for each console, and process them
         conman.process_buffers();
 
+        conman.update_cursor();
+
         conman.update_clock();
 
         wait_for_io(Some(1000));

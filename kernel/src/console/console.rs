@@ -64,9 +64,7 @@ impl Console {
     }
 
     pub fn put_raw_character(&mut self, ch: u8) {
-        let absolute_offset = self.text_buffer_offset +
-            self.cursor_y as usize * self.text_buffer_stride +
-            self.cursor_x as usize;
+        let absolute_offset = self.get_cursor_offset();
         self.get_text_buffer()[absolute_offset].glyph = ch;
 
         self.advance_cursor();
@@ -78,6 +76,12 @@ impl Console {
             self.cursor_x -= self.width;
             self.newline();
         }
+    }
+
+    pub fn get_cursor_offset(&self) -> usize {
+        self.text_buffer_offset +
+        self.cursor_y as usize * self.text_buffer_stride +
+        self.cursor_x as usize
     }
 
     pub fn newline(&mut self) {
