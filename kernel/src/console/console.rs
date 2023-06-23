@@ -1,4 +1,6 @@
-use crate::memory::address::VirtualAddress;
+use alloc::{vec::Vec, sync::Arc};
+
+use crate::{memory::address::VirtualAddress, collections::RingBuffer};
 
 pub struct Console {
     cursor_x: u8,
@@ -10,6 +12,10 @@ pub struct Console {
     text_buffer_base: VirtualAddress,
     text_buffer_offset: usize,
     text_buffer_stride: usize,
+
+    // stores user input that will be flushed on the next newline
+    // this is bypassed if the console is in "raw" mode
+    pending_input: Vec<u8>,
 }
 
 impl Console {
@@ -24,6 +30,8 @@ impl Console {
             text_buffer_base,
             text_buffer_offset: 81,
             text_buffer_stride: 80,
+
+            pending_input: Vec::new(),
         }
     }
     
@@ -47,16 +55,42 @@ impl Console {
         self.height
     }
 
-    pub fn send_input(&mut self, input: &[u8]) {
+    pub fn send_input(&mut self, input: &[u8]) -> bool {
+        let mut should_flush = false;
         for ch in input {
-            // these are actually supposed to go to the Console device file,
-            // but just print it for now
+            if *ch == 0x0a {
+                should_flush = true;
+            } else if *ch == 0x08 {
+                if !self.pending_input.is_empty() {
+                    // TODO: implement inverse of "advance cursor"
+                    self.cursor_x -= 1;
+
+                    self.write_character(0x20);
+                    self.pending_input.pop();
+
+                    self.cursor_x -= 1;
+                }
+                continue;
+            }
             self.write_character(*ch);
+
+            self.pending_input.push(*ch);
         }
+        should_flush
+    }
+
+    pub fn flush_pending_input(&mut self, buffer: Arc<RingBuffer<u8>>) {
+        for ch in self.pending_input.iter() {
+            buffer.write(*ch);
+        }
+        self.pending_input.clear();
     }
 
     pub fn write_character(&mut self, ch: u8) {
-        if ch < 0x20 {
+        if ch == 0x0a {
+            self.carriage_return();
+            self.newline();
+        } else if ch < 0x20 {
             // non printable
         } else {
             self.put_raw_character(ch);
@@ -82,6 +116,10 @@ impl Console {
         self.text_buffer_offset +
         self.cursor_y as usize * self.text_buffer_stride +
         self.cursor_x as usize
+    }
+
+    pub fn carriage_return(&mut self) {
+        self.cursor_x = 0;
     }
 
     pub fn newline(&mut self) {

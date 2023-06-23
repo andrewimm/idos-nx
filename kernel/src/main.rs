@@ -20,6 +20,7 @@ extern crate alloc;
 pub mod arch;
 pub mod cleanup;
 pub mod collections;
+pub mod command;
 pub mod console;
 pub mod devices;
 pub mod files;

@@ -32,7 +32,29 @@ impl SyncDriver for ConsoleDriver {
     fn read(&self, index: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
         let handle = self.open_handles.read().get(index as usize).ok_or(IOError::FileHandleInvalid)?;
 
-        Ok(0)
+        let mut bytes_written = 0;
+        let input_buffer = loop {
+            if let Some(buffers) = super::IO_BUFFERS.try_read() {
+                break buffers.get(self.index).unwrap().input_buffer.clone();
+            }
+            yield_coop();
+        };
+        while bytes_written < buffer.len() {
+            match input_buffer.read() {
+                Some(ch) => {
+                    buffer[bytes_written] = ch;
+                    bytes_written += 1;
+                },
+                None => {
+                    if bytes_written == 0 {
+                        yield_coop();
+                    } else {
+                        break;
+                    }
+                },
+            }
+        }
+        Ok(bytes_written as u32)
     }
 
     fn write(&self, index: u32, buffer: &[u8]) -> Result<u32, IOError> {

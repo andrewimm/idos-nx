@@ -35,11 +35,21 @@ impl ConsoleManager {
     }
 
     pub fn handle_action(&mut self, action: KeyAction) {
-        let mut input_buffer: [u8; 4] = [0; 4];
-        let result = self.key_state.process_key_action(action, &mut input_buffer);
+        let mut input_bytes: [u8; 4] = [0; 4];
+        let result = self.key_state.process_key_action(action, &mut input_bytes);
         if let Some(len) = result {
             // send input buffer to current console
-            self.consoles.get_mut(self.current_console).unwrap().send_input(&input_buffer[..len]);
+            let console = self.consoles.get_mut(self.current_console).unwrap();
+            let input = &input_bytes[..len];
+            let input_buffer = loop {
+                if let Some(buffers) = super::IO_BUFFERS.try_read() {
+                    break buffers.get(self.current_console).unwrap().input_buffer.clone();
+                }
+                yield_coop();
+            };
+            if console.send_input(input) {
+                console.flush_pending_input(input_buffer);
+            }
         }
     }
 
