@@ -112,26 +112,6 @@ fn wait_task_body() -> ! {
 }
 
 fn task_a_body() -> ! {
-    {
-        let mut keybuf: [u8; 6] = [0; 6];
-        crate::kprint!("Read from keyboard:\n");
-        let kbd = task::actions::io::open_path("DEV:\\KBD").unwrap();
-        task::actions::io::read_file(kbd, &mut keybuf).unwrap();
-        task::actions::io::close_file(kbd).unwrap();
-        crate::kprint!("KEY ACTIONS: ");
-        for i in 0..6 {
-            crate::kprint!("{:02X} ", keybuf[i]);
-        }
-        crate::kprint!("\n\n");
-    }
-
-    {
-        crate::kprint!("Write to DEV:\\CON1\n");
-        let con1 = task::actions::io::open_path("DEV:\\CON1").unwrap();
-        task::actions::io::write_file(con1, " * HI CONSOLE * ".as_bytes()).unwrap();
-        task::actions::io::close_file(con1);
-    }
-
     let mut buf: [u8; 5] = [b'A'; 5];
     {
         let wait_id = task::actions::lifecycle::create_kernel_task(wait_task_body);
@@ -174,6 +154,24 @@ fn task_a_body() -> ! {
     task::actions::io::read_file(testbin, &mut buf).unwrap();
     for i in 0..buf.len() {
         crate::kprint!("{:#04X} ", buf[i]);
+    }
+    crate::kprint!("\n");
+
+    crate::kprint!("Read root directory entries:\n");
+    let rootdir = task::actions::io::open_path("A:\\").unwrap();
+    loop {
+        let read = task::actions::io::read_file(rootdir, &mut buf).unwrap() as usize;
+        if read == 0 {
+            break;
+        }
+        for i in 0..read {
+            let ch = buf[i];
+            if ch == 0 {
+                crate::kprint!(" +\n");
+            } else {
+                crate::kprint!("{}", core::char::from_u32(ch as u32).unwrap());
+            }
+        }
     }
     crate::kprint!("\n");
     

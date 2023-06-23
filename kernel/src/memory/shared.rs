@@ -36,6 +36,9 @@ pub struct SharedMemoryRange {
 
 impl SharedMemoryRange {
     pub fn for_slice<T>(slice: &[T]) -> Self {
+        if slice.len() == 0 {
+            panic!("Cannot create a shared memory range for an empty slice");
+        }
         let start = slice.as_ptr() as u32;
 
         let mapped_to = VirtualAddress::new(start).prev_page_barrier();

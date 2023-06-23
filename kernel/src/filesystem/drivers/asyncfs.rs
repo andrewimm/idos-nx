@@ -53,15 +53,20 @@ impl KernelFileSystem for AsyncFileSystem {
         let path_str = path.as_str();
         let path_slice = path_str.as_bytes();
 
-        let shared_range = SharedMemoryRange::for_slice::<u8>(path_slice);
-        let shared_to_driver = shared_range.share_with_task(self.task);
+        let response = if path_slice.len() == 0 {
+            // can't share memory for an empty slice, just special case it
+            self.async_op(AsyncIO::Open(0, 0))
+        } else {
+            let shared_range = SharedMemoryRange::for_slice::<u8>(path_slice);
+            let shared_to_driver = shared_range.share_with_task(self.task);
 
-        let response = self.async_op(
-            AsyncIO::Open(
-                shared_to_driver.get_range_start(),
-                shared_to_driver.range_length,
+            self.async_op(
+                AsyncIO::Open(
+                    shared_to_driver.get_range_start(),
+                    shared_to_driver.range_length,
+                )
             )
-        );
+        };
 
         unwrap_async_response(response).map(|handle| DriverHandle(handle))
     }
@@ -213,10 +218,14 @@ pub trait AsyncDriver {
             AsyncCommand::Open => {
                 let path_str_start = message.1 as *const u8;
                 let path_str_len = message.2 as usize;
-                let path_slice = unsafe {
-                    core::slice::from_raw_parts(path_str_start, path_str_len)
+                let path = if path_str_len == 0 {
+                    ""
+                } else {
+                    let path_slice = unsafe {
+                        core::slice::from_raw_parts(path_str_start, path_str_len)
+                    };
+                    core::str::from_utf8(path_slice).ok()?
                 };
-                let path = core::str::from_utf8(path_slice).ok()?;
                 match self.open(path) {
                     Ok(handle) => Some((handle, 0, 0)),
                     Err(err) => Some((0, err as u32, 0)),

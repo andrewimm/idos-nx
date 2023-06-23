@@ -1,4 +1,4 @@
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 
 use super::{disk::DiskAccess, table::AllocationTable};
 
@@ -72,8 +72,20 @@ impl DirEntry {
         core::str::from_utf8(&self.file_name[..len]).unwrap_or("!!!!!!!!")
     }
 
+    pub fn get_full_name(&self) -> String {
+        let mut name = String::new();
+        name.push_str(self.get_filename());
+        name.push('.');
+        name.push_str(self.get_ext());
+        name
+    }
+
     pub fn get_ext(&self) -> &str {
         core::str::from_utf8(&self.ext).unwrap_or("!!!")
+    }
+
+    pub fn is_directory(&self) -> bool {
+        self.attributes & 0x10 != 0
     }
 }
 
@@ -140,14 +152,18 @@ impl RootDirectory {
         }
     }
 
-    pub fn find_entry(&self, name: &str, disk: &mut DiskAccess) -> Option<File> {
+    pub fn find_entry(&self, name: &str, disk: &mut DiskAccess) -> Option<Entity> {
         let (filename, ext) = match name.rsplit_once('.') {
             Some(pair) => pair,
             None => (name, ""),
         };
         for entry in self.iter(disk) {
             if entry.get_filename() == filename && entry.get_ext() == ext {
-                return Some(File::from_dir_entry(entry));
+                if entry.is_directory() {
+                    return Some(Entity::Dir(Directory::from_dir_entry(entry)));
+                } else {
+                    return Some(Entity::File(File::from_dir_entry(entry)));
+                }
             }
         }
         None
@@ -178,8 +194,69 @@ impl Iterator for RootDirectoryIter<'_> {
     }
 }
 
-#[derive(Copy, Clone)]
+pub enum Entity {
+    Dir(Directory),
+    File(File),
+}
+
+pub enum DirectoryType {
+    Root(RootDirectory),
+    Subdir(DirEntry),
+}
+
 pub struct Directory {
+    dir_type: DirectoryType,
+    entries_fetched: bool,
+    entries: Vec<u8>,
+}
+
+impl Directory {
+    pub fn from_dir_entry(dir_entry: DirEntry) -> Self {
+        Self {
+            dir_type: DirectoryType::Subdir(dir_entry),
+            entries_fetched: false,
+            entries: Vec::new(),
+        }
+    }
+
+    pub fn from_root_dir(root: RootDirectory) -> Self {
+        Self {
+            dir_type: DirectoryType::Root(root),
+            entries_fetched: false,
+            entries: Vec::new(),
+        }
+    }
+
+    pub fn read(&mut self, buffer: &mut [u8], offset: u32, table: AllocationTable, disk: &mut DiskAccess) -> u32 {
+        if !self.entries_fetched {
+            // the first time the directory IO handle is read, it caches the
+            // entries it contains
+            match &self.dir_type {
+                DirectoryType::Root(root) => {
+                    for entry in root.iter(disk) {
+                        let name = entry.get_full_name();
+                        self.entries.extend_from_slice(name.as_bytes());
+                        self.entries.push(0);
+                    }
+                    self.entries_fetched = true;
+                },
+                DirectoryType::Subdir(entry) => {
+                    // needs to be implemented
+                    return 0;
+                },
+            }
+        }
+
+        let mut bytes_written = 0;
+        let bytes_remaining = self.entries.len() - offset as usize;
+        let bytes_to_write = bytes_remaining.min(buffer.len());
+        while bytes_written < bytes_to_write {
+            buffer[bytes_written] = *self.entries.get(offset as usize + bytes_written).unwrap();
+            bytes_written += 1;
+        }
+
+        bytes_written as u32
+    }
 }
 
 #[derive(Copy, Clone)]

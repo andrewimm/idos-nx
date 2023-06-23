@@ -47,6 +47,7 @@ impl SyncDriver for ConsoleDriver {
                 },
                 None => {
                     if bytes_written == 0 {
+                        // TODO: this should sleep, and wake when something is written
                         yield_coop();
                     } else {
                         break;
