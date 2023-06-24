@@ -157,24 +157,6 @@ fn task_a_body() -> ! {
     }
     crate::kprint!("\n");
 
-    crate::kprint!("Read root directory entries:\n");
-    let rootdir = task::actions::io::open_path("A:\\").unwrap();
-    loop {
-        let read = task::actions::io::read_file(rootdir, &mut buf).unwrap() as usize;
-        if read == 0 {
-            break;
-        }
-        for i in 0..read {
-            let ch = buf[i];
-            if ch == 0 {
-                crate::kprint!(" +\n");
-            } else {
-                crate::kprint!("{}", core::char::from_u32(ch as u32).unwrap());
-            }
-        }
-    }
-    crate::kprint!("\n");
-    
     let exec_child = task::actions::lifecycle::create_task();
     task::actions::lifecycle::attach_executable_to_task(exec_child, "A:\\TEST.BIN");
     task::actions::lifecycle::wait_for_child(exec_child, None);

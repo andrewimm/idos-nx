@@ -1,4 +1,4 @@
-use alloc::string::ToString;
+use alloc::string::{ToString, String};
 use crate::files::cursor::SeekMethod;
 use crate::files::error::IOError;
 use crate::files::path::Path;
@@ -26,6 +26,12 @@ pub fn set_active_drive(drive_name: &str) -> Result<DriveID, IOError> {
         },
         _ => Err(IOError::NotFound),
     }
+}
+
+pub fn get_current_drive_name() -> String {
+    let task_lock = get_current_task();
+    let task = task_lock.read();
+    task.current_drive.name.clone()
 }
 
 /// Do the actual work of opening a file from a filesystem driver, but don't
