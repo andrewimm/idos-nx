@@ -15,6 +15,17 @@ impl Path {
         }
     }
 
+    pub fn is_drive(s: &str) -> bool {
+        for (index, ch) in s.char_indices() {
+            match ch {
+                'a'..='z' | 'A'..='Z' => continue,
+                ':' => return index + 1 == s.len(),
+                _ => return false,
+            }
+        }
+        false
+    }
+
     pub fn is_absolute(s: &str) -> bool {
         let mut colon_index: Option<usize> = None;
         for (index, ch) in s.char_indices() {
@@ -92,6 +103,14 @@ impl Path {
 
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+
+    pub fn split_absolute_path(path_string: &str) -> Option<(&str, &str)> {
+        let mut parts = path_string.split(':');
+        let drive_name = parts.next()?;
+        let path_portion = parts.next()?;
+
+        Some((drive_name, path_portion))
     }
 }
 

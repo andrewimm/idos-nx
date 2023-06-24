@@ -34,13 +34,17 @@ pub fn get_current_drive_name() -> String {
     task.current_drive.name.clone()
 }
 
+pub fn get_current_dir() -> Path {
+    let task_lock = get_current_task();
+    let task = task_lock.read();
+    task.working_dir.clone()
+}
+
 /// Do the actual work of opening a file from a filesystem driver, but don't
 /// attach it to the current task yet
 pub fn prepare_open_file(path_string: &str) -> Result<OpenFile, IOError> {
     let (drive_id, path) = if Path::is_absolute(path_string) {
-        let mut parts = path_string.split(':');
-        let drive_name = parts.next().ok_or(IOError::NotFound)?;
-        let path_portion = parts.next().ok_or(IOError::NotFound)?;
+        let (drive_name, path_portion) = Path::split_absolute_path(path_string).ok_or(IOError::NotFound)?;
         let drive_id = get_drive_id_by_name(drive_name).map_err(|_| IOError::NotFound)?;
        
         (drive_id, Path::from_str(path_portion))
