@@ -5,7 +5,9 @@ pub mod error;
 pub mod kernel;
 
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use drive::{DriveID, DriveMap, FileSystemDriver};
 use error::FsError;
 
@@ -64,6 +66,10 @@ pub fn install_device_driver(name: &str, task: TaskID, sub_id: u32) -> Result<()
     driver.configure(command, name_start, name_len, task.into(), sub_id)
         .map(|_| ())
         .map_err(|_| FsError::InstallFailed)
+}
+
+pub fn get_drive_names() -> Vec<String> {
+    DRIVE_MAP.get_all_names()
 }
 
 #[cfg(test)]

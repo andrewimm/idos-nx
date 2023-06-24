@@ -25,8 +25,15 @@ pub fn exec(stdout: FileHandle, tree: CommandTree, env: &mut Environment) {
             match name.to_ascii_uppercase().as_str() {
                 "CD" => cd(stdout, args, env),
                 "DIR" => dir(stdout, args, env),
+                "DRIVES" => drives(stdout),
                 _ => {
-                    write_file(stdout, "Unknown command!\n".as_bytes()).unwrap();
+                    if Path::is_drive(name) {
+                        let mut cd_args = Vec::new();
+                        cd_args.push(String::from(name));
+                        cd(stdout, &cd_args, env);
+                    } else {
+                        write_file(stdout, "Unknown command!\n".as_bytes()).unwrap();
+                    }
                 },
             }
         },
@@ -78,3 +85,15 @@ fn dir(stdout: FileHandle, args: &Vec<String>, env: &Environment) {
     }
     close_file(dir_handle).unwrap();
 }
+
+fn drives(stdout: FileHandle) {
+    let mut output = String::new();
+    let mut names = crate::filesystem::get_drive_names();
+    names.sort();
+    for name in names {
+        output.push_str(&name);
+        output.push('\n');
+    }
+    write_file(stdout, output.as_bytes()).unwrap();
+}
+

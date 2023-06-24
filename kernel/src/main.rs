@@ -94,6 +94,8 @@ fn init_system() -> ! {
 
         hardware::ethernet::dev::install_driver();
 
+        filesystem::drivers::fatfs::mount_fat_fs();
+
         console::init_console();
     }
     // do other boot stuff
@@ -149,7 +151,6 @@ fn task_a_body() -> ! {
     crate::kprint!("\nDone\n");
 
     crate::kprint!("With the floppy available, mount a FAT drive\n");
-    filesystem::drivers::fatfs::mount_fat_fs();
     let testbin = task::actions::io::open_path("A:\\TEST.BIN").unwrap();
     task::actions::io::read_file(testbin, &mut buf).unwrap();
     for i in 0..buf.len() {

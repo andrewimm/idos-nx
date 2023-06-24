@@ -28,6 +28,7 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::sync::atomic::{AtomicUsize, Ordering};
 use crate::task::id::TaskID;
 use spin::RwLock;
@@ -79,6 +80,10 @@ impl DriveMap {
             //crate::kprint!("    ACCESS FS {:?}\n", id);
             fs.clone()
         })
+    }
+
+    pub fn get_all_names(&self) -> Vec<String> {
+        self.map.read().iter().map(|(_, (name, _))| name.clone()).collect()
     }
 }
 
