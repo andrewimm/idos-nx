@@ -1,7 +1,7 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::{task::{files::FileHandle, actions::io::{write_file, open_path, read_file, close_file, set_active_drive, get_current_drive_name, get_current_dir}}, files::path::Path};
+use crate::{task::{files::FileHandle, actions::io::{write_file, open_path, read_file, close_file, set_active_drive, get_current_drive_name, get_current_dir, file_stat}}, files::path::Path};
 
 use super::parser::{CommandTree, CommandComponent};
 use super::Environment;
@@ -31,6 +31,8 @@ pub fn exec(stdout: FileHandle, tree: CommandTree, env: &mut Environment) {
                         let mut cd_args = Vec::new();
                         cd_args.push(String::from(name));
                         cd(stdout, &cd_args, env);
+                    } else if try_exec(stdout, name, args, env) {
+
                     } else {
                         write_file(stdout, "Unknown command!\n".as_bytes()).unwrap();
                     }
@@ -95,5 +97,20 @@ fn drives(stdout: FileHandle) {
         output.push('\n');
     }
     write_file(stdout, output.as_bytes()).unwrap();
+}
+
+fn try_exec(stdout: FileHandle, name: &str, args: &Vec<String>, env: &Environment) -> bool {
+    match open_path(name) {
+        Ok(handle) => {
+            close_file(handle).unwrap();
+        },
+        Err(_) => return false,
+    }
+
+    let exec_child = crate::task::actions::lifecycle::create_task();
+    crate::task::actions::lifecycle::attach_executable_to_task(exec_child, name);
+    crate::task::actions::lifecycle::wait_for_child(exec_child, None);
+
+    true
 }
 
