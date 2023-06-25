@@ -115,49 +115,6 @@ fn wait_task_body() -> ! {
 
 fn task_a_body() -> ! {
     let mut buf: [u8; 5] = [b'A'; 5];
-    {
-        let wait_id = task::actions::lifecycle::create_kernel_task(wait_task_body);
-        let return_code = task::actions::lifecycle::wait_for_child(wait_id, None);
-        kprint!("Child task returned: {}\n\n", return_code);
-    }
-
-    crate::kprint!("Okay let's read a raw HDD\n");
-    let hd1 = task::actions::io::open_path("DEV:\\ATA1").unwrap();
-    task::actions::io::read_file(hd1, &mut buf).unwrap();
-    for i in 0..buf.len() {
-        crate::kprint!("{:#04X} ", buf[i]);
-    }
-    crate::kprint!("\n");
-    task::actions::io::read_file(hd1, &mut buf).unwrap();
-    for i in 0..buf.len() {
-        crate::kprint!("{:#04X} ", buf[i]);
-    }
-    crate::kprint!("\n");
-    task::actions::io::seek_file(hd1, files::cursor::SeekMethod::Absolute(510)).unwrap();
-    task::actions::io::read_file(hd1, &mut buf).unwrap();
-    for i in 0..buf.len() {
-        crate::kprint!("{:#04X} ", buf[i]);
-    }
-    crate::kprint!("\nDone\n");
-
-    crate::kprint!("\nNow the same, for a floppy\n");
-    let fd1 = task::actions::io::open_path("DEV:\\FD1").unwrap();
-    task::actions::io::seek_file(fd1, files::cursor::SeekMethod::Absolute(0x5b)).unwrap();
-    task::actions::io::read_file(fd1, &mut buf).unwrap();
-    for i in 0..buf.len() {
-        crate::kprint!("{:#04X} ", buf[i]);
-    }
-    crate::kprint!("\n");
-    crate::kprint!("\nDone\n");
-
-    crate::kprint!("With the floppy available, mount a FAT drive\n");
-    let testbin = task::actions::io::open_path("A:\\TEST.BIN").unwrap();
-    task::actions::io::read_file(testbin, &mut buf).unwrap();
-    for i in 0..buf.len() {
-        crate::kprint!("{:#04X} ", buf[i]);
-    }
-    crate::kprint!("\n");
-
     let exec_child = task::actions::lifecycle::create_task();
     task::actions::lifecycle::attach_executable_to_task(exec_child, "A:\\TEST.BIN");
     task::actions::lifecycle::wait_for_child(exec_child, None);

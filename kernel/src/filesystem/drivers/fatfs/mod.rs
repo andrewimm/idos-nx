@@ -14,11 +14,26 @@ use self::driver::FatDriver;
 use super::asyncfs::AsyncDriver;
 
 fn run_driver() -> ! {
-    crate::kprint!("Mount FAT FS on FD1\n");
+    let args_reader = FileHandle::new(0);
+    let response_writer = FileHandle::new(1);
+    
+    let mut name_length_buffer: [u8; 1] = [0; 1];
+    read_file(args_reader, &mut name_length_buffer).unwrap();
+    let name_length = name_length_buffer[0] as usize;
 
-    let mut driver_impl = FatDriver::new("DEV:\\FD1");
+    let mut dev_name_buffer: [u8; 5 + 8] = [0; 5 + 8];
+    &mut dev_name_buffer[0..5].copy_from_slice("DEV:\\".as_bytes());
+    let dev_name_len = 5 + read_file(args_reader, &mut dev_name_buffer[5..(5 + name_length)]).unwrap() as usize;
+    
+    let dev_name = unsafe {
+        core::str::from_utf8_unchecked(&dev_name_buffer[..dev_name_len])
+    };
 
-    write_file(FileHandle::new(0), &[1]).unwrap();
+    crate::kprint!("Mount FAT FS on {}\n", dev_name);
+
+    let mut driver_impl = FatDriver::new(dev_name);
+
+    write_file(response_writer, &[1]).unwrap();
 
     loop {
         let (message_read, _) = read_message_blocking(None);
@@ -34,10 +49,24 @@ fn run_driver() -> ! {
 }
 
 pub fn mount_fat_fs() {
-    let (read_handle, write_handle) = open_pipe().unwrap();
-    let task = create_kernel_task(run_driver);
-    transfer_handle(write_handle, task).unwrap();
-    read_file(read_handle, &mut [0u8]).unwrap();
-    install_async_fs("A", task);
+    let pairs = [
+        ("A", "FD1"),
+        //("C", "ATA1"),
+    ];
+
+    for pair in pairs {
+        let (args_reader, args_writer) = open_pipe().unwrap();
+        let (response_reader, response_writer) = open_pipe().unwrap();
+
+        let task = create_kernel_task(run_driver);
+        transfer_handle(args_reader, task).unwrap();
+        transfer_handle(response_writer, task).unwrap();
+
+        write_file(args_writer, &[pair.1.len() as u8]).unwrap();
+        write_file(args_writer, pair.1.as_bytes()).unwrap();
+        read_file(response_reader, &mut [0u8]).unwrap();
+
+        install_async_fs(pair.0, task);
+    }
 }
 
