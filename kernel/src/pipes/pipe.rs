@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use alloc::{vec::Vec, boxed::Box, sync::Arc};
 
 use crate::collections::RingBuffer;
@@ -9,6 +11,8 @@ pub struct Pipe<'buffer> {
     ring_buffer: Arc<RingBuffer<'buffer, u8>>,
     buffer_raw: *mut [u8],
     blocked_reader: Option<TaskID>,
+    readers: AtomicU32,
+    writers: AtomicU32,
 }
 
 impl<'buffer> Pipe<'buffer> {
@@ -32,6 +36,8 @@ impl<'buffer> Pipe<'buffer> {
             ring_buffer: Arc::new(rb),
             buffer_raw,
             blocked_reader: None,
+            readers: AtomicU32::new(1),
+            writers: AtomicU32::new(1),
         }
     }
 
@@ -49,6 +55,14 @@ impl<'buffer> Pipe<'buffer> {
 
     pub fn get_blocked_reader(&self) -> Option<TaskID> {
         self.blocked_reader
+    }
+
+    pub fn remove_reader(&self) -> u32 {
+        self.readers.fetch_sub(1, Ordering::SeqCst)
+    }
+
+    pub fn remove_writer(&self) -> u32 {
+        self.writers.fetch_sub(1, Ordering::SeqCst)
     }
 }
 

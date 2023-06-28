@@ -6,7 +6,7 @@ pub mod fs;
 pub mod table;
 
 use crate::filesystem::install_async_fs;
-use crate::task::actions::io::{open_pipe, transfer_handle, read_file, write_file};
+use crate::task::actions::io::{open_pipe, transfer_handle, read_file, write_file, close_file};
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::{read_message_blocking, send_message};
 use crate::task::files::FileHandle;
@@ -35,6 +35,9 @@ fn run_driver() -> ! {
 
     write_file(response_writer, &[1]).unwrap();
 
+    close_file(args_reader).unwrap();
+    close_file(response_writer).unwrap();
+
     loop {
         let (message_read, _) = read_message_blocking(None);
         if let Some(packet) = message_read {
@@ -51,7 +54,7 @@ fn run_driver() -> ! {
 pub fn mount_fat_fs() {
     let pairs = [
         ("A", "FD1"),
-        //("C", "ATA1"),
+        ("C", "ATA1"),
     ];
 
     for pair in pairs {

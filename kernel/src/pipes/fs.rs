@@ -84,6 +84,18 @@ impl PipeDriver {
         }
         Ok(index as u32)
     }
+
+    fn remove_reader(pipe_index: usize) -> Result<u32, IOError> {
+        let pipes = PIPES.read();
+        let pipe = pipes.get(pipe_index).ok_or(IOError::FileSystemError)?;
+        Ok(pipe.remove_reader())
+    }
+
+    fn remove_writer(pipe_index: usize) -> Result<u32, IOError> {
+        let pipes = PIPES.read();
+        let pipe = pipes.get(pipe_index).ok_or(IOError::FileSystemError)?;
+        Ok(pipe.remove_writer())
+    }
 }
 
 impl KernelFileSystem for PipeDriver {
@@ -111,10 +123,18 @@ impl KernelFileSystem for PipeDriver {
         PipeDriver::write_pipe(pipe_index, buffer)
     }
 
-    fn close(&self, _handle: DriverHandle) -> Result<(), IOError> {
-        // TODO: Closing should actually be supported, and closing one end can
-        // break the other
-        Err(IOError::UnsupportedOperation)
+    fn close(&self, handle: DriverHandle) -> Result<(), IOError> {
+        let pipe_index = {
+            match PIPE_HANDLES.write().remove(handle.into()).ok_or(IOError::FileHandleInvalid)? {
+                PipeHandle::Reader(index) => {
+                    PipeDriver::remove_reader(index)?;
+                },
+                PipeHandle::Writer(index) => {
+                    PipeDriver::remove_writer(index)?;
+                },
+            }
+        };
+        Ok(())
     }
 
     fn seek(&self, _handle: DriverHandle, _offset: SeekMethod) -> Result<u32, IOError> {

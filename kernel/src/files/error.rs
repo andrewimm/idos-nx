@@ -29,9 +29,10 @@ impl TryFrom<u32> for IOError {
             1 => Ok(Self::FileSystemError),
             2 => Ok(Self::NotFound),
             3 => Ok(Self::FileHandleInvalid),
-            4 => Ok(Self::OperationFailed),
-            5 => Ok(Self::UnsupportedOperation),
-            6 => Ok(Self::UnsupportedCommand),
+            4 => Ok(Self::FileHandleWrongType),
+            5 => Ok(Self::OperationFailed),
+            6 => Ok(Self::UnsupportedOperation),
+            7 => Ok(Self::UnsupportedCommand),
             _ => Ok(Self::Unknown),
         }
     }

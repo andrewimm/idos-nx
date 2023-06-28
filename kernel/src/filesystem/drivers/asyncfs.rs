@@ -264,8 +264,10 @@ pub trait AsyncDriver {
             },
             AsyncCommand::Close => {
                 let handle = message.1 as u32;
-                self.close(handle);
-                Some((0,  0,  0))
+                match self.close(handle) {
+                    Ok(_) => Some((0, 0, 0)),
+                    Err(err) => Some((0, err as u32, 0)),
+                }
             },
             AsyncCommand::Seek => {
                 let open_instance = message.1;

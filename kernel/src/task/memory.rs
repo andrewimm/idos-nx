@@ -284,7 +284,7 @@ impl TaskMemory {
         if length & 0xfff != 0 {
             return Err(TaskMemoryError::UnmapNotPageMultiple);
         }
-        if addr.as_u32() >= 0xc0000000u32 || addr.as_u32() + length >= 0xc0000000 {
+        if addr.as_u32() >= 0xc0000000u32 || addr.as_u32() + length > 0xc0000000 {
             return Err(TaskMemoryError::MapOutOfBounds);
         }
 
