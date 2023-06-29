@@ -17,6 +17,7 @@ use crate::task::id::TaskID;
 use crate::devices::zero::ZeroDriver;
 
 use self::drivers::devfs::DevFileSystem;
+use self::drivers::taskfs::TaskFileSystem;
 use self::kernel::KernelFileSystem;
 
 static DRIVE_MAP: DriveMap = DriveMap::new();
@@ -34,6 +35,8 @@ pub fn init_fs() {
 
         DRIVE_MAP.install("DEV", Box::new(dev_fs));
     }
+
+    DRIVE_MAP.install("TASK", Box::new(TaskFileSystem::new()));
 
     crate::pipes::install_fs();
 

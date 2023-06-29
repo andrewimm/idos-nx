@@ -288,6 +288,11 @@ impl File {
         let current_cluster = self.dir_entry.first_file_cluster as u32 + current_relative_cluster;
         let cluster_location = table.get_cluster_location(current_cluster);
 
-        disk.read_bytes_from_disk(cluster_location + cluster_offset, buffer)
+        let bytes_remaining_in_file = self.byte_size() - offset;
+        let bytes_remaining_in_cluster = bytes_remaining_in_file.min(table.bytes_per_cluster() - cluster_offset);
+
+        let read_buffer = &mut buffer[..bytes_remaining_in_cluster as usize];
+
+        disk.read_bytes_from_disk(cluster_location + cluster_offset, read_buffer)
     }
 }

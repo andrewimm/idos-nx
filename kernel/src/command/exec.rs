@@ -26,6 +26,7 @@ pub fn exec(stdout: FileHandle, tree: CommandTree, env: &mut Environment) {
                 "CD" => cd(stdout, args, env),
                 "DIR" => dir(stdout, args, env),
                 "DRIVES" => drives(stdout),
+                "TYPE" => type_file(stdout, args),
                 _ => {
                     if Path::is_drive(name) {
                         let mut cd_args = Vec::new();
@@ -112,5 +113,33 @@ fn try_exec(stdout: FileHandle, name: &str, args: &Vec<String>, env: &Environmen
     crate::task::actions::lifecycle::wait_for_child(exec_child, None);
 
     true
+}
+
+fn type_file(stdout: FileHandle, args: &Vec<String>) {
+    let mut buffer: [u8; 128] = [0; 128];
+    if args.is_empty() {
+        return;
+    }
+    for arg in args {
+        match open_path(arg) {
+            Ok(handle) => {
+                loop {
+                    let len = read_file(handle, &mut buffer).unwrap() as usize;
+                    write_file(stdout, &buffer[..len]).unwrap();
+
+                    if len < buffer.len() {
+                        break;
+                    }
+                }
+                write_file(stdout, &[b'\n']).unwrap();
+                close_file(handle).unwrap();
+            },
+            Err(_) => {
+                let output = alloc::format!("File not found: \"{}\"\n", arg);
+                write_file(stdout, output.as_bytes()).unwrap();
+                return;
+            },
+        }
+    }
 }
 

@@ -121,6 +121,13 @@ pub fn for_each_task_mut<F>(mut f: F)
     }
 }
 
+pub fn for_each_task_id<F>(mut f: F)
+    where F: FnMut(TaskID) -> () {
+    for (id, _) in TASK_MAP.read().iter() {
+        f(*id);
+    }
+}
+
 pub fn clean_up_task(id: TaskID) {
     let task_lock = {
         let mut task_map = TASK_MAP.write();

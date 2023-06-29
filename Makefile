@@ -28,7 +28,8 @@ $(userdata):
 	@mkdir -p userdata/disk
 	@mkfs.msdos -C $(userdata) 1440
 	@cd userdata && make
-	@mcopy -D o -i $(userdata) userdata/disk/test.bin ::TEST.BIN
+	@mcopy -D o -i $(userdata) userdata/disk/*.* ::
+	@mcopy -D o -i $(userdata) userdata/static/*.* ::
 
 bootdisk: $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
