@@ -52,7 +52,7 @@ pub extern "C" fn _start() -> ! {
     let initial_pagedir = get_current_pagedir();
     task::switching::init(initial_pagedir);
 
-    task::actions::lifecycle::create_kernel_task(cleanup::cleanup_task);
+    task::actions::lifecycle::create_kernel_task(cleanup::cleanup_task, Some("CLEANUP"));
 
     filesystem::init_fs();
 
@@ -60,12 +60,12 @@ pub extern "C" fn _start() -> ! {
 
     #[cfg(test)]
     {
-        task::actions::lifecycle::create_kernel_task(run_tests);
+        task::actions::lifecycle::create_kernel_task(run_tests, Some("TESTS"));
     }
     
     #[cfg(not(test))]
     {
-        task::actions::lifecycle::create_kernel_task(init_system);
+        task::actions::lifecycle::create_kernel_task(init_system, Some("INIT"));
     }
 
     loop {
@@ -130,7 +130,7 @@ fn task_a_body() -> ! {
     crate::kprint!("\n");
     task::actions::io::close_file(com1).unwrap();
 
-    let b_id = task::actions::lifecycle::create_kernel_task(task_b_body);
+    let b_id = task::actions::lifecycle::create_kernel_task(task_b_body, Some("TASK B"));
 
     use task::messaging::Message;
 

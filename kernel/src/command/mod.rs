@@ -58,7 +58,7 @@ pub fn start_command(console: usize) {
 
     let stdin = open_path(path.as_str()).unwrap();
     let stdout = open_path(path.as_str()).unwrap();
-    let task_id = create_kernel_task(command_task);
+    let task_id = create_kernel_task(command_task, Some("COMMAND"));
     transfer_handle(stdin, task_id);
     transfer_handle(stdout, task_id);
 }

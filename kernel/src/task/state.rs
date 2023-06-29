@@ -1,4 +1,5 @@
 use alloc::boxed::Box;
+use alloc::string::String;
 use crate::files::path::Path;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
@@ -46,6 +47,8 @@ pub struct Task {
     pub open_files: OpenFileMap,
     /// Store the open handle to the currently executing binary, if one exists
     pub current_executable: Option<OpenFile>,
+    /// The name of the executable file running in the thread
+    pub filename: String,
 }
 
 impl Task {
@@ -64,6 +67,7 @@ impl Task {
             working_dir: Path::from_str(""),
             open_files: OpenFileMap::new(),
             current_executable: None,
+            filename: String::new(),
         }
     }
 
@@ -72,6 +76,7 @@ impl Task {
         let stack = super::stack::create_initial_stack();
         let mut task = Self::new(id, id, stack);
         task.state = RunState::Running;
+        task.filename = String::from("IDLE");
         task
     }
 
@@ -361,6 +366,21 @@ pub enum RunState {
     Blocked(Option<u32>, BlockType),
     /// The Task is resuming from a Blocked state with a return code
     Resuming(u32),
+}
+
+impl core::fmt::Display for RunState {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Uninitialized => f.write_str("Uninit"),
+            Self::Initialized => f.write_str("Init"),
+            Self::Running | Self::Resuming(_) => f.write_str("Run"),
+            Self::Terminated => f.write_str("Term"),
+            Self::Blocked(_, BlockType::Sleep) => f.write_str("Sleep"),
+            Self::Blocked(_, BlockType::Message) => f.write_str("WaitMsg"),
+            Self::Blocked(_, BlockType::WaitForChild(_)) => f.write_str("WaitTask"),
+            Self::Blocked(_, BlockType::IO) => f.write_str("WaitIO"),
+        }
+    }
 }
 
 /// A task may block on a variety of hardware or software conditions. The

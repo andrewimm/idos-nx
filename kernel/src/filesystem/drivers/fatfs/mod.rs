@@ -61,7 +61,7 @@ pub fn mount_fat_fs() {
         let (args_reader, args_writer) = open_pipe().unwrap();
         let (response_reader, response_writer) = open_pipe().unwrap();
 
-        let task = create_kernel_task(run_driver);
+        let task = create_kernel_task(run_driver, Some("FATFS"));
         transfer_handle(args_reader, task).unwrap();
         transfer_handle(response_writer, task).unwrap();
 

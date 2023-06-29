@@ -383,7 +383,7 @@ pub fn install_driver() {
     let (args_reader, args_writer) = open_pipe().unwrap();
     let (response_reader, response_writer) = open_pipe().unwrap();
 
-    let driver_task = create_kernel_task(run_driver);
+    let driver_task = create_kernel_task(run_driver, Some("ETHDEV"));
     transfer_handle(args_reader, driver_task).unwrap();
     transfer_handle(response_writer, driver_task).unwrap();
     

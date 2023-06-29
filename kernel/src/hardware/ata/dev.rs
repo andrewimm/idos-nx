@@ -192,7 +192,7 @@ pub fn install_drivers() {
     let mut driver_no = 0;
     for (base_port, control_port) in configs {
         let (pipe_read, pipe_write) = open_pipe().unwrap();
-        let task = create_kernel_task(run_driver);
+        let task = create_kernel_task(run_driver, Some("ATADEV"));
         transfer_handle(pipe_write, task).unwrap();
         send_message(task, Message(driver_no, base_port, control_port, 0), 0xffffffff);
         read_file(pipe_read, &mut [0u8]).unwrap();

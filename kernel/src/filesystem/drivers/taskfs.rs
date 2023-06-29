@@ -30,7 +30,17 @@ impl TaskFileSystem {
     pub fn generate_content_for_task(id: TaskID) -> Option<String> {
         let task_lock = get_task(id)?;
         let task = task_lock.read();
-        Some(String::from("A Task!"))
+        let mut content = String::new();
+        content.push_str("ID: ");
+        content.push_str(&id.to_string());
+        content.push_str("\nName: ");
+        content.push_str(&task.filename);
+        content.push_str("\nState: ");
+        content.push_str(&task.state.to_string());
+        content.push_str("\nParent: ");
+        content.push_str(&task.parent_id.to_string());
+        content.push('\n');
+        Some(content)
     }
 }
 

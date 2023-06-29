@@ -27,7 +27,7 @@ pub fn install_drivers() {
         // initialize mouse
     }
 
-    let task_id = create_kernel_task(self::driver::ps2_driver_task);
+    let task_id = create_kernel_task(self::driver::ps2_driver_task, Some("PS2DEV"));
     DRIVER_ID.store(task_id.into(), Ordering::SeqCst);
 
     // ======

@@ -26,7 +26,7 @@ pub fn install_drivers() {
     ];
 
     for (index, (port, irq)) in configs.iter().enumerate() {
-        let task = create_kernel_task(run_driver);
+        let task = create_kernel_task(run_driver, Some("COMDEV"));
         send_message(task, Message(*port, 0, 0, 0), 0xffffffff);
         INSTALLED_DRIVERS[index].write().replace(task);
         install_interrupt_handler(*irq, com_interrupt_handler);

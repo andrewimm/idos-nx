@@ -43,6 +43,12 @@ impl core::fmt::Debug for TaskID {
     }
 }
 
+impl core::fmt::Display for TaskID {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
 pub struct IdGenerator(AtomicU32);
 
 impl IdGenerator {

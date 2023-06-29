@@ -14,12 +14,7 @@ pub fn exec(stdout: FileHandle, tree: CommandTree, env: &mut Environment) {
 
     match root {
         CommandComponent::Executable(name, args) => {
-            let mut output = alloc::format!("RUN \"{}\" with args: ", name);
-            for arg in args {
-                output.push_str(&arg);
-                output.push_str(", ");
-            }
-            output.push('\n');
+            let mut output = String::new();
 
             write_file(stdout, output.as_bytes()).unwrap();
             match name.to_ascii_uppercase().as_str() {

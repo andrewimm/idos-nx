@@ -40,7 +40,7 @@ pub fn init_fs() {
 
     crate::pipes::install_fs();
 
-    create_kernel_task(arbiter::arbiter_task);
+    create_kernel_task(arbiter::arbiter_task, Some("ARBITER"));
 }
 
 pub fn get_drive_id_by_name(name: &str) -> Result<DriveID, FsError> {

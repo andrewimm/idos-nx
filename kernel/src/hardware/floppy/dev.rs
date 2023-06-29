@@ -390,7 +390,7 @@ pub fn floppy_interrupt_handler(_irq: u32) {
 
 pub fn install_drivers() {
     let (pipe_read, pipe_write) = open_pipe().unwrap();
-    let driver_task = create_kernel_task(run_driver);
+    let driver_task = create_kernel_task(run_driver, Some("FLOPPYDEV"));
     transfer_handle(pipe_write, driver_task).unwrap();
 
     read_file(pipe_read, &mut [0u8]).unwrap();

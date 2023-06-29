@@ -1,16 +1,19 @@
+use alloc::string::String;
+
 use crate::cleanup::get_cleanup_task_id;
 
 use super::super::id::TaskID;
 use super::super::messaging::Message;
 use super::{yield_coop, send_message};
 
-pub fn create_kernel_task(task_body: fn() -> !) -> TaskID {
+pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> TaskID {
     let task_id = create_task();
     let task_state_lock = super::super::switching::get_task(task_id).unwrap();
     {
         let mut task_state = task_state_lock.write();
         task_state.set_entry_point(task_body);
         task_state.state = super::super::state::RunState::Running;
+        task_state.filename = String::from(name.unwrap_or("KERNEL"));
     }
 
     task_id
