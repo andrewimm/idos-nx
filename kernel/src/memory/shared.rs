@@ -169,7 +169,7 @@ mod tests {
             buffer[i] = 0;
         }
 
-        let child = create_kernel_task(outside_kernel_subtask);
+        let child = create_kernel_task(outside_kernel_subtask, Some("CHILD"));
         let range = SharedMemoryRange::for_slice(&buffer[0..10]);
         let shared = range.share_with_task(child);
 
