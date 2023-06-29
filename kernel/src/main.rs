@@ -82,12 +82,12 @@ pub extern "C" fn _start() -> ! {
 
 fn init_system() -> ! {
     let id = task::switching::get_current_id();
-    crate::kprint!("INIT task: {:?}\n", id);
+    crate::kprintln!("INIT task: {:?}", id);
     // initialize drivers that rely on multitasking
     {
         hardware::ps2::install_drivers();
 
-        crate::kprint!("Query ATA bus...\n");
+        crate::kprintln!("Query ATA bus...");
         hardware::ata::dev::install_drivers();
 
         hardware::floppy::dev::install_drivers();
@@ -101,16 +101,6 @@ fn init_system() -> ! {
     // do other boot stuff
     // right now this just runs demos / tests
     task_a_body();
-}
-
-fn wait_task_body() -> ! {
-    kprint!("Child Task\n");
-    task::actions::sleep(2000);
-    //task::actions::lifecycle::terminate(16);
-    unsafe {
-        asm!("xor dx, dx; div dx");
-    }
-    loop {}
 }
 
 fn task_a_body() -> ! {
