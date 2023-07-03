@@ -1,28 +1,23 @@
 //! Device driver for Intel e1000 ethernet controller, which is provded by
 //! qemu and other emulators.
 
-use core::sync::atomic::{AtomicU32, Ordering};
-
 use alloc::vec::Vec;
-
 use crate::collections::SlotList;
-use crate::files::cursor::SeekMethod;
 use crate::files::error::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::filesystem::install_device_driver;
-use crate::hardware::ethernet::frame::EthernetFrame;
 use crate::hardware::pci::devices::PciDevice;
 use crate::hardware::pci::get_bus_devices;
 use crate::interrupts::pic::install_interrupt_handler;
 use crate::memory::address::PhysicalAddress;
+use crate::net::register_network_interface;
 use crate::task::actions::io::{open_pipe, transfer_handle, read_file, write_file};
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::{map_memory, DmaRange};
 use crate::task::actions::{yield_coop, read_message_blocking, send_message};
 use crate::task::files::FileHandle;
-use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
-use crate::task::switching::{get_task, get_current_id};
+use crate::task::switching::get_current_id;
 
 use super::controller::E1000Controller;
 
@@ -40,6 +35,7 @@ pub struct EthernetDriver {
     tx_buffer_dma: DmaRange,
     descriptor_dma: DmaRange,
 
+    rx_ring_index: usize,
     tx_ring_index: usize,
 
     open_handles: SlotList<()>,
@@ -90,6 +86,7 @@ impl EthernetDriver {
         controller.set_flags(0, (1 << 5) | (1 << 6));
         
         // Set interrupt mask
+        //controller.write_register(0xd0, 0xc0);
         controller.write_register(0xd0, 0);
 
         // Set the controller registers to point to all of the buffers that
@@ -99,6 +96,16 @@ impl EthernetDriver {
         controller.write_register(0x2800, descriptor_dma.paddr_start.as_u32());
         // RDBAH - RX Descriptor Base High
         controller.write_register(0x2804, 0);
+        // RDLEN - RX Descriptor Length (in bytes)
+        controller.write_register(0x2808, (RX_DESC_COUNT * core::mem::size_of::<RxDescriptor>()) as u32);
+        // RDH - RX Descriptor Head
+        controller.write_register(0x2810, 0);
+        // RDT - RX Descriptor Tail
+        controller.write_register(0x2818, RX_DESC_COUNT as u32 - 1);
+
+        // RCTL: Enable; accept unicast, multicast; set packet size to 1024; strip CRC
+        controller.clear_flags(0x100, 3 << 16);
+        controller.set_flags(0x100, (1 << 1) | (1 << 3) | (1 << 15) | (1 << 16) | (1 << 26));
 
         // TDBAL - TX Descriptor Base Low
         controller.write_register(0x3800, td_ring_phys.as_u32());
@@ -128,6 +135,7 @@ impl EthernetDriver {
             rx_buffer_dma,
             tx_buffer_dma,
             descriptor_dma,
+            rx_ring_index: 0,
             tx_ring_index: 0,
 
             open_handles: SlotList::new(),
@@ -188,7 +196,7 @@ impl EthernetDriver {
         tx_descriptor.special = 0;
 
         let next_index = Self::next_tdesc_index(cur_index);
-        //self.tx_ring_index = next_index;
+        self.tx_ring_index = next_index;
         // Update TX Descriptor Tail (TDT)
         self.controller.write_register(0x3818, next_index as u32);
 
@@ -250,62 +258,6 @@ pub struct TxDescriptor {
     special: u16,
 }
 
-#[repr(C, packed)]
-pub struct ARP {
-    hardware_type: u16,
-    protocol_type: u16,
-    hardware_addr_length: u8,
-    protocol_addr_length: u8,
-    opcode: u16,
-    source_hardware_addr: [u8; 6],
-    source_protocol_addr: [u8; 4],
-    dest_hardware_addr: [u8; 6],
-    dest_protocol_addr: [u8; 4],
-}
-
-impl ARP {
-    pub fn request(src_mac: [u8; 6], src_ip: [u8; 4], lookup: [u8; 4]) -> Self {
-        Self {
-            hardware_type: 1u16.to_be(),
-            protocol_type: 0x0800u16.to_be(),
-            hardware_addr_length: 6,
-            protocol_addr_length: 4,
-            opcode: 1u16.to_be(),
-            source_hardware_addr: src_mac,
-            source_protocol_addr: src_ip,
-            dest_hardware_addr: [0; 6],
-            dest_protocol_addr: lookup,
-        }
-    }
-
-    pub fn response(src_mac: [u8; 6], src_ip: [u8; 4], dest_mac: [u8; 6], dest_ip: [u8; 4]) -> Self {
-        Self {
-            hardware_type: 1u16.to_be(),
-            protocol_type: 0x0800u16.to_be(),
-            hardware_addr_length: 6,
-            protocol_addr_length: 4,
-            opcode: 2u16.to_be(),
-            source_hardware_addr: src_mac,
-            source_protocol_addr: src_ip,
-            dest_hardware_addr: dest_mac,
-            dest_protocol_addr: dest_ip,
-        }
-    }
-
-    /// Respond to an ARP request packet with the system MAC and IP
-    pub fn respond(&self, mac: [u8; 6], ip: [u8; 4]) -> Option<Self> {
-        if self.opcode != 1u16.to_be() {
-            return None;
-        }
-        let response = Self::response(mac, ip, self.source_hardware_addr, self.source_protocol_addr);
-        Some(response)
-    }
-
-    pub fn announce(mac: [u8; 6], ip: [u8; 4]) -> Self {
-        Self::request(mac, ip, ip)
-    }
-}
-
 static mut MAC_ADDR: [u8; 6] = [0; 6];
 
 fn run_driver() -> ! {
@@ -330,7 +282,7 @@ fn run_driver() -> ! {
 
     let mac = controller.get_mac_address();
     crate::kprint!(
-        "Ethernet MAC: {:X}:{:X}:{:X}:{:X}:{:X}:{:X}\n",
+        "Ethernet MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}\n",
         mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
     );
 
@@ -348,6 +300,9 @@ fn run_driver() -> ! {
     install_device_driver("ETH", task_id, 0).unwrap();
 
     crate::kprint!("Network driver installed as DEV:\\ETH\n");
+
+    let _net_id = register_network_interface(mac);
+
     // inform the parent task
     write_file(response_writer, &[1]).unwrap(); 
 
@@ -392,36 +347,16 @@ pub fn install_driver() {
 
     // wait for a response from the driver indicating initialization
     read_file(response_reader, &mut [0u8]).unwrap();
-
-    {
-        let net_dev = crate::task::actions::io::open_path("DEV:\\ETH").unwrap();
-        let send_buffer_size = core::mem::size_of::<EthernetFrame>() + core::mem::size_of::<ARP>();
-        let mut send_buffer_vec = alloc::vec![0u8; send_buffer_size];
-        let send_buffer = &mut send_buffer_vec[0..send_buffer_size];
-        unsafe {
-            let frame = &mut *(&mut send_buffer[0] as *mut u8 as *mut EthernetFrame);
-            *frame = EthernetFrame::broadcast_arp(MAC_ADDR);
-            let arp_offset = core::mem::size_of::<EthernetFrame>();
-            let arp = &mut *(&mut send_buffer[arp_offset] as *mut u8 as *mut ARP);
-            *arp = ARP::announce(MAC_ADDR, [192, 168, 20, 12]);
-
-            write_file(net_dev, &send_buffer).unwrap();
-        }
-        crate::task::actions::io::close_file(net_dev).unwrap();
-    }
 }
 
-static BLOCKED_DRIVER_TASK: AtomicU32 = AtomicU32::new(0);
-
 pub fn interrupt_handler(_irq: u32) {
-    let task_complete = BLOCKED_DRIVER_TASK.swap(0, Ordering::SeqCst);
-    if task_complete == 0 {
-        return;
-    }
+    crate::kprintln!("NET IRQ");
+    //let controller = get_controller();
+    //let interrupt_cause = controller.read_register(0xc0);
+    //if interrupt_cause == 0 {
+    //    return;
+    //}
 
-    let task_lock = get_task(TaskID::new(task_complete));
-    if let Some(lock) = task_lock {
-        lock.write().io_complete();
-    }
+
 }
 

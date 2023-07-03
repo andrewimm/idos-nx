@@ -1,3 +1,5 @@
+use super::packet::PacketHeader;
+
 #[repr(C, packed)]
 pub struct EthernetFrame {
     pub dest_mac: [u8; 6],
@@ -18,12 +20,10 @@ impl EthernetFrame {
         Self::new(src, [0xff; 6], 0x0806)
     }
 
-    pub fn as_buffer(&self) -> &[u8] {
-        let ptr = self as *const Self as *const u8;
-        let size = core::mem::size_of::<Self>();
-        unsafe {
-            core::slice::from_raw_parts(ptr, size)
-        }
+    pub fn new_ipv4(src: [u8; 6], dest: [u8; 6]) -> Self {
+        Self::new(src, dest, 0x0800)
     }
 }
+
+impl PacketHeader for EthernetFrame {}
 

@@ -3,6 +3,7 @@ use core::u8;
 use crate::memory::address::VirtualAddress;
 
 /// Provides access for an Intel e1000 Ethernet Controller
+#[derive(Copy, Clone)]
 pub struct E1000Controller {
     io: ControllerIO,
 }
@@ -76,11 +77,13 @@ impl E1000Controller {
     }
 }
 
+#[derive(Copy, Clone)]
 enum ControllerIO {
     MMIO(MMIO),
     PIO(PIO),
 }
 
+#[derive(Copy, Clone)]
 struct MMIO {
     base: VirtualAddress,
 }
@@ -92,6 +95,7 @@ impl MMIO {
     }
 }
 
+#[derive(Copy, Clone)]
 struct PIO {
 }
 

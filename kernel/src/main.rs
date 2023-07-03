@@ -13,7 +13,7 @@
 
 use core::arch::asm;
 
-use crate::memory::virt::page_table::get_current_pagedir;
+use crate::{memory::virt::page_table::get_current_pagedir, net::ip::IPV4Address};
 
 extern crate alloc;
 
@@ -32,6 +32,7 @@ pub mod io;
 pub mod loader;
 pub mod log;
 pub mod memory;
+pub mod net;
 pub mod panic;
 pub mod pipes;
 pub mod task;
@@ -108,6 +109,24 @@ fn task_a_body() -> ! {
     let exec_child = task::actions::lifecycle::create_task();
     task::actions::lifecycle::attach_executable_to_task(exec_child, "A:\\TEST.BIN");
     task::actions::lifecycle::wait_for_child(exec_child, None);
+
+    {
+        crate::kprintln!("Send DHCP request");
+        let mac = net::with_active_device(|dev| dev.mac).unwrap();
+        crate::kprintln!("Current MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+        let dhcp_data = net::dhcp::discover_packet(mac, 0xaabbccdd);
+        let discover_packet = net::udp::create_datagram(
+            mac,
+            IPV4Address([0, 0, 0, 0]),
+            68,
+            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+            IPV4Address([255, 255, 255, 255]),
+            67,
+            dhcp_data.as_slice(),
+        );
+        let eth_dev = task::actions::io::open_path("DEV:\\ETH").unwrap();
+        task::actions::io::write_file(eth_dev, discover_packet.as_slice()).unwrap();
+    }
 
 
     crate::kprint!("\n\nReading from COM1:\n");
