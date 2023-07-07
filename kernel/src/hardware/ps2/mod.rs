@@ -19,7 +19,7 @@ pub fn install_drivers() {
     if self::controller::reset_device() {
         // initialize keyboard
         crate::kprint!("PS/2 Keyboard reset, ready\n");
-        install_interrupt_handler(1, interrupt_handler);
+        install_interrupt_handler(1, interrupt_handler, None);
     }
 
     self::controller::send_ps2_command(0xd4);

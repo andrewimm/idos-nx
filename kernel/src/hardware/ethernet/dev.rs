@@ -1,6 +1,9 @@
 //! Device driver for Intel e1000 ethernet controller, which is provded by
 //! qemu and other emulators.
 
+use core::cell::RefCell;
+
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 use crate::collections::SlotList;
 use crate::files::error::IOError;
@@ -31,6 +34,7 @@ const TX_DESC_COUNT: usize = 4;
 pub struct EthernetDriver {
     controller: E1000Controller,
 
+    // move this out into a shared object?
     rx_buffer_dma: DmaRange,
     tx_buffer_dma: DmaRange,
     descriptor_dma: DmaRange,
@@ -86,8 +90,8 @@ impl EthernetDriver {
         controller.set_flags(0, (1 << 5) | (1 << 6));
         
         // Set interrupt mask
-        //controller.write_register(0xd0, 0xc0);
-        controller.write_register(0xd0, 0);
+        controller.write_register(0xd0, 0xc0);
+        //controller.write_register(0xd0, 0);
 
         // Set the controller registers to point to all of the buffers that
         // have been allocated:
@@ -159,6 +163,14 @@ impl EthernetDriver {
                 .as_ptr_mut::<u8>()
                 .add(BUFFER_SIZE * index);
             core::slice::from_raw_parts_mut(ptr, BUFFER_SIZE)
+        }
+    }
+
+    pub fn get_rx_descriptor(&self, index: usize) -> &mut RxDescriptor {
+        let rd_ring_ptr = self.descriptor_dma.vaddr_start.as_ptr_mut::<RxDescriptor>();
+        unsafe {
+            let ptr = rd_ring_ptr.add(index);
+            &mut *ptr
         }
     }
 
@@ -235,6 +247,7 @@ impl AsyncDriver for EthernetDriver {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
 pub struct RxDescriptor {
     addr_low: u32,
@@ -259,6 +272,14 @@ pub struct TxDescriptor {
 }
 
 static mut MAC_ADDR: [u8; 6] = [0; 6];
+
+static mut DRIVER: Option<Arc<RefCell<EthernetDriver>>> = None;
+
+fn get_driver() -> Arc<RefCell<EthernetDriver>> {
+    unsafe {
+        DRIVER.clone().unwrap()
+    }
+}
 
 fn run_driver() -> ! {
     let args_reader = FileHandle::new(0);
@@ -290,13 +311,17 @@ fn run_driver() -> ! {
         MAC_ADDR = mac;
     }
 
+    let task_id = get_current_id();
+
     if let Some(irq) = pci_dev.irq {
-        install_interrupt_handler(irq as u32, interrupt_handler);
+        install_interrupt_handler(irq as u32, interrupt_handler, Some(task_id));
     }
-    let mut driver_impl = EthernetDriver::new(controller);
+    let mut driver_impl = Arc::new(RefCell::new(EthernetDriver::new(controller)));
+    unsafe {
+        DRIVER = Some(driver_impl.clone());
+    }
 
     // Install as DEV:\\ETH
-    let task_id = get_current_id();
     install_device_driver("ETH", task_id, 0).unwrap();
 
     crate::kprint!("Network driver installed as DEV:\\ETH\n");
@@ -311,7 +336,7 @@ fn run_driver() -> ! {
         if let Some(packet) = message_read {
             let (sender, message) = packet.open();
 
-            match driver_impl.handle_request(message) {
+            match driver_impl.borrow_mut().handle_request(message) {
                 Some(response) => send_message(sender, response, 0xffffffff),
                 None => continue,
             }
@@ -351,12 +376,17 @@ pub fn install_driver() {
 
 pub fn interrupt_handler(_irq: u32) {
     crate::kprintln!("NET IRQ");
-    //let controller = get_controller();
-    //let interrupt_cause = controller.read_register(0xc0);
-    //if interrupt_cause == 0 {
-    //    return;
-    //}
+    let driver = get_driver();
+    let interrupt_cause = driver.borrow().controller.read_register(0xc0);
+    if interrupt_cause == 0 {
+        return;
+    }
 
+    crate::kprintln!("Int cause: {:X}", interrupt_cause);
 
+    for i in 0..RX_DESC_COUNT {
+        let desc = driver.borrow().get_rx_descriptor(i).clone();
+        crate::kprintln!("{:?}", desc);
+    }
 }
 

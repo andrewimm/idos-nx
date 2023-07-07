@@ -1,7 +1,8 @@
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
+use core::ops::DerefMut;
 use spin::RwLock;
 
-use crate::hardware::pic::PIC;
+use crate::{hardware::pic::PIC, task::{id::TaskID, switching::get_task}};
 use super::stack::{SavedState, StackFrame};
 
 global_asm!(r#"
@@ -119,10 +120,7 @@ pub extern "C" fn _handle_pic_interrupt(_registers: SavedState, irq: u32, _frame
         }
     }
 
-    let handler = try_get_installed_handler(irq);
-    if let Some(f) = handler {
-        f(irq);
-    }
+    try_installed_handler(irq);
 
     pic.acknowledge_interrupt(irq as u8);
 }
@@ -134,25 +132,69 @@ pub fn handle_pit_interrupt() {
     crate::task::switching::update_timeouts(crate::time::system::MS_PER_TICK);
 }
 
-pub type InstallableHandler = RwLock<Option<fn(u32) -> ()>>;
+#[derive(Copy, Clone)]
+pub enum InstallableHandlerType {
+    Empty,
+    Kernel(fn(u32) -> ()),
+    KernelTask(fn(u32) -> (), TaskID),
+}
 
-const UNINSTALLED_HANDLER: InstallableHandler = RwLock::new(None);
+pub type InstallableHandler = RwLock<InstallableHandlerType>;
+
+const UNINSTALLED_HANDLER: InstallableHandler = RwLock::new(InstallableHandlerType::Empty);
 
 static INSTALLED_HANDLERS: [InstallableHandler; 16] = [UNINSTALLED_HANDLER; 16];
 
-pub fn install_interrupt_handler(irq: u32, f: fn(u32) -> ()) {
+pub fn install_interrupt_handler(irq: u32, f: fn(u32) -> (), task: Option<TaskID>) {
     match INSTALLED_HANDLERS[irq as usize].try_write() {
         Some(mut inner) => {
-            inner.replace(f);
+            let handler_type = match task {
+                Some(id) => InstallableHandlerType::KernelTask(f, id),
+                None => InstallableHandlerType::Kernel(f),
+            };
+            *inner = handler_type;
         },
         None => (),
     }
 }
 
-pub fn try_get_installed_handler(irq: u32) -> Option<fn(u32) -> ()> {
-    match INSTALLED_HANDLERS[irq as usize].try_read() {
+pub fn try_installed_handler(irq: u32) {
+    let handler = match INSTALLED_HANDLERS[irq as usize].try_read() {
         Some(inner) => *inner,
-        None => None,
+        None => return,
+    };
+    match handler {
+        InstallableHandlerType::Empty => return,
+        InstallableHandlerType::Kernel(f) => f(irq),
+        InstallableHandlerType::KernelTask(f, id) => {
+            // TODO: make this more durable, store registers, handle all cases
+            // where an interrupt can happen, etc.
+            // Ultimately, expanding this is necessary to support usermode
+            // interrupt handlers
+            crate::kprintln!("Temporarily switch memory to {:?}", id);
+            let task_lock = match get_task(id) {
+                Some(lock) => lock,
+                None => return,
+            };
+            let cr3 = task_lock.read().page_directory.as_u32();
+            let prev_cr3: u32;
+            unsafe {
+                asm!(
+                    "mov {prev}, cr3",
+                    "mov cr3, {next}",
+                    prev = out(reg) prev_cr3,
+                    next = in(reg) cr3,
+                );
+            }
+            f(irq);
+            unsafe {
+                asm!(
+                    "mov cr3, {prev}",
+                    prev = in(reg) prev_cr3,
+                );
+            }
+            crate::kprintln!("Int memory switch done");
+        },
     }
 }
 

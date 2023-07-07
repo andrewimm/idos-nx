@@ -336,7 +336,7 @@ fn run_driver() -> ! {
 
     let drives = DriveType::read_cmos();
     let mut driver_impl = FloppyDriver::new();
-    install_interrupt_handler(6, floppy_interrupt_handler);
+    install_interrupt_handler(6, floppy_interrupt_handler, None);
 
     for drive_type in drives {
         crate::kprint!("    {}\n", drive_type);
