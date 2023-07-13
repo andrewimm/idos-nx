@@ -1,3 +1,17 @@
+//! The net stack handles all IP traffic for user programs, as well as any
+//! services like ARP, DHCP, or DNS.
+//!
+//! Network device drivers are registered, and can be used by the
+//! Eventually, it will be possible to use multiple devices in parallel. For
+//! now the "active" device is the one that's used for everything.
+//!
+//! Core to the net stack is a Task that constantly reads packets from the
+//! active device. Depending on the type of packet, it is routed to one of the
+//! different subsystems and handled accordingly. For example, ARP packets will
+//! go to update the ARP cache, IP packets will go to the socket that is
+//! talking to the sender, etc. Outgoing packets don't usually go through this
+//! task, but they may block on information that must be received first.
+
 pub mod arp;
 pub mod dhcp;
 pub mod ethernet;
