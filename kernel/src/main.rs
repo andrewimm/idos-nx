@@ -95,6 +95,8 @@ fn init_system() -> ! {
 
         hardware::ethernet::dev::install_driver();
 
+        net::start_net_stack();
+
         filesystem::drivers::fatfs::mount_fat_fs();
 
         console::init_console();

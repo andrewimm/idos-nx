@@ -17,4 +17,12 @@ pub trait PacketHeader: Sized {
         buffer[location..].copy_from_slice(self.as_buffer());
         location
     }
+
+    fn from_buffer(buffer: &[u8]) -> Option<&Self> {
+        let size = Self::get_size();
+        if buffer.len() < size {
+            return None;
+        }
+        unsafe { Some(&*(buffer.as_ptr() as *const Self)) }
+    }
 }

@@ -4,6 +4,26 @@ use super::packet::PacketHeader;
 #[repr(transparent)]
 pub struct IPV4Address(pub [u8; 4]);
 
+impl core::ops::Deref for IPV4Address {
+    type Target = [u8; 4];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl core::ops::DerefMut for IPV4Address {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl core::fmt::Display for IPV4Address {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(core::format_args!("{}.{}.{}.{}", self[0], self[1], self[2], self[3]))
+    }
+}
+
 #[repr(C, packed)]
 pub struct IPHeader {
     pub version_header_len: u8,

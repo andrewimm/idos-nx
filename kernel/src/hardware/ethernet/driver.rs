@@ -198,8 +198,27 @@ impl EthernetDriver {
         }
     }
 
+    pub fn get_next_ready_rx_descriptor(&mut self) -> Option<(usize, &mut RxDescriptor)> {
+        let index = self.rx_ring_index;
+        let desc = self.get_rx_descriptor(index);
+
+        if !desc.is_done() {
+            return None;
+        }
+        Some((index, desc))
+    }
+
+    pub fn set_rx_ring_tail(&mut self, index: usize) {
+        self.rx_ring_index = Self::next_rdesc_index(index);
+        self.controller.write_register(REG_RDT, index as u32);
+    }
+
     fn next_tdesc_index(index: usize) -> usize {
         (index + 1) % TX_DESC_COUNT
+    }
+
+    fn next_rdesc_index(index: usize) -> usize {
+        (index + 1) % RX_DESC_COUNT
     }
 
     pub fn tx(&mut self, data: &[u8]) -> usize {
@@ -268,6 +287,10 @@ impl RxDescriptor {
 
     pub fn is_done(&self) -> bool {
         self.status & 1 != 0
+    }
+
+    pub fn get_length(&self) -> usize {
+        self.length as usize
     }
 }
 
