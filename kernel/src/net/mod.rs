@@ -27,6 +27,7 @@
 
 pub mod arp;
 pub mod dhcp;
+pub mod error;
 pub mod ethernet;
 pub mod ip;
 pub mod packet;
@@ -34,8 +35,8 @@ pub mod socket;
 pub mod udp;
 
 use core::{ops::Deref, sync::atomic::{AtomicU32, Ordering}};
-use crate::{collections::SlotList, task::{actions::{yield_coop, io::{open_path, read_file, open_pipe, transfer_handle, write_file}, lifecycle::{create_kernel_task, wait_for_io}}, files::FileHandle, switching::{get_task, get_current_id}, id::TaskID}, net::ethernet::EthernetFrame};
-use alloc::vec::Vec;
+use crate::{collections::SlotList, task::{actions::{yield_coop, io::{open_path, read_file, open_pipe, transfer_handle, write_file, close_file}, lifecycle::{create_kernel_task, wait_for_io}}, files::FileHandle, switching::{get_task, get_current_id}, id::TaskID}, net::ethernet::EthernetFrame};
+use alloc::{vec::Vec, string::String};
 use self::packet::PacketHeader;
 use spin::RwLock;
 
@@ -53,15 +54,23 @@ impl core::ops::Deref for NetID {
 #[derive(Clone)]
 pub struct NetDevice {
     pub mac: [u8; 6],
+    pub device_name: String,
     pub ip: Option<self::ip::IPV4Address>,
 }
 
 impl NetDevice {
-    pub fn new(mac: [u8; 6]) -> Self {
+    pub fn new(mac: [u8; 6], device_name: String) -> Self {
         Self {
             mac,
+            device_name,
             ip: None,
         }
+    }
+
+    pub fn send_raw(&self, raw: &[u8]) {
+        let dev = open_path(&self.device_name).unwrap();
+        write_file(dev, raw).unwrap();
+        close_file(dev).unwrap();
     }
 }
 
@@ -69,8 +78,8 @@ static NET_DEVICES: RwLock<SlotList<NetDevice>> = RwLock::new(SlotList::new());
 
 static ACTIVE_DEVICE: RwLock<Option<NetDevice>> = RwLock::new(None);
 
-pub fn register_network_interface(mac: [u8; 6]) -> NetID {
-    let device = NetDevice::new(mac);
+pub fn register_network_interface(mac: [u8; 6], device_name: &str) -> NetID {
+    let device = NetDevice::new(mac, String::from(device_name));
     let index = NET_DEVICES.write().insert(device.clone()) as u32;
 
     let mut active = ACTIVE_DEVICE.write();
@@ -91,9 +100,18 @@ pub fn with_active_device<F, T>(f: F) -> Result<T, ()>
     }
 }
 
+pub fn get_net_device_by_mac(mac: [u8; 6]) -> Option<NetDevice> {
+    NET_DEVICES.read()
+        .iter()
+        .find(|dev| dev.mac == mac)
+        .cloned()
+}
+
 static NET_TASK_ID: AtomicU32 = AtomicU32::new(0);
+static PACKETS_RECEIVED: AtomicU32 = AtomicU32::new(0);
 
 pub fn notify_net_device_ready(_id: u32) {
+    PACKETS_RECEIVED.fetch_add(1, Ordering::SeqCst);
     let task_id = TaskID::new(NET_TASK_ID.load(Ordering::SeqCst));
     if let Some(lock) = get_task(task_id) {
         lock.write().io_complete();
@@ -115,8 +133,9 @@ fn net_stack_task() -> ! {
     let eth_dev = open_path("DEV:\\ETH").unwrap();
 
     loop {
+        PACKETS_RECEIVED.store(0, Ordering::SeqCst);
         let len = read_file(eth_dev, &mut read_buffer).unwrap() as usize;
-        if len >= 0 {
+        if len > 0 {
             match EthernetFrame::from_buffer(&read_buffer).map(|frame| frame.get_ethertype()) {
                 Some(self::ethernet::ETHERTYPE_ARP) => {
                     crate::kprintln!("ARP PACKET");
@@ -128,7 +147,10 @@ fn net_stack_task() -> ! {
                 _ => (),
             }
         }
-        wait_for_io(None);
+        let received_while_processing = PACKETS_RECEIVED.swap(0, Ordering::SeqCst);
+        if received_while_processing == 0 {
+            wait_for_io(Some(1000));
+        }
     }
 }
 

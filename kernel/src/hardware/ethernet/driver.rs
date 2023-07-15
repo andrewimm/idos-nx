@@ -6,9 +6,9 @@ use super::controller::E1000Controller;
 /// Size of a single buffer used by a descriptor
 pub const BUFFER_SIZE: usize = 1024;
 /// Number of RX descriptors provided to the controller
-pub const RX_DESC_COUNT: usize = 4;
+pub const RX_DESC_COUNT: usize = 8;
 /// Number of TX descriptors provided to the controller
-pub const TX_DESC_COUNT: usize = 4;
+pub const TX_DESC_COUNT: usize = 8;
 
 // Consts for all the register numbers used
 
@@ -116,7 +116,7 @@ impl EthernetDriver {
         // RDLEN - RX Descriptor Length (in bytes)
         controller.write_register(REG_RDLEN, (RX_DESC_COUNT * core::mem::size_of::<RxDescriptor>()) as u32);
         // RDH - RX Descriptor Head
-        controller.write_register(REG_RDT, 0);
+        controller.write_register(REG_RDH, 0);
         // RDT - RX Descriptor Tail
         controller.write_register(REG_RDT, RX_DESC_COUNT as u32 - 1);
 
@@ -129,7 +129,11 @@ impl EthernetDriver {
         // TDBAH - TX Descriptor Base High
         controller.write_register(REG_TDBAH, 0);
         // TDLEN - TX Descriptor Length (in bytes)
-        controller.write_register(REG_TDLEN, (TX_DESC_COUNT * core::mem::size_of::<TxDescriptor>()) as u32);
+        let tdlen = TX_DESC_COUNT * core::mem::size_of::<TxDescriptor>();
+        if tdlen & 127 != 0 {
+            crate::kprintln!("TDLEN must be a multiple of 128. Invalid E1000 params");
+        }
+        controller.write_register(REG_TDLEN, tdlen as u32);
         // TDH - TX Descriptor Head
         controller.write_register(REG_TDH, 0);
         // TDT - TX Descriptor Tail
@@ -198,17 +202,20 @@ impl EthernetDriver {
         }
     }
 
-    pub fn get_next_ready_rx_descriptor(&mut self) -> Option<(usize, &mut RxDescriptor)> {
+    pub fn get_next_rx_buffer(&self) -> Option<&mut[u8]> {
         let index = self.rx_ring_index;
         let desc = self.get_rx_descriptor(index);
-
         if !desc.is_done() {
             return None;
         }
-        Some((index, desc))
+
+        Some(self.get_rx_buffer(index))
     }
 
-    pub fn set_rx_ring_tail(&mut self, index: usize) {
+    pub fn mark_current_rx_read(&mut self) {
+        let index = self.rx_ring_index;
+        let desc = self.get_rx_descriptor(index);
+        desc.clear_status();
         self.rx_ring_index = Self::next_rdesc_index(index);
         self.controller.write_register(REG_RDT, index as u32);
     }
@@ -287,6 +294,10 @@ impl RxDescriptor {
 
     pub fn is_done(&self) -> bool {
         self.status & 1 != 0
+    }
+
+    pub fn clear_status(&mut self) {
+        self.status = 0;
     }
 
     pub fn get_length(&self) -> usize {

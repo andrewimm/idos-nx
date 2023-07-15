@@ -16,13 +16,12 @@ use crate::interrupts::pic::install_interrupt_handler;
 use crate::memory::address::PhysicalAddress;
 use crate::net::{register_network_interface, notify_net_device_ready};
 use crate::task::actions::io::{open_pipe, transfer_handle, read_file, write_file};
-use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
+use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::{read_message_blocking, send_message};
 use crate::task::files::FileHandle;
-use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
-use crate::task::switching::{get_current_id, get_task};
+use crate::task::switching::get_current_id;
 
 use super::controller::E1000Controller;
 use super::driver::EthernetDriver;
@@ -48,14 +47,19 @@ impl AsyncDriver for EthernetDevice {
 
     fn read(&mut self, _instance: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
         let mut driver = self.driver.borrow_mut();
-        if let Some((index, desc)) = driver.get_next_ready_rx_descriptor() {
-            let read_len = desc.get_length().min(buffer.len());
-            let rx_buffer = driver.get_rx_buffer(index);
-            buffer[..read_len].copy_from_slice(&rx_buffer[..read_len]);
-            driver.set_rx_ring_tail(index);
-            return Ok(read_len as u32);
-        }
-        Ok(0)
+
+        let read_len = match driver.get_next_rx_buffer() {
+            Some(rx_buffer) => {
+                let read_len = rx_buffer.len().min(buffer.len());
+                buffer[..read_len].copy_from_slice(&rx_buffer[..read_len]);
+                read_len
+            },
+            None => return Ok(0),
+        };
+
+        driver.mark_current_rx_read();
+
+        Ok(read_len as u32)
     }
 
     fn write(&mut self, _instance: u32, buffer: &[u8]) -> Result<u32, IOError> {
@@ -130,7 +134,7 @@ fn run_driver() -> ! {
 
     crate::kprint!("Network driver installed as DEV:\\ETH\n");
 
-    let net_id = register_network_interface(mac);
+    let net_id = register_network_interface(mac, "DEV:\\ETH");
     NET_DEV_ID.store(*net_id, Ordering::SeqCst);
 
     // inform the parent task

@@ -116,18 +116,7 @@ fn task_a_body() -> ! {
         crate::kprintln!("Send DHCP request");
         let mac = net::with_active_device(|dev| dev.mac).unwrap();
         crate::kprintln!("Current MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        let dhcp_data = net::dhcp::discover_packet(mac, 0xaabbccdd);
-        let discover_packet = net::udp::create_datagram(
-            mac,
-            IPV4Address([0, 0, 0, 0]),
-            68,
-            [0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-            IPV4Address([255, 255, 255, 255]),
-            67,
-            dhcp_data.as_slice(),
-        );
-        let eth_dev = task::actions::io::open_path("DEV:\\ETH").unwrap();
-        task::actions::io::write_file(eth_dev, discover_packet.as_slice()).unwrap();
+        net::dhcp::start_dhcp_transaction(crate::task::switching::get_current_id(), mac);
     }
 
 

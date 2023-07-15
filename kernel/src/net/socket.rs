@@ -3,9 +3,7 @@
 use alloc::collections::BTreeMap;
 use spin::RwLock;
 
-use crate::net::{ip::IPProtocolType, udp::UDPHeader};
-
-use super::{ip::{IPV4Address, IPHeader}, packet::PacketHeader};
+use super::{dhcp::handle_incoming_packet, ip::{IPProtocolType, IPV4Address, IPHeader}, packet::PacketHeader, udp::UDPHeader};
 
 #[derive(Copy, Clone)]
 #[repr(transparent)]
@@ -56,6 +54,10 @@ pub fn receive_ip_packet(raw: &[u8]) {
         };
         let dest_port = udp_header.dest_port.to_be();
         crate::kprintln!("UDP Datagram to port {}", dest_port.clone());
+
+        if dest_port == 68 {
+            handle_incoming_packet(&remainder[UDPHeader::get_size()..]);
+        }
     }
 }
 

@@ -1,10 +1,10 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::{vec::Vec, collections::BTreeSet};
+use alloc::{vec::Vec, collections::BTreeMap};
 use spin::RwLock;
 use crate::task::id::TaskID;
 
-use super::ip::IPV4Address;
+use super::{ip::IPV4Address, get_net_device_by_mac};
 
 #[repr(C, packed)]
 pub struct DhcpPacket {
@@ -145,7 +145,7 @@ pub fn get_transaction_id() -> u32 {
     NEXT_TRANSACTION_ID.fetch_add(1, Ordering::SeqCst)
 }
 
-static CURRENT_TRANSACTIONS: RwLock<BTreeSet<Transaction>> = RwLock::new(BTreeSet::new());
+static CURRENT_TRANSACTIONS: RwLock<BTreeMap<u32, Transaction>> = RwLock::new(BTreeMap::new());
 
 struct Transaction {
     xid: u32,
@@ -158,6 +158,34 @@ enum TransactionState {
     Discover,
     Request,
     Acknowledged,
+}
+
+pub fn start_dhcp_transaction(blocked_task: TaskID, mac: [u8; 6]) {
+    crate::kprintln!("Start DHCP transaction");
+    let xid = get_transaction_id();
+    let transaction = Transaction {
+        xid,
+        mac,
+        state: TransactionState::Discover,
+        blocked_task,
+    };
+
+    CURRENT_TRANSACTIONS.write().insert(xid, transaction);
+
+    let dhcp_data = discover_packet(mac, xid);
+    let discover_packet = super::udp::create_datagram(
+        mac,
+        IPV4Address([0, 0, 0, 0]),
+        68,
+        [0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+        IPV4Address([255, 255, 255, 255]),
+        67,
+        &dhcp_data,
+    );
+
+    if let Some(dev) = get_net_device_by_mac(mac) {
+        dev.send_raw(&discover_packet);
+    }
 }
 
 pub fn handle_incoming_packet(data: &[u8]) {
@@ -178,7 +206,13 @@ pub fn handle_incoming_packet(data: &[u8]) {
     let mut dns_servers: Vec<IPV4Address> = Vec::new();
     let mut packet_type: u8 = 0;
 
-    let mut options_cursor = 0;
+    let mut options_cursor = 4;
+
+    if options.len() < 4 || options[0..4] != [0x63, 0x82, 0x53, 0x63] {
+        crate::kprintln!("invalid dhcp magic cookie");
+        return;
+    }
+
     while options_cursor < options.len() {
         let tag = options[options_cursor];
         options_cursor += 1;
@@ -276,34 +310,43 @@ pub fn handle_incoming_packet(data: &[u8]) {
         }
     }
 
-    let transactions = CURRENT_TRANSACTIONS.write();
-    let xid = packet.xid.to_le();
-
-    let transaction_found = transactions
-        .iter()
-        .enumerate()
-        .find(|(index, t)| {
-            t.xid == xid
-        });
-
-    let (index, transaction) = match transaction_found {
-        Some(pair) => pair,
+    let xid = packet.xid.to_be();
+    let mut transactions = CURRENT_TRANSACTIONS.write();
+    let transaction = match transactions.get_mut(&xid) {
+        Some(t) => t,
         None => {
             crate::kprintln!("No DHCP transaction with xid {:#010X}", xid);
             return;
         },
     };
-
     match packet_type {
         // offer
         2 => {
-            
+            crate::kprintln!("DHCP OFFER: {:}", packet.yiaddr);
+            transaction.state = TransactionState::Request;
+            let mac = transaction.mac;
+            let request = request_packet(mac, packet.siaddr, packet.yiaddr, xid);
+            let request_udp = super::udp::create_datagram(
+                mac,
+                IPV4Address([0, 0, 0, 0]),
+                68,
+                [0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
+                IPV4Address([255, 255, 255, 255]),
+                67,
+                &request,
+            );
+
+            if let Some(dev) = get_net_device_by_mac(mac) {
+                dev.send_raw(&request_udp);
+            }
+            crate::kprintln!("DHCP Request sent");
         },
         // decline
         4 => {
         },
         // ack
         5 => {
+            crate::kprintln!("DHCP ACK");
         },
 
         _ => (),
