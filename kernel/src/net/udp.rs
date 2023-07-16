@@ -28,8 +28,8 @@ impl UDPHeader {
     }
 }
 
-pub fn create_datagram(source_mac: [u8; 6], source_ip: IPV4Address, source_port: u16, dest_mac: [u8; 6], dest_ip: IPV4Address, dest_port: u16, data: &[u8]) -> Vec<u8> {
-    let total_size = data.len() + UDPHeader::get_size() + IPHeader::get_size() + EthernetFrame::get_size();
+pub fn create_datagram(source_ip: IPV4Address, source_port: u16, dest_ip: IPV4Address, dest_port: u16, data: &[u8]) -> Vec<u8> {
+    let total_size = data.len() + UDPHeader::get_size() + IPHeader::get_size();
     let mut datagram_vec = Vec::new();
     for i in 0..total_size {
         datagram_vec.push(0);
@@ -45,14 +45,10 @@ pub fn create_datagram(source_mac: [u8; 6], source_ip: IPV4Address, source_port:
     let udp_start = udp_header.copy_to_buffer(udp_header_space);
     let udp_size = (UDPHeader::get_size() + data.len()) as u16;
     // copy IP header
-    let ip_header = IPHeader::new_udp(source_ip, dest_ip, udp_size, 255);
+    let ip_header = IPHeader::new_udp(source_ip, dest_ip, udp_size, 127);
     let ip_header_space = &mut datagram_buffer[..udp_start];
     let ip_start = ip_header.copy_to_buffer(ip_header_space);
-    // copy ethernet frame
-    let eth_frame = EthernetFrame::new_ipv4(source_mac, dest_mac);
-    let eth_frame_space = &mut datagram_buffer[..ip_start];
-    let eth_start = eth_frame.copy_to_buffer(eth_frame_space);
-    assert_eq!(eth_start, 0, "Should not have extra space in the ethernet frame buffer");
+    assert_eq!(ip_start, 0, "Should not have extra space in the datagram buffer");
 
     datagram_vec
 }

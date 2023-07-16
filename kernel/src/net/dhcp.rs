@@ -1,10 +1,10 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::{vec::Vec, collections::BTreeMap};
-use spin::RwLock;
-use crate::task::id::TaskID;
+use spin::{RwLock, Once};
+use crate::{task::id::TaskID, net::socket::socket_broadcast};
 
-use super::{ip::IPV4Address, get_net_device_by_mac};
+use super::{ip::IPV4Address, get_net_device_by_mac, socket::{SocketHandle, create_socket, SocketProtocol, bind_socket, SocketPort}};
 
 #[repr(C, packed)]
 pub struct DhcpPacket {
@@ -160,6 +160,22 @@ enum TransactionState {
     Acknowledged,
 }
 
+static DHCP_SOCKET: Once<SocketHandle> = Once::new();
+
+fn get_dhcp_socket() -> SocketHandle {
+    *DHCP_SOCKET.call_once(|| {
+        let socket = create_socket(SocketProtocol::UDP);
+        bind_socket(
+            socket,
+            IPV4Address([0, 0, 0, 0]),
+            SocketPort::new(68),
+            IPV4Address([255, 255, 255, 255]),
+            SocketPort::new(67),
+        );
+        socket
+    })
+}
+
 pub fn start_dhcp_transaction(blocked_task: TaskID, mac: [u8; 6]) {
     crate::kprintln!("Start DHCP transaction");
     let xid = get_transaction_id();
@@ -173,19 +189,7 @@ pub fn start_dhcp_transaction(blocked_task: TaskID, mac: [u8; 6]) {
     CURRENT_TRANSACTIONS.write().insert(xid, transaction);
 
     let dhcp_data = discover_packet(mac, xid);
-    let discover_packet = super::udp::create_datagram(
-        mac,
-        IPV4Address([0, 0, 0, 0]),
-        68,
-        [0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-        IPV4Address([255, 255, 255, 255]),
-        67,
-        &dhcp_data,
-    );
-
-    if let Some(dev) = get_net_device_by_mac(mac) {
-        dev.send_raw(&discover_packet);
-    }
+    socket_broadcast(get_dhcp_socket(), &dhcp_data).unwrap();
 }
 
 pub fn handle_incoming_packet(data: &[u8]) {
@@ -326,19 +330,7 @@ pub fn handle_incoming_packet(data: &[u8]) {
             transaction.state = TransactionState::Request;
             let mac = transaction.mac;
             let request = request_packet(mac, packet.siaddr, packet.yiaddr, xid);
-            let request_udp = super::udp::create_datagram(
-                mac,
-                IPV4Address([0, 0, 0, 0]),
-                68,
-                [0xff, 0xff, 0xff, 0xff, 0xff, 0xff],
-                IPV4Address([255, 255, 255, 255]),
-                67,
-                &request,
-            );
-
-            if let Some(dev) = get_net_device_by_mac(mac) {
-                dev.send_raw(&request_udp);
-            }
+            socket_broadcast(get_dhcp_socket(), &request).unwrap();
             crate::kprintln!("DHCP Request sent");
         },
         // decline

@@ -36,7 +36,7 @@ pub mod udp;
 
 use core::{ops::Deref, sync::atomic::{AtomicU32, Ordering}};
 use crate::{collections::SlotList, task::{actions::{yield_coop, io::{open_path, read_file, open_pipe, transfer_handle, write_file, close_file}, lifecycle::{create_kernel_task, wait_for_io}}, files::FileHandle, switching::{get_task, get_current_id}, id::TaskID}, net::ethernet::EthernetFrame};
-use alloc::{vec::Vec, string::String};
+use alloc::{vec::Vec, string::String, sync::Arc};
 use self::packet::PacketHeader;
 use spin::RwLock;
 
@@ -74,12 +74,12 @@ impl NetDevice {
     }
 }
 
-static NET_DEVICES: RwLock<SlotList<NetDevice>> = RwLock::new(SlotList::new());
+static NET_DEVICES: RwLock<SlotList<Arc<NetDevice>>> = RwLock::new(SlotList::new());
 
-static ACTIVE_DEVICE: RwLock<Option<NetDevice>> = RwLock::new(None);
+static ACTIVE_DEVICE: RwLock<Option<Arc<NetDevice>>> = RwLock::new(None);
 
 pub fn register_network_interface(mac: [u8; 6], device_name: &str) -> NetID {
-    let device = NetDevice::new(mac, String::from(device_name));
+    let device = Arc::new(NetDevice::new(mac, String::from(device_name)));
     let index = NET_DEVICES.write().insert(device.clone()) as u32;
 
     let mut active = ACTIVE_DEVICE.write();
@@ -100,7 +100,7 @@ pub fn with_active_device<F, T>(f: F) -> Result<T, ()>
     }
 }
 
-pub fn get_net_device_by_mac(mac: [u8; 6]) -> Option<NetDevice> {
+pub fn get_net_device_by_mac(mac: [u8; 6]) -> Option<Arc<NetDevice>> {
     NET_DEVICES.read()
         .iter()
         .find(|dev| dev.mac == mac)
