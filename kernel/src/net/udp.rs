@@ -1,6 +1,5 @@
 use alloc::vec::Vec;
 
-use super::ethernet::EthernetFrame;
 use super::ip::{IPV4Address, IPHeader};
 use super::packet::PacketHeader;
 
@@ -15,7 +14,7 @@ pub struct UDPHeader {
 impl PacketHeader for UDPHeader {}
 
 impl UDPHeader {
-    pub fn new(source_ip: IPV4Address, source_port: u16, dest_ip: IPV4Address, dest_port: u16, data_size: usize) -> Self {
+    pub fn new(source_port: u16, dest_port: u16, data_size: usize) -> Self {
         let length = (8 + data_size) as u16;
         let checksum = 0u16;
 
@@ -31,7 +30,7 @@ impl UDPHeader {
 pub fn create_datagram(source_ip: IPV4Address, source_port: u16, dest_ip: IPV4Address, dest_port: u16, data: &[u8]) -> Vec<u8> {
     let total_size = data.len() + UDPHeader::get_size() + IPHeader::get_size();
     let mut datagram_vec = Vec::new();
-    for i in 0..total_size {
+    for _ in 0..total_size {
         datagram_vec.push(0);
     }
     let datagram_buffer = datagram_vec.as_mut_slice();
@@ -40,7 +39,7 @@ pub fn create_datagram(source_ip: IPV4Address, source_port: u16, dest_ip: IPV4Ad
     let data_start = total_size - data.len();
     datagram_buffer[data_start..].copy_from_slice(data);
     // copy UDP header
-    let udp_header = UDPHeader::new(source_ip, source_port, dest_ip, dest_port, data.len());
+    let udp_header = UDPHeader::new(source_port, dest_port, data.len());
     let udp_header_space = &mut datagram_buffer[..data_start];
     let udp_start = udp_header.copy_to_buffer(udp_header_space);
     let udp_size = (UDPHeader::get_size() + data.len()) as u16;

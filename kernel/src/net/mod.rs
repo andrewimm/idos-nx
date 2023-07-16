@@ -34,10 +34,16 @@ pub mod packet;
 pub mod socket;
 pub mod udp;
 
-use core::{ops::Deref, sync::atomic::{AtomicU32, Ordering}};
-use crate::{collections::SlotList, task::{actions::{yield_coop, io::{open_path, read_file, open_pipe, transfer_handle, write_file, close_file}, lifecycle::{create_kernel_task, wait_for_io}}, files::FileHandle, switching::{get_task, get_current_id}, id::TaskID}, net::ethernet::EthernetFrame};
 use alloc::{vec::Vec, string::String, sync::Arc};
-use self::{packet::PacketHeader, ip::IPV4Address, dhcp::start_dhcp_transaction};
+use core::ops::Deref;
+use core::sync::atomic::{AtomicU32, Ordering};
+use crate::collections::SlotList;
+use crate::task::actions::io::{open_path, read_file, open_pipe, transfer_handle, write_file, close_file};
+use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
+use crate::task::files::FileHandle;
+use crate::task::switching::{get_task, get_current_id};
+use crate::task::id::TaskID;
+use self::{ethernet::EthernetFrame, packet::PacketHeader, ip::IPV4Address, dhcp::start_dhcp_transaction};
 use spin::RwLock;
 
 #[repr(transparent)]
@@ -144,7 +150,7 @@ fn net_stack_task() -> ! {
     write_file(response_writer, &[1]).unwrap();
 
     let mut read_buffer = Vec::with_capacity(1024);
-    for i in 0..1024 {
+    for _ in 0..1024 {
         read_buffer.push(0);
     }
 

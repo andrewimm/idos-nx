@@ -139,7 +139,7 @@ pub fn resolve_mac_from_ip(ip: IPV4Address) -> Result<[u8; 6], NetError> {
             pending.insert(ip, blocked);
         }
     }
-    send_arp_request(ip);
+    send_arp_request(ip)?;
 
     if let Some(cached) = TRANSLATIONS.read().get(&ip) {
         return Ok(*cached);

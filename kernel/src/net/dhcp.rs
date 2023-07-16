@@ -2,9 +2,12 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::{vec::Vec, collections::BTreeMap};
 use spin::{RwLock, Once};
-use crate::{task::id::TaskID, net::socket::socket_broadcast};
+use crate::task::id::TaskID;
+use crate::net::socket::socket_broadcast;
 
-use super::{ip::IPV4Address, get_net_device_by_mac, socket::{SocketHandle, create_socket, SocketProtocol, bind_socket, SocketPort}};
+use super::ip::IPV4Address;
+use super::get_net_device_by_mac;
+use super::socket::{SocketHandle, create_socket, SocketProtocol, bind_socket, SocketPort};
 
 #[repr(C, packed)]
 pub struct DhcpPacket {
@@ -75,7 +78,7 @@ pub fn discover_packet(mac: [u8; 6], xid: u32) -> Vec<u8> {
     let total_len = packet_size + options.len();
 
     let mut packet_data = Vec::with_capacity(total_len);
-    for i in 0..total_len {
+    for _ in 0..total_len {
         packet_data.push(0);
     }
 
@@ -128,7 +131,7 @@ pub fn request_packet(mac: [u8; 6], server_ip: IPV4Address, requested_ip: IPV4Ad
     let total_len = packet_size + options.len();
 
     let mut packet_data = Vec::with_capacity(total_len);
-    for i in 0..total_len {
+    for _ in 0..total_len {
         packet_data.push(0);
     }
 
@@ -148,7 +151,6 @@ pub fn get_transaction_id() -> u32 {
 static CURRENT_TRANSACTIONS: RwLock<BTreeMap<u32, Transaction>> = RwLock::new(BTreeMap::new());
 
 struct Transaction {
-    xid: u32,
     mac: [u8; 6],
     state: TransactionState,
     blocked_task: TaskID
@@ -157,7 +159,6 @@ struct Transaction {
 enum TransactionState {
     Discover,
     Request,
-    Acknowledged,
 }
 
 static DHCP_SOCKET: Once<SocketHandle> = Once::new();
@@ -171,7 +172,7 @@ fn get_dhcp_socket() -> SocketHandle {
             SocketPort::new(68),
             IPV4Address([255, 255, 255, 255]),
             SocketPort::new(67),
-        );
+        ).unwrap();
         socket
     })
 }
@@ -180,7 +181,6 @@ pub fn start_dhcp_transaction(blocked_task: TaskID, mac: [u8; 6]) {
     crate::kprintln!("Start DHCP transaction");
     let xid = get_transaction_id();
     let transaction = Transaction {
-        xid,
         mac,
         state: TransactionState::Discover,
         blocked_task,

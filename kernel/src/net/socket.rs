@@ -169,7 +169,7 @@ pub fn bind_socket(socket: SocketHandle, local_ip: IPV4Address, local_port: Sock
     Ok(())
 }
 
-fn socket_send_inner(socket: SocketHandle, dest_mac: [u8; 6], packet: Vec<u8>) -> Result<(), NetError> {
+fn socket_send_inner(dest_mac: [u8; 6], packet: Vec<u8>) -> Result<(), NetError> {
     let (source_mac, device_name) = with_active_device(|netdev| (netdev.mac, netdev.device_name.clone()))
         .map_err(|_| NetError::NoNetDevice)?;
 
@@ -191,7 +191,7 @@ pub fn socket_broadcast(socket: SocketHandle, payload: &[u8]) -> Result<(), NetE
     };
     let dest_mac: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
-    socket_send_inner(socket, dest_mac, packet)
+    socket_send_inner(dest_mac, packet)
 }
 
 pub fn socket_send(socket: SocketHandle, payload: &[u8]) -> Result<(), NetError> {
@@ -206,6 +206,6 @@ pub fn socket_send(socket: SocketHandle, payload: &[u8]) -> Result<(), NetError>
 
     let dest_mac = resolve_mac_from_ip(dest_ip)?;
 
-    socket_send_inner(socket, dest_mac, packet)
+    socket_send_inner(dest_mac, packet)
 }
 
