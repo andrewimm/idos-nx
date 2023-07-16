@@ -13,7 +13,7 @@
 
 use core::arch::asm;
 
-use crate::{memory::virt::page_table::get_current_pagedir, net::ip::IPV4Address};
+use crate::{memory::virt::page_table::get_current_pagedir, net::{ip::IPV4Address, get_active_device_ip}};
 
 extern crate alloc;
 
@@ -113,12 +113,19 @@ fn task_a_body() -> ! {
     task::actions::lifecycle::wait_for_child(exec_child, None);
 
     {
-        crate::kprintln!("Send DHCP request");
+        use net::socket::SocketPort;
+
         let mac = net::with_active_device(|dev| dev.mac).unwrap();
         crate::kprintln!("Current MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        net::dhcp::start_dhcp_transaction(crate::task::switching::get_current_id(), mac);
-    }
+        crate::kprintln!("Resolve current IP");
+        let current_ip = get_active_device_ip(Some(1000)).expect("DHCP request timed out!");
+        crate::kprintln!("Got IP: {:}", current_ip);
 
+        let socket = net::socket::create_socket(net::socket::SocketProtocol::UDP);
+        net::socket::bind_socket(socket, current_ip, SocketPort::new(80), net::ip::IPV4Address([10, 0, 2, 3]), SocketPort::new(80));
+
+        net::socket::socket_send(socket, &[11, 22, 33, 55]);
+    }
 
     crate::kprint!("\n\nReading from COM1:\n");
     let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();

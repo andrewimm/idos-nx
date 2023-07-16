@@ -315,30 +315,43 @@ pub fn handle_incoming_packet(data: &[u8]) {
     }
 
     let xid = packet.xid.to_be();
-    let mut transactions = CURRENT_TRANSACTIONS.write();
-    let transaction = match transactions.get_mut(&xid) {
-        Some(t) => t,
-        None => {
-            crate::kprintln!("No DHCP transaction with xid {:#010X}", xid);
-            return;
-        },
-    };
     match packet_type {
         // offer
         2 => {
             crate::kprintln!("DHCP OFFER: {:}", packet.yiaddr);
-            transaction.state = TransactionState::Request;
-            let mac = transaction.mac;
+            let mac = match CURRENT_TRANSACTIONS.write().get_mut(&xid) {
+                Some(t) => {
+                    t.state = TransactionState::Request;
+                    t.mac
+                },
+                None => {
+                    crate::kprintln!("No DHCP transaction with xid {:#010X}", xid);
+                    return;
+                }
+            };
             let request = request_packet(mac, packet.siaddr, packet.yiaddr, xid);
             socket_broadcast(get_dhcp_socket(), &request).unwrap();
             crate::kprintln!("DHCP Request sent");
         },
         // decline
         4 => {
+            crate::kprintln!("DHCP Decline");
+            CURRENT_TRANSACTIONS.write().remove(&xid);
         },
         // ack
         5 => {
             crate::kprintln!("DHCP ACK");
+            let mac = match CURRENT_TRANSACTIONS.write().remove(&xid) {
+                Some(t) => t.mac,
+                None => return,
+            };
+            match get_net_device_by_mac(mac) {
+                Some(netdev) => {
+                    netdev.ip.write().replace(packet.yiaddr);
+                    crate::kprintln!("Net device now has IP {:}", packet.yiaddr);
+                },
+                None => (),
+            }
         },
 
         _ => (),

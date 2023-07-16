@@ -5,7 +5,7 @@ use spin::RwLock;
 
 use crate::task::actions::io::{open_path, close_file, write_file};
 
-use super::{dhcp::handle_incoming_packet, ip::{IPProtocolType, IPV4Address, IPHeader}, packet::PacketHeader, udp::{UDPHeader, create_datagram}, error::NetError, ethernet::EthernetFrame, with_active_device};
+use super::{dhcp::handle_incoming_packet, ip::{IPProtocolType, IPV4Address, IPHeader}, packet::PacketHeader, udp::{UDPHeader, create_datagram}, error::NetError, ethernet::EthernetFrame, with_active_device, arp::resolve_mac_from_ip};
 
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -136,6 +136,8 @@ pub fn receive_ip_packet(raw: &[u8]) {
     }
 }
 
+/// Create an unbound socket. A socket must be bound to a local or remote
+/// address before it can be used for anything useful.
 pub fn create_socket(protocol: SocketProtocol) -> SocketHandle {
     let socket = OpenSocket {
         binding: SocketBinding::empty(),
@@ -149,6 +151,9 @@ pub fn create_socket(protocol: SocketProtocol) -> SocketHandle {
     handle
 }
 
+/// Bind a socket to a local and remote address. If one of these should remain
+/// unbound, such as a socket that only accepts incoming traffic, set the
+/// address and port to all zeroes.
 pub fn bind_socket(socket: SocketHandle, local_ip: IPV4Address, local_port: SocketPort, remote_ip: IPV4Address, remote_port: SocketPort) -> Result<(), NetError> {
     if let Some(sock) = OPEN_SOCKETS.write().get_mut(&socket) {
         sock.bind(local_ip, local_port, remote_ip, remote_port);
@@ -164,32 +169,43 @@ pub fn bind_socket(socket: SocketHandle, local_ip: IPV4Address, local_port: Sock
     Ok(())
 }
 
-fn socket_send_inner(socket: SocketHandle, dest_mac: [u8; 6], payload: &[u8]) -> Result<(), NetError> {
-    match with_active_device(|netdev| {
-        let packet = match OPEN_SOCKETS.read().get(&socket) {
-            Some(sock) => sock.create_packet(payload),
-            None => return Err(NetError::InvalidSocket),
-        };
+fn socket_send_inner(socket: SocketHandle, dest_mac: [u8; 6], packet: Vec<u8>) -> Result<(), NetError> {
+    let (source_mac, device_name) = with_active_device(|netdev| (netdev.mac, netdev.device_name.clone()))
+        .map_err(|_| NetError::NoNetDevice)?;
 
-        let mut total_frame = Vec::with_capacity(EthernetFrame::get_size() + packet.len());
-        let eth_header = EthernetFrame::new_ipv4(netdev.mac, dest_mac);
-        total_frame.extend_from_slice(eth_header.as_buffer());
-        total_frame.extend(packet);
+    let mut total_frame = Vec::with_capacity(EthernetFrame::get_size() + packet.len());
+    let eth_header = EthernetFrame::new_ipv4(source_mac, dest_mac);
+    total_frame.extend_from_slice(eth_header.as_buffer());
+    total_frame.extend(packet);
 
-        let dev = open_path(&netdev.device_name).map_err(|_| NetError::DeviceDriverError)?;
-        write_file(dev, &total_frame).map_err(|_| NetError::DeviceDriverError)?;
-        close_file(dev).map_err(|_| NetError::DeviceDriverError)?;
-        Ok(())
-    }) {
-        Ok(res) => res,
-        Err(_) => Err(NetError::NoNetDevice)
-    }
+    let dev = open_path(&device_name).map_err(|_| NetError::DeviceDriverError)?;
+    write_file(dev, &total_frame).map_err(|_| NetError::DeviceDriverError)?;
+    close_file(dev).map_err(|_| NetError::DeviceDriverError)?;
+    Ok(())
 }
 
 pub fn socket_broadcast(socket: SocketHandle, payload: &[u8]) -> Result<(), NetError> {
+    let packet = match OPEN_SOCKETS.read().get(&socket) {
+        Some(sock) => sock.create_packet(payload),
+        None => return Err(NetError::InvalidSocket),
+    };
     let dest_mac: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
 
-    socket_send_inner(socket, dest_mac, payload)
+    socket_send_inner(socket, dest_mac, packet)
 }
 
+pub fn socket_send(socket: SocketHandle, payload: &[u8]) -> Result<(), NetError> {
+    let (dest_ip, packet) = match OPEN_SOCKETS.read().get(&socket) {
+        Some(sock) => (sock.binding.remote_ip, sock.create_packet(payload)),
+        None => return Err(NetError::InvalidSocket),
+    };
+
+    if *dest_ip == [0, 0, 0, 0] {
+        return Err(NetError::UnboundSocket);
+    }
+
+    let dest_mac = resolve_mac_from_ip(dest_ip)?;
+
+    socket_send_inner(socket, dest_mac, packet)
+}
 

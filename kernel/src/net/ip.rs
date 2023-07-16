@@ -1,6 +1,6 @@
 use super::packet::PacketHeader;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct IPV4Address(pub [u8; 4]);
 

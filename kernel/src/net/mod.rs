@@ -37,7 +37,7 @@ pub mod udp;
 use core::{ops::Deref, sync::atomic::{AtomicU32, Ordering}};
 use crate::{collections::SlotList, task::{actions::{yield_coop, io::{open_path, read_file, open_pipe, transfer_handle, write_file, close_file}, lifecycle::{create_kernel_task, wait_for_io}}, files::FileHandle, switching::{get_task, get_current_id}, id::TaskID}, net::ethernet::EthernetFrame};
 use alloc::{vec::Vec, string::String, sync::Arc};
-use self::packet::PacketHeader;
+use self::{packet::PacketHeader, ip::IPV4Address, dhcp::start_dhcp_transaction};
 use spin::RwLock;
 
 #[repr(transparent)]
@@ -51,11 +51,10 @@ impl core::ops::Deref for NetID {
     }
 }
 
-#[derive(Clone)]
 pub struct NetDevice {
     pub mac: [u8; 6],
     pub device_name: String,
-    pub ip: Option<self::ip::IPV4Address>,
+    pub ip: RwLock<Option<self::ip::IPV4Address>>,
 }
 
 impl NetDevice {
@@ -63,7 +62,7 @@ impl NetDevice {
         Self {
             mac,
             device_name,
-            ip: None,
+            ip: RwLock::new(None),
         }
     }
 
@@ -107,6 +106,25 @@ pub fn get_net_device_by_mac(mac: [u8; 6]) -> Option<Arc<NetDevice>> {
         .cloned()
 }
 
+pub fn get_active_device_ip(timeout: Option<u32>) -> Option<IPV4Address> {
+    let (mac, stored_ip) = match with_active_device(|netdev| (netdev.mac, *netdev.ip.read())) {
+        Ok(pair) => pair,
+        Err(_) => return None,
+    };
+    match stored_ip {
+        Some(stored) => return Some(stored),
+        _ => (),
+    }
+    let current_id = get_current_id();
+    start_dhcp_transaction(current_id, mac);
+    wait_for_io(timeout);
+
+    match with_active_device(|netdev| *netdev.ip.read()) {
+        Ok(Some(ip)) => Some(ip),
+        _ => None,
+    }
+}
+
 static NET_TASK_ID: AtomicU32 = AtomicU32::new(0);
 static PACKETS_RECEIVED: AtomicU32 = AtomicU32::new(0);
 
@@ -139,6 +157,7 @@ fn net_stack_task() -> ! {
             match EthernetFrame::from_buffer(&read_buffer).map(|frame| frame.get_ethertype()) {
                 Some(self::ethernet::ETHERTYPE_ARP) => {
                     crate::kprintln!("ARP PACKET");
+                    self::arp::handle_arp_announcement(&read_buffer[EthernetFrame::get_size()..]);
                 },
                 Some(self::ethernet::ETHERTYPE_IP) => {
                     crate::kprintln!("IP PACKET");
