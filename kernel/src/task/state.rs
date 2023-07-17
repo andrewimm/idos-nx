@@ -272,11 +272,16 @@ impl Task {
         let ExecutionEnvironment {
             registers,
             segments,
+            require_vm,
         } = env;
         self.memory_mapping.set_execution_segments(segments);
         self.current_executable.replace(file);
 
-        let flags = 0;
+        let mut flags = 0;
+
+        if require_vm {
+            flags |= 0x20000;
+        }
 
         let registers = EnvironmentRegisters {
             eax: registers.eax.unwrap_or(0),

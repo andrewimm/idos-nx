@@ -77,8 +77,19 @@ pub extern "x86-interrupt" fn stack_segment_fault(_stack_frame: StackFrame, _err
 }
 
 #[no_mangle]
-pub extern "x86-interrupt" fn gpf(_stack_frame: StackFrame, _error: u32) {
-    panic!("GPF");
+pub extern "x86-interrupt" fn gpf(stack_frame: StackFrame, error: u32) {
+    if stack_frame.eflags & 0x20000 != 0 {
+        // VM86 Mode
+        
+        // TODO: handle GPF
+    } else if stack_frame.eip >= 0xc0000000 {
+        crate::kprintln!("Kernel GPF: {}", error);
+        loop {}
+    }
+
+    crate::kprintln!("ERR: General Protection Fault, code {}", error);
+    crate::kprintln!("{:?}", stack_frame);
+    crate::task::actions::lifecycle::terminate(0);
 }
 
 #[no_mangle]

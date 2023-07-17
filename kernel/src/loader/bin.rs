@@ -36,6 +36,7 @@ pub fn build_environment(drive: DriveID, driver_handle: DriverHandle) -> Result<
                 es: None,
                 ss: None,
             },
+            require_vm: false,
         }
     )
 }

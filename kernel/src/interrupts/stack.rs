@@ -10,6 +10,22 @@ pub struct StackFrame {
 impl StackFrame {
 }
 
+impl core::fmt::Debug for StackFrame {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let eip = self.eip;
+        let cs = self.cs;
+        let eflags = self.eflags;
+        f.write_fmt(
+            core::format_args!(
+                "StackFrame {{\n  eip: {:#x}\n  cs: {:#x}\n  eflags: {:#x}\n}}\n",
+                eip,
+                cs,
+                eflags,
+            )
+        )
+    }
+}
+
 /// SavedState stashes the running state of a task when it is interrupted.
 /// Restoring these would allow the CPU to return to its pre-interrupt state
 /// without the task ever knowing.

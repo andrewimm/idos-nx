@@ -4,6 +4,7 @@ use crate::task::memory::ExecutionSegment;
 pub struct ExecutionEnvironment {
     pub registers: InitialRegisters,
     pub segments: Vec<ExecutionSegment>,
+    pub require_vm: bool,
 }
 
 pub struct InitialRegisters {

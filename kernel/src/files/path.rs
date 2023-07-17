@@ -112,6 +112,20 @@ impl Path {
 
         Some((drive_name, path_portion))
     }
+
+    pub fn get_filename(path_str: &str) -> &str {
+        match path_str.rsplit_once('\\') {
+            Some((_, filename)) => filename,
+            None => path_str,
+        }
+    }
+
+    pub fn get_extension(path_str: &str) -> Option<&str> {
+        match Path::get_filename(path_str).rsplit_once('.') {
+            Some((_, ext)) => Some(ext),
+            None => None,
+        }
+    }
 }
 
 impl Into<String> for Path {
@@ -186,6 +200,21 @@ mod tests {
         assert!(!Path::is_absolute(":\\"));
         assert!(!Path::is_absolute("123:\\"));
         assert!(Path::is_absolute("ABC:\\"));
+    }
+
+    #[test_case]
+    fn get_filename() {
+        assert_eq!(Path::get_filename("D:\\MYDIR\\DOC.TXT"), "DOC.TXT");
+        assert_eq!(Path::get_filename("abc\\defghi\\file.ext"), "file.ext");
+        assert_eq!(Path::get_filename("myprog.com"), "myprog.com");
+        assert_eq!(Path::get_filename("A:\\DOCS\\"), "");
+    }
+
+    #[test_case]
+    fn get_extension() {
+        assert_eq!(Path::get_extension("HELLO.TXT"), Some("TXT"));
+        assert_eq!(Path::get_extension("Banana"), None);
+        assert_eq!(Path::get_extension("A:\\PROGS\\BIN\\COUNT.COM"), Some("COM"));
     }
 }
 
