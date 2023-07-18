@@ -287,6 +287,40 @@ impl KernelFileSystem for DevFileSystem {
         }
     }
 
+    fn dup(&self, handle: DriverHandle, dup_into: Option<u32>) -> Result<DriverHandle, IOError> {
+        let (driver_index, open_instance) = match self.open_handles.read().get(handle.into()) {
+            Some(OpenHandle::DeviceDriver(driver, instance)) => (*driver, *instance),
+            Some(_) => return Err(IOError::FileHandleWrongType),
+            _ => return Err(IOError::FileHandleInvalid),
+        };
+        let driver = self.get_driver(driver_index).ok_or(IOError::NotFound)?;
+        match driver {
+            DeviceDriver::SyncDriver(driver) => {
+                let open_instance: u32 = driver.dup(open_instance, dup_into)?;
+                let handle = self.open_handles.write().insert(OpenHandle::DeviceDriver(driver_index, open_instance));
+                Ok(DriverHandle(handle as u32))
+            },
+            DeviceDriver::AsyncDriver(id, _) => {
+                let dup_into_encoded = match dup_into {
+                    Some(value) => value,
+                    None => 0xffffffff,
+                };
+                let result = self.async_op(
+                    id,
+                    AsyncIO::Dup(
+                        handle.into(),
+                        dup_into_encoded,
+                    )
+                ).ok_or(IOError::FileSystemError)?;
+
+                let open_instance = result.map_err(|err| IOError::try_from(err).unwrap())?;
+
+                let handle = self.open_handles.write().insert(OpenHandle::DeviceDriver(driver_index, open_instance));
+                Ok(DriverHandle(handle as u32))
+            },
+        }
+    }
+
     fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) -> Result<u32, IOError> {
         match command {
             1 => {

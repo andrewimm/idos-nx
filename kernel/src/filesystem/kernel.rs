@@ -21,6 +21,10 @@ pub trait KernelFileSystem {
         Err(IOError::UnsupportedOperation)
     }
 
+    fn dup(&self, handle: DriverHandle, dup_into: Option<u32>) -> Result<DriverHandle, IOError> {
+        Err(IOError::UnsupportedOperation)
+    }
+
     fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) -> Result<u32, IOError> {
         Err(IOError::UnsupportedOperation)
     }

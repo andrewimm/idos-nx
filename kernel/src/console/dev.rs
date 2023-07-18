@@ -84,6 +84,13 @@ impl SyncDriver for ConsoleDriver {
         }
         Ok(())
     }
+
+    fn dup(&self, index: u32, dup_into: Option<u32>) -> Result<u32, IOError> {
+        let mut handles = self.open_handles.write();
+        let prev_handle = handles.get(index as usize).cloned().ok_or(IOError::FileHandleInvalid)?;
+        let new_handle = handles.insert(prev_handle) as u32;
+        Ok(new_handle)
+    }
 }
 
 #[derive(Copy, Clone)]

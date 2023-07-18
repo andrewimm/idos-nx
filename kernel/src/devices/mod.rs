@@ -14,6 +14,9 @@ pub trait SyncDriver {
     fn seek(&self, index: u32, offset: SeekMethod) -> Result<u32, IOError> {
         Err(IOError::UnsupportedOperation)
     }
+    fn dup(&self, index: u32, dup_into: Option<u32>) -> Result<u32, IOError> {
+        Err(IOError::UnsupportedOperation)
+    }
 }
 
 pub type SyncDriverType = dyn SyncDriver + Sync + Send;

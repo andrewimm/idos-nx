@@ -136,13 +136,27 @@ pub fn transfer_handle(handle: FileHandle, task: TaskID) -> Result<FileHandle, I
 }
 
 pub fn dup_handle(handle: FileHandle) -> Result<FileHandle, IOError> {
-    // TODO: this is a hack and is not correct! It needs to go through the FS
     let task_lock = get_current_task();
-    let mut task = task_lock.write();
-    let open_file = task.open_files.get(handle.into()).cloned().ok_or(IOError::FileHandleInvalid)?;
-    let new_index = task.open_files.insert(open_file);
-    Ok(FileHandle::new(new_index))
+    let mut new_open_file = {
+        let task = task_lock.read();
+        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        entry.clone()
+    };
 
+    let new_handle = get_driver_by_id(new_open_file.drive)
+        .map_err(|_| IOError::NotFound)?
+        .dup(new_open_file.driver_handle, None)
+        .map_err(|_| IOError::OperationFailed)?;
+
+    new_open_file.driver_handle = new_handle;
+
+    let open_handle_index = {
+        let task_lock = get_current_task();
+        let mut task = task_lock.write();
+        task.open_files.insert(new_open_file)
+    };
+
+    Ok(FileHandle::new(open_handle_index))
 }
 
 /// Open a directory at a specified path. Similar to opening a file,

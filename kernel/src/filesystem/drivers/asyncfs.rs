@@ -141,6 +141,20 @@ impl KernelFileSystem for AsyncFileSystem {
             None => Err(IOError::FileSystemError),
         }
     }
+
+    fn dup(&self, handle: DriverHandle, dup_into: Option<u32>) -> Result<DriverHandle, IOError> {
+        let dup_into_encoded = match dup_into {
+            Some(value) => value,
+            None => 0xffffffff,
+        };
+        let response = self.async_op(
+            AsyncIO::Dup(
+                handle.into(),
+                dup_into_encoded,
+            )
+        );
+        unwrap_async_response(response).map(|handle| DriverHandle(handle))
+    }
 }
 
 fn unwrap_async_response(response: Option<Result<u32, u32>>) -> Result<u32, IOError> {
@@ -162,6 +176,7 @@ pub enum AsyncCommand {
     Close,
     Seek,
     Stat,
+    Dup,
     // Every time a new command is added, modify the From<u32> impl below
 
     Invalid = 0xffffffff,
@@ -169,7 +184,7 @@ pub enum AsyncCommand {
 
 impl From<u32> for AsyncCommand {
     fn from(value: u32) -> Self {
-        if value >= 1 && value <= 7 {
+        if value >= 1 && value <= 8 {
             unsafe { core::mem::transmute(value) }
         } else {
             AsyncCommand::Invalid
@@ -208,6 +223,10 @@ pub fn encode_request(request: AsyncIO) -> Message {
         AsyncIO::Stat(open_instance, buffer_start, buffer_len) => {
             let code = AsyncCommand::Stat as u32;
             Message(code, open_instance, buffer_start, buffer_len)
+        },
+        AsyncIO::Dup(open_instance, dup_into) => {
+            let code = AsyncCommand::Dup as u32;
+            Message(code, open_instance, dup_into, 0)
         },
     }
 }
@@ -290,6 +309,18 @@ pub trait AsyncDriver {
                     Err(err) => Some((0, err as u32, 0)),
                 }
             },
+            AsyncCommand::Dup => {
+                let open_instance = message.1;
+                let dup_into = if message.2 == 0xffffffff {
+                    None
+                } else {
+                    Some(message.2)
+                };
+                match self.dup(open_instance, dup_into) {
+                    Ok(new_handle) => Some((new_handle, 0, 0)),
+                    Err(err) => Some((0, err as u32, 0)),
+                }
+            },
             _ => {
                 crate::kprint!("Async driver: unknown request\n");
                 None
@@ -310,6 +341,10 @@ pub trait AsyncDriver {
     }
 
     fn stat(&mut self, instance: u32, status: &mut FileStatus) -> Result<(), IOError> {
+        Err(IOError::UnsupportedOperation)
+    }
+
+    fn dup(&mut self, instance: u32, dup_into: Option<u32>) -> Result<u32, IOError> {
         Err(IOError::UnsupportedOperation)
     }
 }
