@@ -38,7 +38,7 @@ fn command_task() -> ! {
         let mut parser = Parser::new(lexer);
         parser.parse_input();
 
-        self::exec::exec(stdout, parser.into_tree(), &mut env);
+        self::exec::exec(stdin, stdout, parser.into_tree(), &mut env);
     }
 }
 

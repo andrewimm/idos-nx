@@ -18,6 +18,8 @@ pub fn print_string(regs: &mut DosApiRegisters, segments: &mut VM86Frame) {
         segment: segments.ds as u16,
         offset: regs.dx as u16,
     };
+
+    crate::kprintln!("String at {:?}", string_location.normalize());
     let start = string_location.normalize().as_ptr::<u8>();
     let mut length = 0;
     loop {

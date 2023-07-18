@@ -135,6 +135,16 @@ pub fn transfer_handle(handle: FileHandle, task: TaskID) -> Result<FileHandle, I
     Ok(FileHandle::new(new_index))
 }
 
+pub fn dup_handle(handle: FileHandle) -> Result<FileHandle, IOError> {
+    // TODO: this is a hack and is not correct! It needs to go through the FS
+    let task_lock = get_current_task();
+    let mut task = task_lock.write();
+    let open_file = task.open_files.get(handle.into()).cloned().ok_or(IOError::FileHandleInvalid)?;
+    let new_index = task.open_files.insert(open_file);
+    Ok(FileHandle::new(new_index))
+
+}
+
 /// Open a directory at a specified path. Similar to opening a file,
 /// non-absolute paths will be opened relative to the task's working directory.
 /// On success, a new File Handle will be opened and returned.
