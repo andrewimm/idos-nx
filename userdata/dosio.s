@@ -7,6 +7,9 @@ start:
   mov ah, 0x09
   int 0x21
 
+  mov ah, 0x00
+  int 0x21
+
   jmp $
 
 message_prompt: .ascii "Enter 5 characters: $"

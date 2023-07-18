@@ -80,8 +80,9 @@ pub extern "x86-interrupt" fn stack_segment_fault(_stack_frame: StackFrame, _err
 pub extern "x86-interrupt" fn gpf(stack_frame: StackFrame, error: u32) {
     if stack_frame.eflags & 0x20000 != 0 {
         // VM86 Mode
-        
-        // TODO: handle GPF
+        if crate::dos::vm::handle_gpf(&stack_frame) {
+            return;
+        }
     } else if stack_frame.eip >= 0xc0000000 {
         crate::kprintln!("Kernel GPF: {}", error);
         loop {}

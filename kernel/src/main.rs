@@ -13,8 +13,6 @@
 
 use core::arch::asm;
 
-use crate::{memory::virt::page_table::get_current_pagedir, net::{ip::IPV4Address, get_active_device_ip}};
-
 extern crate alloc;
 
 pub mod arch;
@@ -23,6 +21,7 @@ pub mod collections;
 pub mod command;
 pub mod console;
 pub mod devices;
+pub mod dos;
 pub mod files;
 pub mod filesystem;
 pub mod hardware;
@@ -50,7 +49,7 @@ pub extern "C" fn _start() -> ! {
 
     init::init_hardware();
 
-    let initial_pagedir = get_current_pagedir();
+    let initial_pagedir = memory::virt::page_table::get_current_pagedir();
     task::switching::init(initial_pagedir);
 
     task::actions::lifecycle::create_kernel_task(cleanup::cleanup_task, Some("CLEANUP"));
@@ -118,7 +117,7 @@ fn task_a_body() -> ! {
         let mac = net::with_active_device(|dev| dev.mac).unwrap();
         crate::kprintln!("Current MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
         crate::kprintln!("Resolve current IP");
-        let current_ip = get_active_device_ip(Some(1000)).expect("DHCP request timed out!");
+        let current_ip = net::get_active_device_ip(Some(1000)).expect("DHCP request timed out!");
         crate::kprintln!("Got IP: {:}", current_ip);
 
         let socket = net::socket::create_socket(net::socket::SocketProtocol::UDP);

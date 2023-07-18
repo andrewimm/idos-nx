@@ -8,6 +8,32 @@ pub struct StackFrame {
 }
 
 impl StackFrame {
+    fn as_ptr(&self) -> *mut u32 {
+        self as *const StackFrame as u32 as *mut u32
+    }
+
+    pub fn set_eip(&self, eip: u32) {
+        unsafe {
+            core::ptr::write_volatile(self.as_ptr(), eip);
+        }
+    }
+
+    pub fn add_eip(&self, delta: i32) {
+        let value = (self.eip as i32 + delta) as u32;
+        self.set_eip(value);
+    }
+
+    pub fn set_cs(&self, cs: u32) {
+        unsafe {
+            core::ptr::write_volatile(self.as_ptr().offset(1), cs);
+        }
+    }
+
+    pub fn set_eflags(&self, eflags: u32) {
+        unsafe {
+            core::ptr::write_volatile(self.as_ptr().offset(2), eflags);
+        }
+    }
 }
 
 impl core::fmt::Debug for StackFrame {
