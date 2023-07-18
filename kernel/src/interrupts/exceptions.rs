@@ -109,7 +109,8 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
         if error & 4 == 4 {
             // Permission error - access attempt did not come from ring 0
             // This should segfault
-            loop {}
+            crate::kprintln!("User program attempted to reach out-of-bounds memory");
+            crate::task::actions::lifecycle::terminate(0);
         }
         if error & 1 == 0 {
             // Page was not present
@@ -123,7 +124,6 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
             let vaddr = VirtualAddress::new(address);
             if !page_on_demand(vaddr).is_none() {
                 // Return back to the failed memory access
-
                 return;
             }
         } else if error & 2 == 2 {
@@ -136,7 +136,6 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
         // segment, etc) should cause a segfault.
         crate::kprint!("SEGFAULT AT IP: {:#010X} (Access {:#010X})\n", eip, address);
     }
-
-    loop {}
+    crate::task::actions::lifecycle::terminate(0);
 }
 
