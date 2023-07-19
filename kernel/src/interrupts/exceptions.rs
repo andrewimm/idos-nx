@@ -119,6 +119,13 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
             loop {}
         }
     } else { // User space
+        if stack_frame.eflags & 0x20000 != 0 {
+            // handle VM86 page faults separately
+            if crate::dos::memory::handle_page_fault(&stack_frame, address) {
+                return;
+            }
+        }
+
         if error & 1 == 0 {
             // Page was not present
             // Let the current task determine how to handle the missing page

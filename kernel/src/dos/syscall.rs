@@ -13,8 +13,10 @@ pub fn dos_api(regs: &mut DosApiRegisters, segments: &mut VM86Frame, stack_frame
             stack_frame.set_eip(new_address.offset as u32);
         },
         0x01 => { // Keyboard input with Echo
+            devices::read_stdin_with_echo(regs);
         },
         0x02 => { // Print character to STDOUT
+            devices::output_char_to_stdout(regs);
         },
         0x03 => { // Wait for STDAUX
         },

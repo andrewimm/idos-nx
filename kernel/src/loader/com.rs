@@ -9,6 +9,7 @@
 
 use alloc::vec::Vec;
 
+use crate::dos::execution::PSP;
 use crate::filesystem::drive::DriveID;
 use crate::files::handle::DriverHandle;
 use crate::filesystem::get_driver_by_id;
@@ -27,7 +28,7 @@ pub fn build_environment(drive: DriveID, driver_handle: DriverHandle) -> Result<
 
     // set the segment and IP
     let psp_segment: u32 = 0x100; // addresses will start at 0x1000
-    let ip = 0x100;
+    let ip = core::mem::size_of::<PSP>() as u32;
 
     let segments = build_single_section_environment(status.byte_size, psp_segment)?;
     Ok(
@@ -59,7 +60,7 @@ pub fn build_environment(drive: DriveID, driver_handle: DriverHandle) -> Result<
 
 pub fn build_single_section_environment(file_size: u32, psp_segment: u32) -> Result<Vec<ExecutionSegment>, LoaderError> {
     let psp_start = psp_segment << 4;
-    let psp_size = 0x100;
+    let psp_size = core::mem::size_of::<PSP>() as u32;
     let code_start = psp_start + psp_size;
     let page_start = VirtualAddress::new(psp_start).prev_page_barrier();
 

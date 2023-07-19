@@ -64,6 +64,19 @@ impl DosApiRegisters {
     pub fn al(&self) -> u8 {
         (self.ax & 0xff) as u8
     }
+
+    pub fn set_al(&mut self, al: u8) {
+        self.ax &= 0xff00;
+        self.ax |= al as u32;
+    }
+
+    pub fn dh(&self) -> u8 {
+        ((self.dx & 0xff00) >> 8) as u8
+    }
+
+    pub fn dl(&self) -> u8 {
+        (self.dx & 0xff) as u8
+    }
 }
 
 /// When a DOS program running in VM86 mode tries to do something privileged,
