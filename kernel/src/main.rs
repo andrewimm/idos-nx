@@ -126,6 +126,19 @@ fn task_a_body() -> ! {
         net::socket::socket_send(socket, &[11, 22, 33, 55]);
     }
 
+    {
+        crate::kprintln!("Read bytes from KERNEL");
+        let kernel_file = task::actions::io::open_path("C:\\KERNEL.BIN").unwrap();
+        task::actions::io::seek_file(kernel_file, files::cursor::SeekMethod::Absolute(0x11fe));
+        let bytes_read = task::actions::io::read_file(kernel_file, &mut buf).unwrap();
+        crate::kprint!("Read {} bytes: ", bytes_read);
+        for i in 0..bytes_read {
+            crate::kprint!("{:02X} ", buf[i as usize]);
+        }
+        crate::kprintln!("");
+        task::actions::io::close_file(kernel_file);
+    }
+
     crate::kprint!("\n\nReading from COM1:\n");
     let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();
     let read_len = task::actions::io::read_file(com1, &mut buf).unwrap() as usize;

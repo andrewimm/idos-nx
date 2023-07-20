@@ -90,7 +90,7 @@ impl DiskAccess {
     pub fn read_bytes_from_disk(&mut self, offset: u32, buffer: &mut [u8]) -> u32 {
         let sectors = sectors_for_byte_range(offset, buffer.len());
         let mut sector_offset = offset % 512;
-        let to_read = buffer.len() as u32;
+        let mut to_read = buffer.len() as u32;
         let mut bytes_read = 0;
         for sector in sectors {
             let index = self.cache_sector(sector);
@@ -102,6 +102,7 @@ impl DiskAccess {
             }
 
             bytes_read += to_read_from_sector;
+            to_read -= to_read_from_sector;
             sector_offset = 0;
         }
 

@@ -282,17 +282,40 @@ impl File {
         self.dir_entry.byte_size
     }
 
-    pub fn read(&self, buffer: &mut [u8], offset: u32, table: AllocationTable, disk: &mut DiskAccess) -> u32 {
-        let current_relative_cluster = offset / table.bytes_per_cluster();
-        let cluster_offset = offset % table.bytes_per_cluster();
-        let current_cluster = self.dir_entry.first_file_cluster as u32 + current_relative_cluster;
-        let cluster_location = table.get_cluster_location(current_cluster);
+    pub fn read(&self, buffer: &mut [u8], initial_offset: u32, table: AllocationTable, disk: &mut DiskAccess) -> u32 {
+        let mut offset = initial_offset;
+        let mut bytes_written = 0;
 
-        let bytes_remaining_in_file = self.byte_size() - offset;
-        let bytes_remaining_in_cluster = bytes_remaining_in_file.min(table.bytes_per_cluster() - cluster_offset);
+        loop {
+            let current_relative_cluster = offset / table.bytes_per_cluster();
+            let cluster_offset = offset % table.bytes_per_cluster();
 
-        let read_buffer = &mut buffer[..bytes_remaining_in_cluster as usize];
+            let current_cluster = match table.get_nth_cluster(self.dir_entry.first_file_cluster as u32, current_relative_cluster, disk) {
+                Some(cluster) => cluster,
+                None => return bytes_written as u32,
+            };
+            let cluster_location = table.get_cluster_location(current_cluster);
 
-        disk.read_bytes_from_disk(cluster_location + cluster_offset, read_buffer)
+            let bytes_remaining_in_file = self.byte_size() - offset;
+            let bytes_remaining_in_cluster = table.bytes_per_cluster() - cluster_offset;
+
+            let bytes_from_disk = bytes_remaining_in_file.min(bytes_remaining_in_cluster) as usize;
+            let buffer_end = buffer.len().min(bytes_written + bytes_from_disk);
+            
+            let read_buffer = &mut buffer[bytes_written..buffer_end];
+
+            let read_size = disk.read_bytes_from_disk(cluster_location + cluster_offset, read_buffer);
+            bytes_written += read_size as usize;
+            offset += read_size;
+
+            if bytes_written >= bytes_remaining_in_file as usize {
+                // if there are no more bytes remaining in the file, exit early
+                return bytes_written as u32;
+            }
+            if bytes_written >= buffer.len() {
+                // if there is no more room in the buffer, exit
+                return bytes_written as u32;
+            }
+        }
     }
 }
