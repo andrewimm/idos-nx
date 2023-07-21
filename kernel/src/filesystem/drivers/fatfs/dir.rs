@@ -308,7 +308,7 @@ impl File {
             bytes_written += read_size as usize;
             offset += read_size;
 
-            if bytes_written >= bytes_remaining_in_file as usize {
+            if bytes_written as u32 + initial_offset >= self.byte_size() {
                 // if there are no more bytes remaining in the file, exit early
                 return bytes_written as u32;
             }

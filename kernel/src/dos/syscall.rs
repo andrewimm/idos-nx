@@ -34,6 +34,8 @@ pub fn dos_api(regs: &mut DosApiRegisters, segments: &mut VM86Frame, stack_frame
             devices::print_string(regs, segments);
         },
 
-        _ => {},
+        _ => {
+            panic!("Unimplemented DOS API: {:#X}", regs.ah());
+        },
     }
 }

@@ -148,9 +148,17 @@ pub fn handle_gpf(stack_frame: &StackFrame) -> bool {
             // HLT
         } else if *op_ptr == 0xfa {
             // CLI
+            crate::kprintln!("Disable VM interrupts");
+            stack_frame.add_eip(1);
+            return true;
         } else if *op_ptr == 0xfb {
             // STI
+            crate::kprintln!("Enable VM interrupts");
+            stack_frame.add_eip(1);
+            return true;
         }
+
+        crate::kprintln!("UNSUPPORTED DOS OP: {:X}", *op_ptr);
     }
 
     false

@@ -14,6 +14,8 @@ pub struct DiskAccess {
     mount_handle: FileHandle,
     buffer_location: VirtualAddress,
     buffer_size: usize,
+    /// Obviously LRU is *not* the best caching strategy, since you'd also want
+    /// to account for frequency of hits. However, it's good enough for now!
     cache_entries: Vec<CacheEntry>,
 }
 
@@ -61,29 +63,47 @@ impl DiskAccess {
     }
 
     fn cache_sector(&mut self, lba: u32) -> usize {
-        for (index, entry) in self.cache_entries.iter().enumerate() {
+        let mut found = None;
+        for (index, entry) in self.cache_entries.iter_mut().enumerate() {
             if entry.lba == lba {
                 // already cached!
-                return index;
+                entry.age = 0;
+                found = Some(index);
+            } else {
+                entry.age += 1;
             }
         }
+        if let Some(index) = found {
+            return index;
+        }
         let cache_index = if self.cache_entries.len() < self.get_max_cache_entries() {
+            for entry in self.cache_entries.iter_mut() {
+                entry.age += 1;
+            }
             let index = self.cache_entries.len();
             self.cache_entries.push(
                 CacheEntry {
                     lba,
+                    age: 0,
                 }
             );
-            let cache_buffer = self.get_buffer_sector(index);
-            let seek_to = lba as usize * 512;
-            seek_file(self.mount_handle, SeekMethod::Absolute(seek_to)).unwrap();
-            read_file(self.mount_handle, cache_buffer).unwrap();
-
             index
         } else {
             // need to evict an entry
-            0
+            //              (index, age)
+            let mut oldest: (usize, u32) = (0, 0);
+            for (index, entry) in self.cache_entries.iter().enumerate() {
+                if entry.age > oldest.1 {
+                    oldest.0 = index;
+                    oldest.1 = entry.age;
+                }
+            }
+            oldest.0
         };
+        let cache_buffer = self.get_buffer_sector(cache_index);
+        let seek_to = lba as usize * 512;
+        seek_file(self.mount_handle, SeekMethod::Absolute(seek_to)).unwrap();
+        read_file(self.mount_handle, cache_buffer).unwrap();
         cache_index
     }
 
@@ -121,6 +141,7 @@ impl DiskAccess {
 
 pub struct CacheEntry {
     lba: u32,
+    age: u32,
 }
 
 fn sectors_for_byte_range(offset: u32, length: usize) -> Vec<u32> {

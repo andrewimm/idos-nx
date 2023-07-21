@@ -26,13 +26,16 @@ pub fn handle_page_fault(stack_frame: &StackFrame, address: u32) -> bool {
         let current_segment = get_current_psp_segment();
         if (vaddr.prev_page_barrier().as_u32() >> 4) as u16 == current_segment {
             // It was the page with the PSP
+            crate::kprintln!("WRITE PSP");
             let psp = unsafe { PSP::at_segment(current_segment) };
             psp.reset();
         }
 
         return true;
+    } else {
+        // other handling for memory to emulate the real mode environment
+        crate::kprintln!("DOS ACCESS MEMORY: {:X}", address);
     }
-    // other handling for memory to emulate the real mode environment
 
     false
 }

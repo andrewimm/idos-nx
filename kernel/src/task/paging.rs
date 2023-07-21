@@ -52,9 +52,12 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
 
     if let Some(segment) = exec_segment {
         let allocated_frame = allocate_frame().ok()?;
-        let flags = PermissionFlags::new(PermissionFlags::USER_ACCESS);
+        let mut flags = PermissionFlags::USER_ACCESS;
+        if segment.can_user_write() {
+            flags |= PermissionFlags::WRITE_ACCESS;
+        }
         let page_start = address.prev_page_barrier();
-        let paddr = current_pagedir_map(allocated_frame, page_start, flags);
+        let paddr = current_pagedir_map(allocated_frame, page_start, PermissionFlags::new(flags));
 
         let current_exec = task_lock.read().current_executable.clone();
         if let Some(exec) = current_exec {
