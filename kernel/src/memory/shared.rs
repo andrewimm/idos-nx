@@ -83,7 +83,7 @@ impl SharedMemoryRange {
         if self.mapped_to < VirtualAddress::new(0xc0000000) {
             let mapped_to = map_memory_for_task(id, None, 4096, MemoryBacking::Direct(self.physical_frame)).unwrap();
 
-            crate::kprint!("SHARING to {:?}. {:?} / {:?} -> {:?}\n", id, self.mapped_to, mapped_to, self.physical_frame);
+            //crate::kprint!("SHARING to {:?}. {:?} / {:?} -> {:?}\n", id, self.mapped_to, mapped_to, self.physical_frame);
 
             Self {
                 unmap_on_drop: true,
@@ -132,7 +132,7 @@ impl Drop for SharedMemoryRange {
         if !self.unmap_on_drop {
             return;
         }
-        crate::kprint!("SHARE: Unmap {:?} for {:?}, no longer in use\n", self.mapped_to, self.owner);
+        //crate::kprint!("SHARE: Unmap {:?} for {:?}, no longer in use\n", self.mapped_to, self.owner);
 
         match unmap_memory_for_task(self.owner, self.mapped_to, 4096) {
             Err(TaskMemoryError::NoTask) => crate::kprint!("Task already dropped, no need to unmap\n"),

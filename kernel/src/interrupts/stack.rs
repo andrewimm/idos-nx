@@ -34,6 +34,20 @@ impl StackFrame {
             core::ptr::write_volatile(self.as_ptr().offset(2), eflags);
         }
     }
+
+    pub fn set_carry_flag(&self) {
+        unsafe {
+            let flags = core::ptr::read_volatile(self.as_ptr().offset(2));
+            core::ptr::write_volatile(self.as_ptr().offset(2), flags | 1);
+        }
+    }
+
+    pub fn clear_carry_flag(&self) {
+        unsafe {
+            let flags = core::ptr::read_volatile(self.as_ptr().offset(2));
+            core::ptr::write_volatile(self.as_ptr().offset(2), flags & 0xfffffffe);
+        }
+    }
 }
 
 impl core::fmt::Debug for StackFrame {

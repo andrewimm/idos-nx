@@ -46,36 +46,69 @@ impl core::fmt::Debug for VM86Frame {
 ///
 #[repr(C, packed)]
 pub struct DosApiRegisters {
-    pub ax: u32,
-    pub bx: u32,
-    pub cx: u32,
-    pub dx: u32,
+    pub eax: u32,
+    pub ebx: u32,
+    pub ecx: u32,
+    pub edx: u32,
 
-    pub si: u32,
-    pub di: u32,
-    pub bp: u32,
+    pub esi: u32,
+    pub edi: u32,
+    pub ebp: u32,
 }
 
 impl DosApiRegisters {
     pub fn ah(&self) -> u8 {
-        ((self.ax & 0xff00) >> 8) as u8
+        ((self.eax & 0xff00) >> 8) as u8
     }
 
     pub fn al(&self) -> u8 {
-        (self.ax & 0xff) as u8
+        (self.eax & 0xff) as u8
+    }
+
+    pub fn ax(&self) -> u16 {
+        (self.eax & 0xffff) as u16
+    }
+
+    pub fn set_ah(&mut self, ah: u8) {
+        self.eax &= 0x00ff;
+        self.eax |= (ah as u32) << 8;
     }
 
     pub fn set_al(&mut self, al: u8) {
-        self.ax &= 0xff00;
-        self.ax |= al as u32;
+        self.eax &= 0xff00;
+        self.eax |= al as u32;
+    }
+
+    pub fn set_ax(&mut self, ax: u16) {
+        self.eax = ax as u32;
     }
 
     pub fn dh(&self) -> u8 {
-        ((self.dx & 0xff00) >> 8) as u8
+        ((self.edx & 0xff00) >> 8) as u8
     }
 
     pub fn dl(&self) -> u8 {
-        (self.dx & 0xff) as u8
+        (self.edx & 0xff) as u8
+    }
+
+    pub fn dx(&self) -> u16 {
+        (self.edx & 0xffff) as u16
+    }
+
+    pub fn set_dx(&mut self, dx: u16) {
+        self.edx = dx as u32;
+    }
+
+    pub fn cx(&self) -> u16 {
+        (self.ecx & 0xffff) as u16
+    }
+
+    pub fn bx(&self) -> u16 {
+        (self.ebx & 0xffff) as u16
+    }
+
+    pub fn set_bx(&mut self, bx: u16) {
+        self.ebx = bx as u32;
     }
 }
 

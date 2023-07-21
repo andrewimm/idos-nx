@@ -64,6 +64,9 @@ impl PSP {
         self.dispatcher = [0xcd, 0x21, 0xcb];
         self.parent_segment = self.get_segment();
 
+        // TODO: implement env string
+        self.env_segment = 0xe0;
+
         self.file_handles = [
             0, 1, 2, 3, 4,
             0xff, 0xff, 0xff, 0xff, 0xff,
@@ -123,12 +126,12 @@ pub fn get_current_psp_segment() -> u16 {
     0x100
 }
 
-// AH=0 - Terminate program
-// Restores the interrupt vectors 0x22, 0x23, 0x24. Frees memory allocated to
-// the current program, but does not close FCBs.
-// Input:
-//      CS points to the PSP
-pub fn terminate(cs: u16) -> SegmentedAddress {
+/// AH=0 - Terminate program
+/// Restores the interrupt vectors 0x22, 0x23, 0x24. Frees memory allocated to
+/// the current program, but does not close FCBs.
+/// Input:
+///      CS points to the PSP
+pub fn legacy_terminate(cs: u16) -> SegmentedAddress {
     let psp = unsafe { PSP::at_segment(cs) };
     // TODO: reset vectors
 
@@ -143,3 +146,15 @@ pub fn terminate(cs: u16) -> SegmentedAddress {
         },
     }
 }
+
+/// AH=0x4c - Terminate program
+/// Return control to the calling program, storing an optional exit code to be
+/// retrieved later.
+/// Input:
+///     AL = Exit code
+pub fn terminate(code: u8) {
+    // TODO: handle one program calling another
+
+    crate::task::actions::lifecycle::terminate(code as u32);
+}
+

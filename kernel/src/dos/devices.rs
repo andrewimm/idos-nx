@@ -82,7 +82,7 @@ pub fn print_string(regs: &mut DosApiRegisters, segments: &mut VM86Frame) {
     
     let string_location = SegmentedAddress {
         segment: segments.ds as u16,
-        offset: regs.dx as u16,
+        offset: regs.dx(),
     };
 
     let start = string_location.normalize().as_ptr::<u8>();
