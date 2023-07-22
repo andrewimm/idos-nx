@@ -1,8 +1,11 @@
 use alloc::vec::Vec;
 use crate::task::memory::ExecutionSegment;
 
+use super::relocation::Relocation;
+
 pub struct ExecutionEnvironment {
     pub registers: InitialRegisters,
+    pub relocations: Vec<Relocation>,
     pub segments: Vec<ExecutionSegment>,
     pub require_vm: bool,
 }

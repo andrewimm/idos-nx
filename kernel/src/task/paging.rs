@@ -50,19 +50,32 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
         .get_execution_segment_containing_address(&address)
         .cloned();
 
+    let page_start = address.prev_page_barrier();
+    let page_end = page_start + 0x1000;
+
     if let Some(segment) = exec_segment {
         let allocated_frame = allocate_frame().ok()?;
         let mut flags = PermissionFlags::USER_ACCESS;
         if segment.can_user_write() {
             flags |= PermissionFlags::WRITE_ACCESS;
         }
-        let page_start = address.prev_page_barrier();
         let paddr = current_pagedir_map(allocated_frame, page_start, PermissionFlags::new(flags));
 
         let current_exec = task_lock.read().current_executable.clone();
         if let Some(exec) = current_exec {
             segment.fill_frame(exec, page_start);
         }
+
+        let relocations = task_lock
+            .read()
+            .memory_mapping
+            .get_relocations_in_range(page_start..page_end);
+
+        for rel in relocations {
+            crate::kprintln!("Apply relocation: {:?}", rel.get_address());
+            rel.apply();
+        }
+
         return Some(paddr);
     }
 

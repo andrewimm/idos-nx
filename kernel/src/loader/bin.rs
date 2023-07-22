@@ -19,6 +19,7 @@ pub fn build_environment(drive: DriveID, driver_handle: DriverHandle) -> Result<
     Ok(
         ExecutionEnvironment {
             segments,
+            relocations: Vec::new(),
             registers: InitialRegisters {
                 eax: Some(0xaa),
                 ecx: Some(0xcc),

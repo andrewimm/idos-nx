@@ -271,16 +271,19 @@ impl Task {
     pub fn attach_executable(&mut self, file: OpenFile, env: ExecutionEnvironment) {
         let ExecutionEnvironment {
             registers,
+            relocations,
             segments,
             require_vm,
         } = env;
         self.memory_mapping.set_execution_segments(segments);
+        self.memory_mapping.set_relocations(relocations);
         self.current_executable.replace(file);
 
         let mut flags = 0;
 
         if require_vm {
             flags |= 0x20000;
+
         }
 
         let registers = EnvironmentRegisters {

@@ -9,8 +9,8 @@ use super::error::DosErrorCode;
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 pub struct SegmentedAddress {
-    pub segment: u16,
     pub offset: u16,
+    pub segment: u16,
 }
 
 impl SegmentedAddress {

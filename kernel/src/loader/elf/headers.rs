@@ -1,4 +1,5 @@
 use crate::memory::address::VirtualAddress;
+use super::super::parse::FileHeader;
 
 #[repr(C, packed)]
 pub struct ElfHeader {
@@ -78,16 +79,6 @@ pub struct SectionHeader {
 }
 
 impl FileHeader for SectionHeader {}
-
-pub trait FileHeader where Self: Sized {
-    fn as_buffer_mut(&mut self) -> &mut [u8] {
-        let len = core::mem::size_of::<Self>();
-        let ptr = self as *mut Self as *mut u8;
-        unsafe {
-            core::slice::from_raw_parts_mut(ptr, len)
-        }
-    }
-}
 
 /// Inactive section header - the first entry in the table is always null
 pub const SECTION_TYPE_NULL: u32 = 0;

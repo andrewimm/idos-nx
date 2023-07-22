@@ -1,6 +1,6 @@
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::Range;
-use crate::{memory::address::{VirtualAddress, PhysicalAddress}, filesystem::get_driver_by_id, files::cursor::SeekMethod};
+use crate::{memory::address::{VirtualAddress, PhysicalAddress}, filesystem::get_driver_by_id, files::cursor::SeekMethod, loader::relocation::Relocation};
 
 use super::files::OpenFile;
 
@@ -233,6 +233,8 @@ impl ExecutionSegment {
 pub struct TaskMemory {
     /// A series of execution segments representing the program's code and data
     execution_segments: Vec<ExecutionSegment>,
+    /// Relocations to apply to the execution segments
+    execution_relocations: Vec<Relocation>,
     /// Collection of mem-mapped regions allocated to the task
     mapped_regions: BTreeMap<VirtualAddress, MemMappedRegion>,
 }
@@ -241,6 +243,7 @@ impl TaskMemory {
     pub fn new() -> Self {
         Self {
             execution_segments: Vec::new(),
+            execution_relocations: Vec::new(),
             mapped_regions: BTreeMap::new(),
         }
     }
@@ -403,6 +406,20 @@ impl TaskMemory {
     /// Apply the set of execution segments, returning the previously set one
     pub fn set_execution_segments(&mut self, segments: Vec<ExecutionSegment>) -> Vec<ExecutionSegment> {
         core::mem::replace(&mut self.execution_segments, segments)
+    }
+
+    pub fn set_relocations(&mut self, relocations: Vec<Relocation>) -> Vec<Relocation> {
+        core::mem::replace(&mut self.execution_relocations, relocations)
+    }
+
+    pub fn get_relocations_in_range(&self, range: Range<VirtualAddress>) -> Vec<Relocation> {
+        let mut relocations = Vec::new();
+        for rel in self.execution_relocations.iter() {
+            if range.contains(&rel.get_address()) {
+                relocations.push(rel.clone());
+            }
+        }
+        relocations
     }
 }
 

@@ -5,7 +5,8 @@ use crate::filesystem::get_driver_by_id;
 use crate::filesystem::drive::DriveID;
 use crate::loader::LoaderError;
 
-use super::headers::{ElfHeader, ProgramHeader, SectionHeader, FileHeader};
+use super::headers::{ElfHeader, ProgramHeader, SectionHeader};
+use super::super::parse::FileHeader;
 
 pub fn load_tables(drive_id: DriveID, driver_handle: DriverHandle) -> Result<(ElfHeader, Vec<ProgramHeader>, Vec<SectionHeader>), LoaderError> {
     let driver = get_driver_by_id(drive_id)

@@ -34,6 +34,7 @@ pub fn build_environment(drive: DriveID, driver_handle: DriverHandle) -> Result<
     Ok(
         ExecutionEnvironment {
             segments,
+            relocations: Vec::new(),
             registers: InitialRegisters {
                 // eax is supposed to represent the validity of pre-constructed
                 // FCBs. This needs to be implemented here

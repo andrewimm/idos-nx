@@ -2,6 +2,9 @@ pub mod bin;
 pub mod com;
 pub mod elf;
 pub mod environment;
+pub mod mz;
+pub mod parse;
+pub mod relocation;
 
 use crate::files::path::Path;
 use crate::filesystem::get_driver_by_id;
@@ -30,7 +33,7 @@ pub fn load_executable(path_str: &str) -> Result<(OpenFile, ExecutionEnvironment
     let env = if is_elf {
         self::elf::build_environment(exec_file.drive, exec_file.driver_handle)?
     } else if is_mz {
-        panic!("No support for MZ executable yet");
+        self::mz::build_environment(exec_file.drive, exec_file.driver_handle)?
     } else {
         let extension = Path::get_extension(path_str);
         match extension {

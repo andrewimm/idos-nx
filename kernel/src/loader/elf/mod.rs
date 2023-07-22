@@ -62,8 +62,11 @@ pub fn build_environment(
         }
     }
 
+    let mut relocations = Vec::new();
+
     let env = ExecutionEnvironment {
         segments,
+        relocations,
         registers: InitialRegisters {
             eax: None,
             ecx: None,
