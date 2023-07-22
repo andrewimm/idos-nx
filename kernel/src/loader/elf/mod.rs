@@ -62,6 +62,21 @@ pub fn build_environment(
         }
     }
 
+    // create a segment for the stack
+    let stack_size_pages: u32 = 2;
+    let mut stack_segment = ExecutionSegment::at_address(
+        VirtualAddress::new(0xc0000000 - 0x1000 * stack_size_pages),
+        stack_size_pages,
+    ).map_err(|_| LoaderError::InternalError)?;
+    stack_segment.set_user_write_flag(true);
+    let stack_section = ExecutionSection {
+        segment_offset: 0,
+        executable_file_offset: None,
+        size: stack_size_pages * 0x1000,
+    };
+    stack_segment.add_section(stack_section).map_err(|_| LoaderError::InternalError)?;
+    segments.push(stack_segment);
+
     let mut relocations = Vec::new();
 
     let env = ExecutionEnvironment {

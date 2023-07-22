@@ -75,6 +75,10 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
             let code = registers.ebx;
             actions::lifecycle::terminate(code);
         },
+        0x05 => {
+            let duration = registers.ebx;
+            actions::sleep(duration);
+        },
         0x06 => {
             actions::yield_coop();
         },
