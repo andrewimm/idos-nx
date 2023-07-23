@@ -78,7 +78,9 @@ pub fn manager_task() -> ! {
 
 pub fn init_console() {
     register_console_manager(create_kernel_task(manager_task, Some("CONMAN")));
+}
 
+pub fn console_ready() {
     crate::command::start_command(0);
 }
 

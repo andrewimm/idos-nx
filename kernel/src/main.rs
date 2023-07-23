@@ -85,24 +85,50 @@ fn init_system() -> ! {
     crate::kprintln!("INIT task: {:?}", id);
     // initialize drivers that rely on multitasking
     {
+        console::init_console();
+
+        let con = task::actions::io::open_path("DEV:\\CON1").unwrap();
+
         hardware::ps2::install_drivers();
 
-        crate::kprintln!("Query ATA bus...");
+        task::actions::io::write_file(con, "Installing ATA Drivers...\n".as_bytes());
         hardware::ata::dev::install_drivers();
 
+        task::actions::io::write_file(con, "Installing Floppy Drivers...\n".as_bytes());
         hardware::floppy::dev::install_drivers();
 
+        task::actions::io::write_file(con, "Installing Network Device Drivers...\n".as_bytes());
         hardware::ethernet::dev::install_driver();
 
+        task::actions::io::write_file(con, "Initializing Net Stack...\n".as_bytes());
         net::start_net_stack();
 
+        {
+            let mac = net::with_active_device(|dev| dev.mac).unwrap();
+            task::actions::io::write_file(con,
+                alloc::format!("Network device MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]).as_bytes()
+            );
+            task::actions::io::write_file(con, "Resolving IP Address...\n".as_bytes());
+            match net::get_active_device_ip(Some(2000)) {
+                Some(ip) => {
+                    task::actions::io::write_file(con, alloc::format!("Got IP: {:}\n", ip).as_bytes());
+                },
+                None => {
+                    task::actions::io::write_file(con, "DHCP request timed out!\n".as_bytes());
+                },
+            }
+        }
+
+        task::actions::io::write_file(con, "Mounting FAT FS...\n".as_bytes());
         filesystem::drivers::fatfs::mount_fat_fs();
 
-        console::init_console();
+        task::actions::io::write_file(con, "System ready! Welcome to IDOS\n\n".as_bytes());
+        console::console_ready();
     }
-    // do other boot stuff
-    // right now this just runs demos / tests
-    task_a_body();
+
+    loop {
+        task::actions::lifecycle::wait_for_io(None);
+    }
 }
 
 fn task_a_body() -> ! {
