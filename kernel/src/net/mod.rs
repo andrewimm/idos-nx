@@ -32,6 +32,7 @@ pub mod ethernet;
 pub mod ip;
 pub mod packet;
 pub mod socket;
+pub mod tcp;
 pub mod udp;
 
 use alloc::{vec::Vec, string::String, sync::Arc};

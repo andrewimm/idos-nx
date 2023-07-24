@@ -26,3 +26,4 @@ pub trait PacketHeader: Sized {
         unsafe { Some(&*(buffer.as_ptr() as *const Self)) }
     }
 }
+

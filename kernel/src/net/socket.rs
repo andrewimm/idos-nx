@@ -5,7 +5,14 @@ use spin::RwLock;
 
 use crate::task::actions::io::{open_path, close_file, write_file};
 
-use super::{dhcp::handle_incoming_packet, ip::{IPProtocolType, IPV4Address, IPHeader}, packet::PacketHeader, udp::{UDPHeader, create_datagram}, error::NetError, ethernet::EthernetFrame, with_active_device, arp::resolve_mac_from_ip};
+use super::ip::{IPProtocolType, IPV4Address, IPHeader};
+use super::packet::PacketHeader;
+use super::udp::{UDPHeader, create_datagram};
+use super::error::NetError;
+use super::ethernet::EthernetFrame;
+use super::with_active_device;
+use super::arp::resolve_mac_from_ip;
+use super::tcp::{TCPConnection, TCPHeader, accept_pending_connection, add_tcp_connection};
 
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -22,6 +29,12 @@ impl core::ops::Deref for SocketPort {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl core::fmt::Display for SocketPort {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!(":{}", self.0))
     }
 }
 
@@ -59,19 +72,45 @@ impl SocketBinding {
 pub struct OpenSocket {
     binding: SocketBinding,
     protocol: SocketProtocol,
+    tcp_connection: Option<TCPConnection>,
 }
 
+#[derive(Copy, Clone)]
 pub enum SocketProtocol {
     UDP,
     TCP,
 }
 
 impl OpenSocket {
+    pub fn new_tcp() -> Self {
+        Self {
+            binding: SocketBinding::empty(),
+            protocol: SocketProtocol::TCP,
+            tcp_connection: None,
+        }
+    }
+
     pub fn bind(&mut self, local_ip: IPV4Address, local_port: SocketPort, remote_ip: IPV4Address, remote_port: SocketPort) {
         self.binding.local_ip = local_ip;
         self.binding.local_port = local_port;
         self.binding.remote_ip = remote_ip;
         self.binding.remote_port = remote_port;
+    }
+    
+    pub fn set_tcp_connection(&mut self, connection: TCPConnection) {
+        self.tcp_connection.replace(connection);
+    }
+
+    pub fn is_connected(&self) -> bool {
+        match self.protocol {
+            SocketProtocol::UDP => return true,
+            SocketProtocol::TCP => (),
+        }
+
+        match &self.tcp_connection {
+            Some(conn) => conn.is_connected(),
+            None => return false,
+        }
     }
 
     pub fn create_packet(&self, payload: &[u8]) -> Vec<u8> {
@@ -80,17 +119,22 @@ impl OpenSocket {
                 create_datagram(self.binding.local_ip, *self.binding.local_port, self.binding.remote_ip, *self.binding.remote_port, payload)
             },
             SocketProtocol::TCP => {
-                panic!("TCP not supported");
+                //create_tcp_packet(payload);
+                panic!("TCP not working");
             },
         }
     }
 }
 
-#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct SocketHandle(u32);
 
 static OPEN_SOCKETS: RwLock<BTreeMap<SocketHandle, OpenSocket>> = RwLock::new(BTreeMap::new());
+/// Easily look up listening sockets by their local port (this excludes TCP connections)
 static SOCKETS_BY_PORT: RwLock<BTreeMap<SocketPort, SocketHandle>> = RwLock::new(BTreeMap::new());
+/// Lookup for TCP connections
+static TCP_SOCKETS: RwLock<BTreeMap<IPV4Address, BTreeMap<SocketPort, SocketHandle>>> = RwLock::new(BTreeMap::new());
+
 static NEXT_HANDLE: AtomicU32 = AtomicU32::new(1);
 
 pub fn get_socket_on_port(port: SocketPort) -> Option<SocketHandle> {
@@ -121,7 +165,7 @@ pub fn receive_ip_packet(raw: &[u8]) {
     let remainder = &raw[IPHeader::get_size()..];
     crate::kprintln!("IP packet from {}", ip_header.source);
     if ip_header.protocol == IPProtocolType::TCP as u8 {
-        crate::kprintln!("TCP not supported yet");
+        handle_incoming_tcp(ip_header.source, ip_header.dest, remainder);
     } else if ip_header.protocol == IPProtocolType::UDP as u8 {
         let udp_header = match UDPHeader::from_buffer(remainder) {
             Some(header) => header,
@@ -131,9 +175,15 @@ pub fn receive_ip_packet(raw: &[u8]) {
         crate::kprintln!("UDP Datagram to port {}", dest_port.clone());
 
         if dest_port == 68 {
-            handle_incoming_packet(&remainder[UDPHeader::get_size()..]);
+            super::dhcp::handle_incoming_packet(&remainder[UDPHeader::get_size()..]);
         }
     }
+}
+
+fn insert_socket(socket: OpenSocket) -> SocketHandle {
+    let handle = SocketHandle(NEXT_HANDLE.fetch_add(1, Ordering::SeqCst));
+    OPEN_SOCKETS.write().insert(handle, socket);
+    handle
 }
 
 /// Create an unbound socket. A socket must be bound to a local or remote
@@ -142,13 +192,9 @@ pub fn create_socket(protocol: SocketProtocol) -> SocketHandle {
     let socket = OpenSocket {
         binding: SocketBinding::empty(),
         protocol,
+        tcp_connection: None,
     };
-
-    let handle = SocketHandle(NEXT_HANDLE.fetch_add(1, Ordering::SeqCst));
-
-    OPEN_SOCKETS.write().insert(handle, socket);
-
-    handle
+    insert_socket(socket)
 }
 
 /// Bind a socket to a local and remote address. If one of these should remain
@@ -207,5 +253,88 @@ pub fn socket_send(socket: SocketHandle, payload: &[u8]) -> Result<(), NetError>
     let dest_mac = resolve_mac_from_ip(dest_ip)?;
 
     socket_send_inner(dest_mac, packet)
+}
+
+pub fn handle_incoming_tcp(remote_ip: IPV4Address, local_ip: IPV4Address, packet: &[u8]) -> Result<(), NetError> {
+    let tcp_header = match TCPHeader::from_buffer(packet) {
+        Some(header) => header,
+        None => return Err(NetError::IncompletePacket),
+    };
+    crate::kprintln!("TCP Packet to port {}", tcp_header.get_destination_port());
+    let handle = get_socket_on_port(tcp_header.get_destination_port()).ok_or(NetError::PortNotOpen)?;
+    match OPEN_SOCKETS.read().get(&handle) {
+        Some(sock) => {
+            if let SocketProtocol::UDP = sock.protocol {
+                return Err(NetError::WrongProtocol);
+            }
+        },
+        None => return Err(NetError::InvalidSocket),
+    }
+
+    // Each TCP connection (source+dest pair) has its own socket. When data
+    // comes into a listening port, we determine if a connection has already
+    // been created. If so, the packet comes into that socket. Otherwise, a
+    // new connection is established.
+    match super::tcp::get_tcp_connection(local_ip, tcp_header.get_destination_port(), remote_ip, tcp_header.get_source_port()) {
+        Some(handle) => {
+            crate::kprintln!("Connection found, sending new packet");
+        },
+        None => {
+            if !tcp_header.is_syn() {
+                return Err(NetError::PortNotOpen);
+            }
+            // establish a connection
+            super::tcp::add_pending_connection(
+                remote_ip,
+                tcp_header.get_source_port(),
+                local_ip,
+                tcp_header.get_destination_port(),
+                tcp_header.sequence_number.to_be(),
+            );
+            crate::kprintln!("Add pending connection from {} {}", remote_ip, tcp_header.get_source_port());
+        },
+    }
+
+    Ok(())
+}
+
+pub fn socket_accept(handle: SocketHandle) -> Option<SocketHandle> {
+    let port = OPEN_SOCKETS.read().get(&handle)?.binding.local_port;
+    if port == SocketPort::new(0) {
+        return None;
+    }
+
+    let pending = accept_pending_connection(port, None)?;
+    let connection = TCPConnection::new(pending.seq_received);
+    let mut new_socket = OpenSocket::new_tcp();
+    new_socket.bind(pending.local_ip, pending.local_port, pending.remote_ip, pending.remote_port);
+    new_socket.set_tcp_connection(connection);
+    let handle = insert_socket(new_socket);
+    add_tcp_connection(pending.local_ip, pending.local_port, pending.remote_ip, pending.remote_port, handle);
+
+    let packet = TCPHeader::new_synack(
+        pending.local_ip,
+        pending.local_port,
+        pending.remote_ip,
+        pending.remote_port,
+        connection.last_sequence_sent,
+        pending.seq_received + 1,
+    );
+    let dest_mac = resolve_mac_from_ip(pending.remote_ip).ok()?;
+    socket_send_inner(dest_mac, packet);
+
+    loop {
+        match OPEN_SOCKETS.read().get(&handle) {
+            Some(sock) => {
+                if sock.is_connected() {
+                    break;
+                }
+            },
+            None => return None,
+        }
+        crate::task::actions::yield_coop();
+    }
+
+    Some(handle)
 }
 

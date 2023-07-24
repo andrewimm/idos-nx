@@ -126,6 +126,24 @@ fn init_system() -> ! {
         console::console_ready();
     }
 
+    {
+        // TCP test
+        use net::socket::SocketPort;
+        use net::ip::IPV4Address;
+
+        let sock = net::socket::create_socket(net::socket::SocketProtocol::TCP);
+        net::socket::bind_socket(sock, IPV4Address([127, 0, 0, 1]), SocketPort::new(84), IPV4Address([0, 0, 0, 0]), SocketPort::new(0)).unwrap();
+
+        crate::kprintln!("Listening on 127.0.0.1:84");
+        let connection = loop {
+            match net::socket::socket_accept(sock) {
+                Some(handle) => break handle,
+                None => crate::task::actions::yield_coop(),
+            }
+        };
+        crate::kprintln!("Accepted connection from remote endpoint");
+    }
+
     loop {
         task::actions::lifecycle::wait_for_io(None);
     }

@@ -10,8 +10,12 @@ pub enum NetError {
     InvalidSocket,
     /// Local port is already bound to another socket
     PortAlreadyInUse,
+    /// Local port is not open for connections
+    PortNotOpen,
     /// Attempted to send data to a socket with no remote endpoint
     UnboundSocket,
+    /// Using a TCP packet as UDP, or vice-versa
+    WrongProtocol,
 
     AddressNotResolved,
 }
