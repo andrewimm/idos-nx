@@ -1,4 +1,4 @@
-use super::packet::PacketHeader;
+use super::{packet::PacketHeader, checksum::Checksum};
 
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -79,30 +79,6 @@ impl IPHeader {
             checksum.add_u16(slice[i]);
         }
         checksum.compute()
-    }
-}
-
-pub struct Checksum(u32);
-
-impl Checksum {
-    pub fn new() -> Self {
-        Self(0)
-    }
-
-    pub fn add_u16(&mut self, value: u16) {
-        self.0 += value as u32;
-    }
-
-    pub fn compute(&self) -> u16 {
-        let mut running_sum = self.0;
-        let carry = running_sum >> 16;
-        running_sum &= 0xffff;
-        running_sum += carry;
-        if running_sum & 0xffff0000 != 0 {
-            running_sum += 1;
-        }
-
-        (!running_sum) as u16
     }
 }
 

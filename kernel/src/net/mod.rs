@@ -26,6 +26,7 @@
 //!
 
 pub mod arp;
+pub mod checksum;
 pub mod dhcp;
 pub mod error;
 pub mod ethernet;

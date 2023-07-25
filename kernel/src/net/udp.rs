@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 
-use super::ip::{IPV4Address, IPHeader, IPProtocolType, Checksum};
+use super::checksum::{Checksum, IPChecksumHeader};
+use super::ip::{IPV4Address, IPHeader, IPProtocolType};
 use super::packet::PacketHeader;
 
 #[repr(C, packed)]
@@ -61,23 +62,6 @@ impl UDPHeader {
         }
 
         checksum.compute()
-    }
-}
-
-#[repr(C, packed)]
-pub struct IPChecksumHeader {
-    pub source_ip: IPV4Address,
-    pub dest_ip: IPV4Address,
-    pub zeroes: u8,
-    pub protocol: u8,
-    pub udp_length: u16,
-}
-
-impl IPChecksumHeader {
-    pub fn as_u16_buffer(&self) -> &[u16] {
-        let ptr = self as *const Self as *const u16;
-        let size = core::mem::size_of::<Self>() / 2;
-        unsafe { core::slice::from_raw_parts(ptr, size) }
     }
 }
 

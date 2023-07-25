@@ -12,7 +12,9 @@ use super::error::NetError;
 use super::ethernet::EthernetFrame;
 use super::with_active_device;
 use super::arp::resolve_mac_from_ip;
-use super::tcp::{TCPConnection, TCPHeader, accept_pending_connection, add_tcp_connection};
+use super::tcp::connection::{TCPAction, TCPConnection, TCPState, action_for_tcp_packet, get_tcp_connection_socket, add_tcp_connection_lookup};
+use super::tcp::header::{TCPHeader, create_syn_ack};
+use super::tcp::pending::{accept_pending_connection, add_pending_connection};
 
 #[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -132,8 +134,6 @@ pub struct SocketHandle(u32);
 static OPEN_SOCKETS: RwLock<BTreeMap<SocketHandle, OpenSocket>> = RwLock::new(BTreeMap::new());
 /// Easily look up listening sockets by their local port (this excludes TCP connections)
 static SOCKETS_BY_PORT: RwLock<BTreeMap<SocketPort, SocketHandle>> = RwLock::new(BTreeMap::new());
-/// Lookup for TCP connections
-static TCP_SOCKETS: RwLock<BTreeMap<IPV4Address, BTreeMap<SocketPort, SocketHandle>>> = RwLock::new(BTreeMap::new());
 
 static NEXT_HANDLE: AtomicU32 = AtomicU32::new(1);
 
@@ -256,13 +256,12 @@ pub fn socket_send(socket: SocketHandle, payload: &[u8]) -> Result<(), NetError>
 }
 
 pub fn handle_incoming_tcp(remote_ip: IPV4Address, local_ip: IPV4Address, packet: &[u8]) -> Result<(), NetError> {
-    let tcp_header = match TCPHeader::from_buffer(packet) {
-        Some(header) => header,
-        None => return Err(NetError::IncompletePacket),
-    };
+    let tcp_header = TCPHeader::from_buffer(packet).ok_or(NetError::IncompletePacket)?;
     crate::kprintln!("TCP Packet to port {}", tcp_header.get_destination_port());
-    let handle = get_socket_on_port(tcp_header.get_destination_port()).ok_or(NetError::PortNotOpen)?;
-    match OPEN_SOCKETS.read().get(&handle) {
+    // first, check if the local port is listening to incoming traffic
+    let listener_handle = get_socket_on_port(tcp_header.get_destination_port()).ok_or(NetError::PortNotOpen)?;
+    // and confirm that it's a TCP socket
+    match OPEN_SOCKETS.read().get(&listener_handle) {
         Some(sock) => {
             if let SocketProtocol::UDP = sock.protocol {
                 return Err(NetError::WrongProtocol);
@@ -270,21 +269,16 @@ pub fn handle_incoming_tcp(remote_ip: IPV4Address, local_ip: IPV4Address, packet
         },
         None => return Err(NetError::InvalidSocket),
     }
-
-    // Each TCP connection (source+dest pair) has its own socket. When data
-    // comes into a listening port, we determine if a connection has already
-    // been created. If so, the packet comes into that socket. Otherwise, a
-    // new connection is established.
-    match super::tcp::get_tcp_connection(local_ip, tcp_header.get_destination_port(), remote_ip, tcp_header.get_source_port()) {
-        Some(handle) => {
-            crate::kprintln!("Connection found, sending new packet");
-        },
+    // check if a connection to that remote endpoint is already established
+    let conn_handle = match get_tcp_connection_socket(local_ip, tcp_header.get_destination_port(), remote_ip, tcp_header.get_source_port()) {
+        Some(handle) => handle,
         None => {
+            // If no connection exists yet, 
             if !tcp_header.is_syn() {
                 return Err(NetError::PortNotOpen);
             }
             // establish a connection
-            super::tcp::add_pending_connection(
+            add_pending_connection(
                 remote_ip,
                 tcp_header.get_source_port(),
                 local_ip,
@@ -292,10 +286,42 @@ pub fn handle_incoming_tcp(remote_ip: IPV4Address, local_ip: IPV4Address, packet
                 tcp_header.sequence_number.to_be(),
             );
             crate::kprintln!("Add pending connection from {} {}", remote_ip, tcp_header.get_source_port());
+            return Ok(());
         },
-    }
+    };
 
-    Ok(())
+    crate::kprintln!("Found the connection");
+
+    let response = {
+        let mut sockets = OPEN_SOCKETS.write();
+        let conn_socket = sockets.get_mut(&conn_handle).ok_or(NetError::InvalidSocket)?;
+        let connection = conn_socket.tcp_connection.as_mut().expect("Conn doesn't have connection object");
+        let action = action_for_tcp_packet(connection, tcp_header);
+
+        match action {
+            TCPAction::Close | TCPAction::Reset => {
+                None
+            },
+            TCPAction::Enqueue => {
+                None
+            },
+            TCPAction::Discard => {
+                None
+            },
+            TCPAction::Connect => {
+                connection.state = TCPState::Established;
+                crate::kprintln!("Full duplex established");
+                // No need to acknowledge an ACK
+                None
+            },
+        }
+    };
+    if let Some(packet) = response {
+        let dest_mac = resolve_mac_from_ip(remote_ip)?;
+        socket_send_inner(dest_mac, packet)
+    } else {
+        Ok(())
+    }
 }
 
 pub fn socket_accept(handle: SocketHandle) -> Option<SocketHandle> {
@@ -306,18 +332,19 @@ pub fn socket_accept(handle: SocketHandle) -> Option<SocketHandle> {
 
     let pending = accept_pending_connection(port, None)?;
     let connection = TCPConnection::new(pending.seq_received);
+    let initial_seq = connection.last_sequence_sent;
     let mut new_socket = OpenSocket::new_tcp();
     new_socket.bind(pending.local_ip, pending.local_port, pending.remote_ip, pending.remote_port);
     new_socket.set_tcp_connection(connection);
     let handle = insert_socket(new_socket);
-    add_tcp_connection(pending.local_ip, pending.local_port, pending.remote_ip, pending.remote_port, handle);
+    add_tcp_connection_lookup(pending.local_ip, pending.local_port, pending.remote_ip, pending.remote_port, handle);
 
-    let packet = TCPHeader::new_synack(
+    let packet = create_syn_ack(
         pending.local_ip,
         pending.local_port,
         pending.remote_ip,
         pending.remote_port,
-        connection.last_sequence_sent,
+        initial_seq,
         pending.seq_received + 1,
     );
     let dest_mac = resolve_mac_from_ip(pending.remote_ip).ok()?;
