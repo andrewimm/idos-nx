@@ -29,7 +29,7 @@ pub struct TCPHeader {
 
 impl TCPHeader {
     pub fn byte_size(&self) -> usize {
-        (self.data_offset & 0xff) as usize * 32
+        (self.data_offset >> 4) as usize * 4
     }
 
     pub fn get_destination_port(&self) -> SocketPort {
@@ -101,15 +101,17 @@ impl TCPHeader {
 
 impl PacketHeader for TCPHeader {}
 
-pub fn create_syn_ack(
+pub fn create_tcp_packet(
     source_ip: IPV4Address,
     source_port: SocketPort,
     dest_ip: IPV4Address,
     dest_port: SocketPort,
     seq_number: u32,
     ack_number: u32,
+    flags: u8,
+    data: &[u8],
 ) -> Vec<u8> {
-    let total_size = TCPHeader::get_size() + IPHeader::get_size();
+    let total_size = TCPHeader::get_size() + IPHeader::get_size() + data.len();
     let mut packet_vec = Vec::with_capacity(total_size);
     for _ in 0..total_size {
         packet_vec.push(0);
@@ -121,17 +123,18 @@ pub fn create_syn_ack(
         sequence_number: seq_number.to_be(),
         ack_number: ack_number.to_be(),
         data_offset: ((TCPHeader::get_size() / 4) as u8) << 4,
-        flags: TCP_FLAG_SYN | TCP_FLAG_ACK,
+        flags,
         window_size: 0xffff,
         checksum: 0,
         urgent_pointer: 0,
     };
-    tcp_header.checksum = tcp_header.compute_checksum(source_ip, dest_ip, &[]);
-    let tcp_start = tcp_header.copy_to_buffer(packet_buffer);
-    let tcp_size = TCPHeader::get_size() as u16;
+    tcp_header.checksum = tcp_header.compute_checksum(source_ip, dest_ip, data);
+    let data_start = total_size - data.len();
+    &mut packet_buffer[data_start..].copy_from_slice(data);
+    let tcp_start = tcp_header.copy_to_buffer(&mut packet_buffer[..data_start]);
+    let tcp_size = (TCPHeader::get_size() + data.len()) as u16;
     let ip_header = IPHeader::new_tcp(source_ip, dest_ip, tcp_size, 127);
-    let ip_header_space = &mut packet_buffer[..tcp_start];
-    let ip_start = ip_header.copy_to_buffer(ip_header_space);
+    let ip_start = ip_header.copy_to_buffer(&mut packet_buffer[..tcp_start]);
     assert_eq!(ip_start, 0, "Should not have extra space in the packet buffer");
 
     packet_vec

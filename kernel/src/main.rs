@@ -142,6 +142,19 @@ fn init_system() -> ! {
             }
         };
         crate::kprintln!("Accepted connection from remote endpoint");
+        
+        let mut buffer = alloc::vec::Vec::new();
+        for _ in 0..1024 {
+            buffer.push(0);
+        }
+        loop {
+            if let Some(len) = net::socket::socket_read(connection, buffer.as_mut_slice()) {
+                crate::kprintln!("GOT PAYLOAD");
+                let s = core::str::from_utf8(&buffer[..len]).unwrap();
+                crate::kprintln!("\"{}\"", s);
+            }
+            task::actions::yield_coop();
+        }
     }
 
     loop {

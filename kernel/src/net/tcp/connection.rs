@@ -12,6 +12,9 @@ pub enum TCPState {
     /// Local host received a SYN, and sent an ACK back
     SynReceived,
     Established,
+
+    /// Received a FIN request, send one back, waiting for ACK
+    LastAck,
 }
 
 #[derive(Copy, Clone)]
@@ -54,6 +57,8 @@ pub enum TCPAction {
     Close,
     /// Send a RST packet and close the connection
     Reset,
+    /// Send a FIN/ACK to close
+    FinAck,
     /// Mark the connection as established
     Connect,
 }
@@ -84,12 +89,16 @@ pub fn action_for_tcp_packet(connection: &TCPConnection, header: &TCPHeader) -> 
 
         TCPState::Established => {
             if header.is_fin() {
-                panic!("Cannot handle closing");
+                return TCPAction::FinAck;
             }
             if header.is_syn() {
                 return TCPAction::Reset;
             }
             TCPAction::Enqueue
+        },
+
+        TCPState::LastAck => {
+            TCPAction::Close
         },
     }
 }
@@ -139,5 +148,25 @@ pub fn add_tcp_connection_lookup(local_ip: IPV4Address, local_port: SocketPort, 
         return;
     }
     connections.get_mut(&local_port).unwrap().push(lookup);
+}
+
+pub fn remove_tcp_connection_lookup(local_ip: IPV4Address, local_port: SocketPort, remote_ip: IPV4Address, remote_port: SocketPort) {
+    let mut connections = ESTABLISHED_CONNECTIONS.write();
+    match connections.get_mut(&local_port) {
+        Some(port_list) => {
+            for i in 0..port_list.len() {
+                let lookup = port_list.get(i).unwrap();
+                if lookup.remote_ip != remote_ip {
+                    continue;
+                }
+                if lookup.remote_port != remote_port {
+                    continue;
+                }
+                port_list.remove(i);
+                return;
+            }
+        },
+        None => return,
+    }
 }
 
