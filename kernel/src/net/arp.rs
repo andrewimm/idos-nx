@@ -74,11 +74,24 @@ static TRANSLATIONS: RwLock<BTreeMap<IPV4Address, [u8; 6]>> = RwLock::new(BTreeM
 
 static PENDING_SEARCHES: RwLock<BTreeMap<IPV4Address, Vec<TaskID>>> = RwLock::new(BTreeMap::new());
 
+pub fn add_network_translation(protocol_addr: IPV4Address, hardware_addr: [u8; 6]) {
+    let mut translations = TRANSLATIONS.write();
+    let prev = translations.insert(protocol_addr, hardware_addr);
+    match prev {
+        Some(previous_mapping) => {
+            if previous_mapping != hardware_addr {
+                // idk, do something?
+            }
+        },
+        None => (),
+    }
+}
+
 pub fn send_arp_request(lookup_ip: IPV4Address) -> Result<(), NetError> {
     let (device_mac, device_name, device_ip) = with_active_device(|netdev| (netdev.mac, netdev.device_name.clone(), *netdev.ip.read()))
         .map_err(|_| NetError::NoNetDevice)?;
 
-    let local_ip = device_ip.expect("Can't send an ARP until I have an IP myself");
+    let local_ip = device_ip.expect("Needs IP addr");
     let arp = ARP::request(device_mac, local_ip, lookup_ip);
     let mut total_frame = Vec::with_capacity(EthernetFrame::get_size() + ARP::get_size());
     let eth_header = EthernetFrame::broadcast_arp(device_mac);
@@ -97,18 +110,7 @@ pub fn handle_arp_announcement(payload: &[u8]) {
         return;
     }
     let arp = unsafe { &*(payload.as_ptr() as *const ARP) };
-
-    crate::kprintln!(
-        "ARP announcement: {} is at {}:{}:{}:{}:{}:{}",
-        arp.source_protocol_addr,
-        arp.source_hardware_addr[0],
-        arp.source_hardware_addr[1],
-        arp.source_hardware_addr[2],
-        arp.source_hardware_addr[3],
-        arp.source_hardware_addr[4],
-        arp.source_hardware_addr[5],
-    );
-    TRANSLATIONS.write().insert(arp.source_protocol_addr, arp.source_hardware_addr);
+    add_network_translation(arp.source_protocol_addr, arp.source_hardware_addr);
 
     let pending = PENDING_SEARCHES.write().remove(&arp.source_protocol_addr);
     if let Some(blocked_list) = pending {

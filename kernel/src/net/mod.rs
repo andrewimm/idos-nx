@@ -162,14 +162,12 @@ fn net_stack_task() -> ! {
         PACKETS_RECEIVED.store(0, Ordering::SeqCst);
         let len = read_file(eth_dev, &mut read_buffer).unwrap() as usize;
         if len > 0 {
-            match EthernetFrame::from_buffer(&read_buffer).map(|frame| frame.get_ethertype()) {
-                Some(self::ethernet::ETHERTYPE_ARP) => {
-                    crate::kprintln!("ARP PACKET");
+            match EthernetFrame::from_buffer(&read_buffer).map(|frame| (frame.get_ethertype(), frame.src_mac)) {
+                Some((self::ethernet::ETHERTYPE_ARP, _)) => {
                     self::arp::handle_arp_announcement(&read_buffer[EthernetFrame::get_size()..]);
                 },
-                Some(self::ethernet::ETHERTYPE_IP) => {
-                    crate::kprintln!("IP PACKET");
-                    self::socket::receive_ip_packet(&read_buffer[EthernetFrame::get_size()..]);
+                Some((self::ethernet::ETHERTYPE_IP, src_mac)) => {
+                    self::socket::receive_ip_packet(src_mac, &read_buffer[EthernetFrame::get_size()..]);
                 },
                 _ => (),
             }

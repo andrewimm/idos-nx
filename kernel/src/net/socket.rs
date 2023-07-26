@@ -12,7 +12,7 @@ use super::udp::{UDPHeader, create_datagram};
 use super::error::NetError;
 use super::ethernet::EthernetFrame;
 use super::with_active_device;
-use super::arp::resolve_mac_from_ip;
+use super::arp::{add_network_translation, resolve_mac_from_ip};
 use super::tcp::connection::{TCPAction, TCPConnection, TCPState, action_for_tcp_packet, get_tcp_connection_socket, add_tcp_connection_lookup, remove_tcp_connection_lookup};
 use super::tcp::header::{TCPHeader, create_tcp_packet, TCP_FLAG_SYN, TCP_FLAG_ACK, TCP_FLAG_FIN};
 use super::tcp::pending::{accept_pending_connection, add_pending_connection};
@@ -159,14 +159,14 @@ pub fn get_ephemeral_port() -> Option<SocketPort> {
     None
 }
 
-pub fn receive_ip_packet(raw: &[u8]) {
+pub fn receive_ip_packet(source_mac: [u8; 6], raw: &[u8]) {
     let ip_header = match IPHeader::from_buffer(raw) {
         Some(header) => header,
         None => return,
     };
     let total_length = ip_header.total_length.to_be() as usize;
     let remainder = &raw[IPHeader::get_size()..total_length];
-    crate::kprintln!("IP packet from {}", ip_header.source);
+    add_network_translation(ip_header.source, source_mac);
     if ip_header.protocol == IPProtocolType::TCP as u8 {
         handle_incoming_tcp(ip_header.source, ip_header.dest, remainder);
     } else if ip_header.protocol == IPProtocolType::UDP as u8 {
@@ -175,7 +175,6 @@ pub fn receive_ip_packet(raw: &[u8]) {
             None => return,
         };
         let dest_port = udp_header.dest_port.to_be();
-        crate::kprintln!("UDP Datagram to port {}", dest_port.clone());
 
         if dest_port == 68 {
             super::dhcp::handle_incoming_packet(&remainder[UDPHeader::get_size()..]);
@@ -260,7 +259,6 @@ pub fn socket_send(socket: SocketHandle, payload: &[u8]) -> Result<(), NetError>
 
 pub fn handle_incoming_tcp(remote_ip: IPV4Address, local_ip: IPV4Address, packet: &[u8]) -> Result<(), NetError> {
     let tcp_header = TCPHeader::from_buffer(packet).ok_or(NetError::IncompletePacket)?;
-    crate::kprintln!("TCP Packet to port {}", tcp_header.get_destination_port());
     // first, check if the local port is listening to incoming traffic
     let listener_handle = get_socket_on_port(tcp_header.get_destination_port()).ok_or(NetError::PortNotOpen)?;
     // and confirm that it's a TCP socket
@@ -288,12 +286,9 @@ pub fn handle_incoming_tcp(remote_ip: IPV4Address, local_ip: IPV4Address, packet
                 tcp_header.get_destination_port(),
                 tcp_header.sequence_number.to_be(),
             );
-            crate::kprintln!("Add pending connection from {} {}", remote_ip, tcp_header.get_source_port());
             return Ok(());
         },
     };
-
-    crate::kprintln!("Found the connection");
 
     let response = {
         let mut sockets = OPEN_SOCKETS.write();
@@ -303,7 +298,6 @@ pub fn handle_incoming_tcp(remote_ip: IPV4Address, local_ip: IPV4Address, packet
 
         match action {
             TCPAction::Close => {
-                crate::kprintln!("Socket closed");
                 sockets.remove(&conn_handle);
                 remove_tcp_connection_lookup(
                     remote_ip,
@@ -318,7 +312,6 @@ pub fn handle_incoming_tcp(remote_ip: IPV4Address, local_ip: IPV4Address, packet
                 None
             },
             TCPAction::Enqueue => {
-                crate::kprintln!("ENQUEUE");
                 //connection.last_sequence_received = tcp_header.sequence_number.to_be();
                 //connection.last_sequence_sent += 1;
 
@@ -351,7 +344,6 @@ pub fn handle_incoming_tcp(remote_ip: IPV4Address, local_ip: IPV4Address, packet
             TCPAction::Connect => {
                 connection.state = TCPState::Established;
                 connection.last_sequence_sent += 1;
-                crate::kprintln!("Full duplex established");
                 // No need to acknowledge an ACK
                 None
             },

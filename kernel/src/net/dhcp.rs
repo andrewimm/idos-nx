@@ -195,7 +195,6 @@ pub fn start_dhcp_transaction(blocked_task: TaskID, mac: [u8; 6]) {
 pub fn handle_incoming_packet(data: &[u8]) {
     let packet_size = core::mem::size_of::<DhcpPacket>();
     if data.len() < packet_size {
-        crate::kprintln!("Not long enough to be a DHCP packet!");
         return;
     }
     let packet = unsafe {
@@ -213,7 +212,6 @@ pub fn handle_incoming_packet(data: &[u8]) {
     let mut options_cursor = 4;
 
     if options.len() < 4 || options[0..4] != [0x63, 0x82, 0x53, 0x63] {
-        crate::kprintln!("invalid dhcp magic cookie");
         return;
     }
 
@@ -318,29 +316,24 @@ pub fn handle_incoming_packet(data: &[u8]) {
     match packet_type {
         // offer
         2 => {
-            crate::kprintln!("DHCP OFFER: {:}", packet.yiaddr);
             let mac = match CURRENT_TRANSACTIONS.write().get_mut(&xid) {
                 Some(t) => {
                     t.state = TransactionState::Request;
                     t.mac
                 },
                 None => {
-                    crate::kprintln!("No DHCP transaction with xid {:#010X}", xid);
                     return;
                 }
             };
             let request = request_packet(mac, packet.siaddr, packet.yiaddr, xid);
             socket_broadcast(get_dhcp_socket(), &request).unwrap();
-            crate::kprintln!("DHCP Request sent");
         },
         // decline
         4 => {
-            crate::kprintln!("DHCP Decline");
             CURRENT_TRANSACTIONS.write().remove(&xid);
         },
         // ack
         5 => {
-            crate::kprintln!("DHCP ACK");
             let mac = match CURRENT_TRANSACTIONS.write().remove(&xid) {
                 Some(t) => t.mac,
                 None => return,
