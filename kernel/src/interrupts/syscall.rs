@@ -1,6 +1,6 @@
 use core::arch::global_asm;
 
-use crate::task::actions;
+use crate::task::{actions::{self, send_message, read_message_blocking}, id::TaskID, messaging::Message};
 
 use super::stack::StackFrame;
 
@@ -71,17 +71,64 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
     crate::kprint!("REG: {:?}\n", registers);
     let eax = registers.eax;
     match eax {
-        0x00 => {
+        // task lifecycle and interop
+        0x00 => { // exit
             let code = registers.ebx;
             actions::lifecycle::terminate(code);
         },
-        0x05 => {
+        0x01 => { // create task
+        },
+        0x02 => { // wait (single task or all)
+        },
+        0x03 => { // send message
+            let send_to = TaskID::new(registers.ebx);
+            let message_ptr = registers.ecx as *const Message;
+            let message = unsafe { &*message_ptr };
+            let expiration = registers.edx;
+            send_message(send_to, *message, expiration)
+        },
+        0x04 => { // receive message
+            let message_ptr = registers.ebx as *mut Message;
+            let timeout = match registers.ecx {
+                0xffffffff => None,
+                time => Some(time),
+            };
+            match read_message_blocking(timeout) {
+                (Some(packet), _) => {
+                    let (from, message) = packet.open();
+                    unsafe { core::ptr::write_volatile(message_ptr, message) };
+                    registers.eax = from.into();
+                },
+                (None, _) => {
+                    registers.eax = 0;
+                },
+            };
+        },
+        0x05 => { // sleep
             let duration = registers.ebx;
             actions::sleep(duration);
         },
-        0x06 => {
+        0x06 => { // yield coop
             actions::yield_coop();
         },
+        0x07 => { // mmap
+        },
+        0x08 => { //
+        },
+        0x09 => { //
+        },
+        0x0a => {
+        },
+
+        // io
+
+        // drivers
+        0x30 => { // register fs
+        },
+        0x31 => { // register device
+            
+        },
+
         0xffff => {
             crate::kprint!("\n\nSyscall: DEBUG\n");
             registers.eax = 0;

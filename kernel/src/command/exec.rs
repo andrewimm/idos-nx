@@ -1,10 +1,31 @@
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use crate::{task::{files::FileHandle, actions::io::{write_file, open_path, read_file, close_file, set_active_drive, get_current_drive_name, get_current_dir, file_stat, dup_handle, transfer_handle}}, files::path::Path};
+use crate::{task::{files::FileHandle, actions::{io::{write_file, open_path, read_file, close_file, set_active_drive, get_current_drive_name, get_current_dir, file_stat, dup_handle, transfer_handle}, memory::map_memory}, memory::MemoryBacking}, files::path::Path, filesystem::install_device_driver};
 
 use super::parser::{CommandTree, CommandComponent};
 use super::Environment;
+
+static IO_BUFFERS: AtomicU32 = AtomicU32::new(0);
+
+pub fn init_buffers() {
+    let addr = map_memory(None, 0x1000, MemoryBacking::Anonymous).unwrap();
+    unsafe {
+        core::ptr::write_volatile(addr.as_ptr_mut::<u8>(), 0);
+    }
+    IO_BUFFERS.store(addr.as_u32(), Ordering::SeqCst);
+}
+
+pub fn get_buffers() -> &'static mut [u8] {
+    let ptr = IO_BUFFERS.load(Ordering::SeqCst) as *mut u8;
+    let len = 0x1000;
+
+    unsafe {
+        core::slice::from_raw_parts_mut(ptr, len)
+    }
+}
 
 pub fn exec(stdin: FileHandle, stdout: FileHandle, tree: CommandTree, env: &mut Environment) {
     let root = match tree.get_root() {
@@ -21,6 +42,7 @@ pub fn exec(stdin: FileHandle, stdout: FileHandle, tree: CommandTree, env: &mut 
                 "CD" => cd(stdout, args, env),
                 "DIR" => dir(stdout, args, env),
                 "DRIVES" => drives(stdout),
+                "MKDEV" => install_device(args),
                 "TYPE" => type_file(stdout, args),
                 _ => {
                     if Path::is_drive(name) {
@@ -59,7 +81,7 @@ fn cd(stdout: FileHandle, args: &Vec<String>, env: &mut Environment) {
 }
 
 fn dir(stdout: FileHandle, args: &Vec<String>, env: &Environment) {
-    let mut file_read_buffer: [u8; 256] = [0; 256];
+    let file_read_buffer = get_buffers();
 
     let mut output = String::from("Directory of ");
     output.push_str(&env.drive);
@@ -70,7 +92,7 @@ fn dir(stdout: FileHandle, args: &Vec<String>, env: &Environment) {
 
     let dir_handle = open_path(env.cwd.as_str()).unwrap();
     loop {
-        let bytes_read = read_file(dir_handle, &mut file_read_buffer).unwrap() as usize;
+        let bytes_read = read_file(dir_handle, file_read_buffer).unwrap() as usize;
         for i in 0..bytes_read {
             if file_read_buffer[i] == 0 {
                 file_read_buffer[i] = b'\n';
@@ -118,7 +140,7 @@ fn try_exec(stdin: FileHandle, stdout: FileHandle, name: &str, args: &Vec<String
 }
 
 fn type_file(stdout: FileHandle, args: &Vec<String>) {
-    let mut buffer: [u8; 128] = [0; 128];
+    let buffer = get_buffers();
     if args.is_empty() {
         return;
     }
@@ -126,7 +148,7 @@ fn type_file(stdout: FileHandle, args: &Vec<String>) {
         match open_path(arg) {
             Ok(handle) => {
                 loop {
-                    let len = read_file(handle, &mut buffer).unwrap() as usize;
+                    let len = read_file(handle, buffer).unwrap() as usize;
                     write_file(stdout, &buffer[..len]).unwrap();
 
                     if len < buffer.len() {
@@ -143,5 +165,26 @@ fn type_file(stdout: FileHandle, args: &Vec<String>) {
             },
         }
     }
+}
+
+fn install_device(args: &Vec<String>) {
+    if args.len() < 2 {
+        return;
+    }
+
+    let name = args.get(0).unwrap();
+    let mount = args.get(1).unwrap();
+
+    match open_path(name) {
+        Ok(handle) => {
+            close_file(handle).unwrap();
+        },
+        Err(_) => return,
+    }
+
+    let driver_task = crate::task::actions::lifecycle::create_task();
+    crate::task::actions::lifecycle::attach_executable_to_task(driver_task, name);
+
+    install_device_driver(&mount.to_ascii_uppercase(), driver_task, 0);
 }
 

@@ -277,6 +277,7 @@ impl Task {
         } = env;
         self.memory_mapping.set_execution_segments(segments);
         self.memory_mapping.set_relocations(relocations);
+        self.filename = file.filename.clone().into();
         self.current_executable.replace(file);
 
         let mut flags = 0;
@@ -323,6 +324,10 @@ impl Task {
         self.stack_push_u32(registers.edx);
         self.stack_push_u32(registers.ecx);
         self.stack_push_u32(registers.eax);
+    }
+
+    pub fn has_executable(&self) -> bool {
+        self.current_executable.is_some()
     }
 }
 

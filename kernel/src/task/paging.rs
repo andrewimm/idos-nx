@@ -54,6 +54,8 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
     let page_end = page_start + 0x1000;
 
     if let Some(segment) = exec_segment {
+        crate::kprintln!("FOUND EXEC SEGMENT");
+        crate::kprintln!("{:?}", segment);
         let allocated_frame = allocate_frame().ok()?;
         let mut flags = PermissionFlags::USER_ACCESS;
         if segment.can_user_write() {

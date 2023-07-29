@@ -25,6 +25,8 @@ fn command_task() -> ! {
         cwd: get_current_dir(),
     };
 
+    self::exec::init_buffers();
+
     loop {
         let mut prompt = env.full_path_string();
         prompt.push_str("> ");

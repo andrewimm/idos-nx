@@ -22,7 +22,7 @@ use crate::task::actions::memory::{map_memory_for_task, unmap_memory_for_task};
 use crate::task::id::TaskID;
 use crate::task::memory::{MemoryBacking, TaskMemoryError};
 use crate::task::paging::get_current_physical_address;
-use crate::task::switching::get_current_id;
+use crate::task::switching::{get_current_id, get_current_task, get_task};
 use super::address::{PhysicalAddress, VirtualAddress};
 
 pub struct SharedMemoryRange {
@@ -80,10 +80,23 @@ impl SharedMemoryRange {
 
     /// Map the page containing the range
     pub fn share_with_task(&self, id: TaskID) -> Self {
-        if self.mapped_to < VirtualAddress::new(0xc0000000) {
+        let current_is_kernel = !get_current_task().read().has_executable();
+        let dest_is_kernel = !get_task(id).unwrap().read().has_executable();
+        if self.mapped_to >= VirtualAddress::new(0xc0000000) && current_is_kernel && dest_is_kernel {
+            // two tasks sharing memory in the kernel space
+            // Since all kernel memory is shared, there's no need to remap this
+            Self {
+                unmap_on_drop: false,
+                owner: id,
+                mapped_to: self.mapped_to,
+                physical_frame: self.physical_frame,
+                range_offset: self.range_offset,
+                range_length: self.range_length,    
+            }
+        } else {
             let mapped_to = map_memory_for_task(id, None, 4096, MemoryBacking::Direct(self.physical_frame)).unwrap();
 
-            //crate::kprint!("SHARING to {:?}. {:?} / {:?} -> {:?}\n", id, self.mapped_to, mapped_to, self.physical_frame);
+            crate::kprint!("SHARING to {:?}. {:?} / {:?} -> {:?}\n", id, self.mapped_to, mapped_to, self.physical_frame);
 
             Self {
                 unmap_on_drop: true,
@@ -92,17 +105,6 @@ impl SharedMemoryRange {
                 physical_frame: self.physical_frame,
                 range_offset: self.range_offset,
                 range_length: self.range_length,
-            }
-        } else {
-            // in the kernel space, all memory is shared, so nothing needs to
-            // be mapped or unmapped. Just create a new instance of the struct.
-            Self {
-                unmap_on_drop: false,
-                owner: id,
-                mapped_to: self.mapped_to,
-                physical_frame: self.physical_frame,
-                range_offset: self.range_offset,
-                range_length: self.range_length,    
             }
         }
     }
@@ -132,7 +134,7 @@ impl Drop for SharedMemoryRange {
         if !self.unmap_on_drop {
             return;
         }
-        //crate::kprint!("SHARE: Unmap {:?} for {:?}, no longer in use\n", self.mapped_to, self.owner);
+        crate::kprint!("SHARE: Unmap {:?} for {:?}, no longer in use\n", self.mapped_to, self.owner);
 
         match unmap_memory_for_task(self.owner, self.mapped_to, 4096) {
             Err(TaskMemoryError::NoTask) => crate::kprint!("Task already dropped, no need to unmap\n"),

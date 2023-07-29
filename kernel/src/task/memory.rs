@@ -117,7 +117,7 @@ impl ExecutionSection {
 /// Each segment has a single set of read/write permissions, and must be
 /// page-aligned. These values determine how the page table entry is
 /// constructed.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ExecutionSegment {
     /// Where the segment begins in virtual memory. Must be page-aligned.
     pub address: VirtualAddress,
@@ -384,18 +384,21 @@ impl TaskMemory {
         // current region and the previous one is large enough to fit the
         // requested size,
 
-        // No memory can be mapped above this point
-        let memory_top = 0xc0000000;
+        // No memory can be mapped above this point, because of the stack and
+        // kernel memory
+        let memory_top = 0xbfffe000;
         let mut prev_start = VirtualAddress::new(memory_top);
         for (_, region) in self.mapped_regions.iter().rev() {
             let region_end = (region.address + region.size).next_page_barrier();
             let free_space = prev_start - region_end;
             if free_space >= size {
-                return Some((prev_start - size).prev_page_barrier());
+                let addr = (prev_start - size).prev_page_barrier();
+                // TODO: Confirm that this doesn't intersect with other memory
+                // regions like execution segments
+                return Some(addr);
             }
             prev_start = region.address;
         }
-        // TODO: Check this doesn't intersect with other allocated memory
         Some((prev_start - size).prev_page_barrier())
     }
 

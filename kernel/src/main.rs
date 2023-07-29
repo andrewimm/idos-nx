@@ -126,7 +126,7 @@ fn init_system() -> ! {
         console::console_ready();
     }
 
-    {
+    /*{
         // TCP test
         use net::socket::SocketPort;
         use net::ip::IPV4Address;
@@ -155,7 +155,7 @@ fn init_system() -> ! {
             }
             task::actions::yield_coop();
         }
-    }
+    }*/
 
     loop {
         task::actions::lifecycle::wait_for_io(None);
