@@ -1,4 +1,5 @@
 pub mod ata;
+pub mod com;
 pub mod dma;
 pub mod ethernet;
 pub mod floppy;

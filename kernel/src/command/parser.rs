@@ -70,6 +70,9 @@ impl<'input> Parser<'input> {
                 // read the next token to determine the filename, and then
                 panic!("");
             },
+            Token::RedirectOutputAppend => {
+                panic!("");
+            },
             _ => panic!(""),
         }
     }

@@ -90,6 +90,6 @@ pub fn init_hardware() {
 
 /// Populate the DEV: FS with drivers for the devices detected on this PC
 pub fn init_device_drivers() {
-    crate::io::com::dev::install_drivers();
+    crate::hardware::com::dev::install_drivers();
 }
 
