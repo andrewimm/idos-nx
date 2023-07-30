@@ -7,7 +7,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use crate::collections::SlotList;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::filesystem::install_device_driver;
 use crate::hardware::pci::devices::PciDevice;

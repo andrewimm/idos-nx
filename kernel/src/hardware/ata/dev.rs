@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::task::actions::io::{transfer_handle, open_pipe, read_file, write_file};
 use crate::task::actions::lifecycle::{create_kernel_task, terminate};

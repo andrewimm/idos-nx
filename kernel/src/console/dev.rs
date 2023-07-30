@@ -4,7 +4,7 @@ use spin::RwLock;
 
 use crate::collections::SlotList;
 use crate::devices::SyncDriver;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::task::actions::yield_coop;
 
 use super::buffers::ConsoleBuffers;

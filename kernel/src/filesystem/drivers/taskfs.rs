@@ -3,7 +3,8 @@ use spin::RwLock;
 
 use crate::collections::SlotList;
 use crate::filesystem::kernel::KernelFileSystem;
-use crate::files::{path::Path, handle::DriverHandle, error::IOError};
+use crate::files::{path::Path, handle::DriverHandle};
+use crate::io::IOError;
 use crate::task::id::TaskID;
 use crate::task::switching::{for_each_task_id, get_task};
 

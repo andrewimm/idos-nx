@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::hardware::dma::DmaChannelRegisters;
 use crate::interrupts::pic::install_interrupt_handler;

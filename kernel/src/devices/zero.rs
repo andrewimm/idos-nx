@@ -1,5 +1,5 @@
 use core::sync::atomic::{AtomicU32, Ordering};
-use crate::files::error::IOError;
+use crate::io::IOError;
 
 use super::SyncDriver;
 

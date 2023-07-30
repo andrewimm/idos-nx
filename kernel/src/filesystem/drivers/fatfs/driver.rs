@@ -2,7 +2,7 @@ use core::cell::RefCell;
 
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::files::stat::FileStatus;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use super::fs::FatFS;

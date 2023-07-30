@@ -1,6 +1,6 @@
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::filesystem::kernel::KernelFileSystem;

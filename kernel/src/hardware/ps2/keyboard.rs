@@ -3,7 +3,7 @@ use spin::RwLock;
 
 use crate::collections::SlotList;
 use crate::devices::SyncDriver;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::id::TaskID;
 use crate::task::switching::get_current_id;

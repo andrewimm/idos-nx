@@ -1,0 +1,10 @@
+[workspace]
+
+members = [
+  "api",
+  "bootloader/bootbin",
+  "bootloader/mbr",
+  "components/drivers/testdriver",
+  "kernel",
+  "sdk",
+]

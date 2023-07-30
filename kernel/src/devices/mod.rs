@@ -3,7 +3,7 @@ pub mod zero;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 use crate::files::cursor::SeekMethod;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::task::id::TaskID;
 
 pub trait SyncDriver {

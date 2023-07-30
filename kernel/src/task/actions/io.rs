@@ -1,6 +1,6 @@
 use alloc::string::{ToString, String};
 use crate::files::cursor::SeekMethod;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::files::path::Path;
 use crate::files::stat::FileStatus;
 use crate::filesystem::drive::DriveID;

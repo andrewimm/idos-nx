@@ -2,7 +2,7 @@
 
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
-use crate::files::error::IOError;
+use crate::io::IOError;
 use crate::filesystem::drivers::asyncfs::AsyncDriver;
 use crate::filesystem::install_device_driver;
 use crate::interrupts::pic::install_interrupt_handler;

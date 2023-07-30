@@ -52,7 +52,7 @@ $(kernel):
 	@mkdir -p $(shell dirname $@)
 	@cd kernel && \
 	cargo build $(kernel_build_flags)
-	@cp kernel/target/i386-kernel/release/idos_kernel $(kernel)
+	@cp target/i386-kernel/release/idos_kernel $(kernel)
 
 testkernel:
 	@mkdir -p build

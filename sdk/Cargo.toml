@@ -1,9 +1,7 @@
 [package]
-name = "idos_kernel"
+name = "idos_sdk"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 idos_api = {path = "../api"}
-spin = "0.9.4"
-

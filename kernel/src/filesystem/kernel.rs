@@ -1,8 +1,8 @@
 use crate::files::cursor::SeekMethod;
-use crate::files::error::IOError;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::files::stat::FileStatus;
+use crate::io::IOError;
 
 pub trait KernelFileSystem {
     #![allow(unused_variables)]
