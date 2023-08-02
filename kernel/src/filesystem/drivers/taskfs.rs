@@ -102,4 +102,19 @@ impl KernelFileSystem for TaskFileSystem {
     fn seek(&self, handle: DriverHandle, offset: crate::files::cursor::SeekMethod) -> Result<u32, IOError> {
         Err(IOError::UnsupportedOperation)
     }
+
+    fn stat(&self, handle: DriverHandle) -> Result<crate::files::stat::FileStatus, IOError> {
+        let handles = self.handles.read();
+        let handle = handles.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        let task_lock = get_task(handle.task).ok_or(IOError::NotFound)?;
+        let task = task_lock.read();
+
+        let stat = crate::files::stat::FileStatus {
+            byte_size: 0,
+            file_type: 1,
+            drive_id: 0,
+            modification_time: task.created_at.as_u32(),
+        };
+        Ok(stat)
+    }
 }

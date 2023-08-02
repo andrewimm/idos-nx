@@ -5,7 +5,8 @@ pub struct FileStatus {
     pub file_type: u32,
     /// ID of the drive this file is found on
     pub drive_id: u32,
-    //pub modification_time: u32,
+    /// System timestamp of last modification
+    pub modification_time: u32,
 }
 
 impl FileStatus {
@@ -14,6 +15,7 @@ impl FileStatus {
             byte_size: 0,
             file_type: 0,
             drive_id: 0,
+            modification_time: 0,
         }
     }
 }

@@ -1,8 +1,10 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::time::date::DateTime;
+use crate::time::system::Timestamp;
 use crate::{task::{files::FileHandle, actions::{io::{write_file, open_path, read_file, close_file, set_active_drive, get_current_drive_name, get_current_dir, file_stat, dup_handle, transfer_handle}, memory::map_memory}, memory::MemoryBacking}, files::path::Path, filesystem::install_device_driver};
 
 use super::parser::{CommandTree, CommandComponent};
@@ -80,10 +82,16 @@ fn cd(stdout: FileHandle, args: &Vec<String>, env: &mut Environment) {
     env.cwd = get_current_dir();
 }
 
+struct DirEntry {
+    name: String,
+    size: u32,
+    mod_timestamp: u32,
+}
+
 fn dir(stdout: FileHandle, args: &Vec<String>, env: &Environment) {
     let file_read_buffer = get_buffers();
 
-    let mut output = String::from("Directory of ");
+    let mut output = String::from(" Volume in drive is UNKNOWN\n Volume Serial Number is UNKNOWN\n Directory of ");
     output.push_str(&env.drive);
     output.push_str(":\\");
     output.push_str(env.cwd.as_str());
@@ -91,19 +99,60 @@ fn dir(stdout: FileHandle, args: &Vec<String>, env: &Environment) {
     write_file(stdout, output.as_bytes()).unwrap();
 
     let dir_handle = open_path(env.cwd.as_str()).unwrap();
+    let mut entries: Vec<DirEntry> = Vec::new();
     loop {
         let bytes_read = read_file(dir_handle, file_read_buffer).unwrap() as usize;
+        let mut name_start = 0;
         for i in 0..bytes_read {
             if file_read_buffer[i] == 0 {
-                file_read_buffer[i] = b'\n';
+                let name = String::from_utf8_lossy(&file_read_buffer[name_start..i]);
+                entries.push(DirEntry { name: name.to_string(), size: 0, mod_timestamp: 0 });
+                name_start = i + 1;
             }
         }
-        write_file(stdout, &file_read_buffer[..bytes_read]).unwrap();
+        //write_file(stdout, &file_read_buffer[..bytes_read]).unwrap();
         if bytes_read < file_read_buffer.len() {
             break;
         }
     }
     close_file(dir_handle).unwrap();
+    for entry in entries.iter_mut() {
+        match open_path(&entry.name) {
+            Ok(handle) => {
+                match file_stat(handle) {
+                    Ok(stat) => {
+                        entry.size = stat.byte_size;
+                        entry.mod_timestamp = stat.modification_time;
+                    },
+                    Err(_) => (),
+                }
+                close_file(handle);
+            },
+            Err(_) => (),
+        }
+    }
+    for entry in entries.iter() {
+        let mut row = String::from("");
+        row.push_str(&entry.name);
+        for _ in entry.name.len()..13 {
+            row.push(' ');
+        }
+        row.push_str(&alloc::format!("{:>9} ", entry.size));
+        let datetime = DateTime::from_timestamp(Timestamp(entry.mod_timestamp));
+        row.push_str(&datetime.date.to_string());
+        row.push(' ');
+        row.push_str(&datetime.time.to_string());
+        row.push('\n');
+
+        write_file(stdout, row.as_bytes()).unwrap();
+    }
+
+    let mut summary = String::new();
+    for _ in 0..13 {
+        summary.push(' ');
+    }
+    summary.push_str(&alloc::format!("{} file(s)\n", entries.len()));
+    write_file(stdout, summary.as_bytes()).unwrap();
 }
 
 fn drives(stdout: FileHandle) {

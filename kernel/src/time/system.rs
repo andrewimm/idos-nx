@@ -84,6 +84,10 @@ impl Timestamp {
     pub fn total_minutes(&self) -> u32 {
         self.0 / 60
     }
+
+    pub fn as_u32(&self) -> u32 {
+        self.0
+    }
 }
 
 /// Reset the reference point time

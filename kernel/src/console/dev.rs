@@ -8,6 +8,7 @@ use crate::io::IOError;
 use crate::task::actions::yield_coop;
 
 use super::buffers::ConsoleBuffers;
+use super::wake_console_manager;
 
 pub struct ConsoleDriver {
     open_handles: RwLock<SlotList<OpenHandle>>,
@@ -68,13 +69,16 @@ impl SyncDriver for ConsoleDriver {
             }
             yield_coop();
         };
-        for i in 0..buffer.len() {
+        let mut i = 0;
+        while i < buffer.len() {
             if output_buffer.write(buffer[i]) {
                 bytes_written += 1;
+                i += 1;
             } else {
-                return Ok(bytes_written);
+                yield_coop();
             }
         }
+        wake_console_manager();
         Ok(bytes_written)
     }
 

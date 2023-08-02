@@ -105,6 +105,7 @@ impl AsyncDriver for FatDriver {
             Entity::File(f) => {
                 status.byte_size = f.byte_size();
                 status.file_type = 1;
+                status.modification_time = f.get_modification_time();
             },
             _ => panic!("Need to implement stat for other handle types"),
         }

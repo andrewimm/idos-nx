@@ -1,5 +1,7 @@
 use alloc::{string::String, vec::Vec};
 
+use crate::time::{system::Timestamp, date::{DateTime, Time, Date}};
+
 use super::{disk::DiskAccess, table::AllocationTable};
 
 /// On-disk representation of a file or subdirectory
@@ -84,6 +86,15 @@ impl DirEntry {
         core::str::from_utf8(&self.ext).unwrap_or("!!!")
     }
 
+    pub fn get_modification_timestamp(&self) -> Timestamp {
+        let mod_time = self.last_modify_time;
+        let mod_date = self.last_modify_date;
+        DateTime {
+            date: mod_date.to_system_date(),
+            time: mod_time.to_system_time(),
+        }.to_timestamp()
+    }
+
     pub fn is_directory(&self) -> bool {
         self.attributes & 0x10 != 0
     }
@@ -105,6 +116,14 @@ impl FileTime {
     pub fn get_seconds(&self) -> u16 {
         (self.0 & 0x1f) << 1
     }
+
+    pub fn to_system_time(&self) -> Time {
+        Time {
+            hours: self.get_hours() as u8,
+            minutes: self.get_minutes() as u8,
+            seconds: self.get_seconds() as u8,
+        }
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -112,8 +131,8 @@ impl FileTime {
 pub struct FileDate(u16);
 
 impl FileDate {
-    pub fn get_year(&self) -> u32 {
-        ((self.0 >> 9) & 0x7f) as u32 + 1980
+    pub fn get_year(&self) -> u16 {
+        ((self.0 >> 9) & 0x7f) + 1980
     }
 
     pub fn get_month(&self) -> u16 {
@@ -122,6 +141,14 @@ impl FileDate {
 
     pub fn get_day(&self) -> u16 {
         self.0 & 0x1f
+    }
+
+    pub fn to_system_date(&self) -> Date {
+        Date {
+            day: self.get_day() as u8,
+            month: self.get_month() as u8,
+            year: self.get_year(),
+        }
     }
 }
 
@@ -280,6 +307,10 @@ impl File {
 
     pub fn byte_size(&self) -> u32 {
         self.dir_entry.byte_size
+    }
+
+    pub fn get_modification_time(&self) -> u32 {
+        self.dir_entry.get_modification_timestamp().as_u32()
     }
 
     pub fn read(&self, buffer: &mut [u8], initial_offset: u32, table: AllocationTable, disk: &mut DiskAccess) -> u32 {

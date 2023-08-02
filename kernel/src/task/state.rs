@@ -3,6 +3,7 @@ use alloc::string::String;
 use crate::files::path::Path;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
+use crate::time::system::{Timestamp, get_system_time};
 
 use super::files::{OpenFileMap, CurrentDrive, OpenFile};
 use super::id::TaskID;
@@ -18,6 +19,8 @@ pub struct Task {
     pub parent_id: TaskID,
     /// Represents the current execution state of the task
     pub state: RunState,
+    /// Timestamp when the Task was created
+    pub created_at: Timestamp,
 
     /// A Box pointing to the kernel stack for this task. This stack will be
     /// used when the task is executing kernel-mode code. 
@@ -58,6 +61,7 @@ impl Task {
             id,
             parent_id,
             state: RunState::Uninitialized,
+            created_at: get_system_time().to_timestamp(),
             kernel_stack: Some(stack),
             stack_pointer,
             page_directory: PhysicalAddress::new(0),
