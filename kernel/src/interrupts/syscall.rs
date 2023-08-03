@@ -121,6 +121,26 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
         },
 
         // io
+        0x10 => { // open path
+        },
+        0x11 => { // close handle
+        },
+        0x12 => { // read
+        },
+        0x13 => { // write
+            let handle = crate::task::files::FileHandle::new(registers.ebx as usize);
+            let src_ptr = registers.ecx as *const u8;
+            let length = registers.edx as usize;
+            let buffer = unsafe { core::slice::from_raw_parts(src_ptr, length) };
+            match actions::io::write_file(handle, buffer) {
+                Ok(written) => {
+                    registers.eax = written as u32;
+                },
+                Err(_) => {
+                    registers.eax = 0;
+                },
+            }
+        },
 
         // drivers
         0x30 => { // register fs

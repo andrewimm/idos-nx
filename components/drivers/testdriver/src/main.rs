@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
 extern crate idos_api;
 extern crate idos_sdk;
 
@@ -10,6 +11,11 @@ use idos_sdk::driver::{AsyncDriver, IOError};
 #[no_mangle]
 pub extern fn main() {
     let mut driver_impl = TestDriver::new();
+
+    let mut z = alloc::vec::Vec::new();
+    for i in 0..5 {
+        z.push(i);
+    }
 
     loop {
         let message_read = read_message_blocking(None);

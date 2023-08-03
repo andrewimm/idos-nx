@@ -33,6 +33,7 @@ name = "idos_sdk"
 version = "0.1.0"
 dependencies = [
  "idos_api",
+ "spin",
 ]
 
 [[package]]
