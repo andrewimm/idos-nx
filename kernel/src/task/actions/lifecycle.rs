@@ -39,6 +39,13 @@ pub fn attach_executable_to_task(id: TaskID, exec_path: &str) {
     task_lock.write().make_runnable();
 }
 
+pub fn add_args<I, A>(id: TaskID, args: I)
+    where I: IntoIterator<Item = A>,
+          A: AsRef<str> {
+    let task_lock = super::super::switching::get_task(id).unwrap();
+    task_lock.write().push_args(args);
+}
+
 pub fn terminate_id(id: TaskID, exit_code: u32) {
     let parent_id = {
         let terminated_task = super::switching::get_task(id);

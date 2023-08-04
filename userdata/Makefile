@@ -16,7 +16,7 @@ disk/test.bin: testbin.s
 disk/elftest.elf: elftest.c
 	@mkdir -p build
 	@mkdir -p disk
-	@gcc -shared -nostdlib -nodefaultlibs -fno-exceptions -fno-stack-protector -nostartfiles -fPIE -z noseparate-code -march=i386 -m32 -Wl,-static -Wl,-Bsymbolic -o disk/elftest.elf elftest.c
+	@gcc -shared -nostdlib -nodefaultlibs -fno-exceptions -fno-stack-protector -nostartfiles -fPIE -z noseparate-code -march=i386 -m32 -Wl,-static -Wl,-Bsymbolic -o disk/elftest.elf crt0.s elftest.c
 
 disk/dosio.com: dosio.s
 	@mkdir -p build

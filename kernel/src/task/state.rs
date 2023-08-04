@@ -5,6 +5,7 @@ use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
 use crate::time::system::{Timestamp, get_system_time};
 
+use super::args::ExecArgs;
 use super::files::{OpenFileMap, CurrentDrive, OpenFile};
 use super::id::TaskID;
 use super::memory::TaskMemory;
@@ -52,6 +53,8 @@ pub struct Task {
     pub current_executable: Option<OpenFile>,
     /// The name of the executable file running in the thread
     pub filename: String,
+    /// The arguments passed to the executable
+    pub args: ExecArgs,
 }
 
 impl Task {
@@ -72,6 +75,7 @@ impl Task {
             open_files: OpenFileMap::new(),
             current_executable: None,
             filename: String::new(),
+            args: ExecArgs::new(),
         }
     }
 
@@ -272,6 +276,18 @@ impl Task {
         }
     }
 
+    pub fn push_arg(&mut self, arg: &str) {
+        self.args.add(arg);
+    }
+
+    pub fn push_args<I, A>(&mut self, args: I)
+        where I: IntoIterator<Item = A>,
+              A: AsRef<str> {
+        for arg in args {
+            self.args.add(arg.as_ref());
+        }
+    }
+
     pub fn attach_executable(&mut self, file: OpenFile, env: ExecutionEnvironment) {
         let ExecutionEnvironment {
             registers,
@@ -291,6 +307,9 @@ impl Task {
 
         }
 
+        let esp_start = registers.esp.unwrap_or(0xc0000000);
+        let esp = esp_start - self.args.stack_size();
+
         let registers = EnvironmentRegisters {
             eax: registers.eax.unwrap_or(0),
             ecx: registers.ecx.unwrap_or(0),
@@ -303,7 +322,7 @@ impl Task {
             eip: registers.eip,
             cs: registers.cs.unwrap_or(0x18 | 3),
             flags,
-            esp: registers.esp.unwrap_or(0xc0000000),
+            esp,
             ss: registers.ss.unwrap_or(0x20 | 3),
 
             ds: registers.ds.unwrap_or(0x20 | 3),

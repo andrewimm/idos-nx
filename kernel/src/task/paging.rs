@@ -78,6 +78,49 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             rel.apply();
         }
 
+        // The first time the top stack is allocated, fill it with environment
+        // and args
+        if address >= VirtualAddress::new(0xbffff000) && address < VirtualAddress::new(0xc0000000) {
+            let task = task_lock.read();
+            let args = task.args.arg_string();
+            let page_end = VirtualAddress::new(0xc0000000);
+            let mut args_start = page_end - args.len() as u32;
+            // make sure that the arg count is 4-bytes aligned
+            let alignment_offset = args_start.as_u32() & 3;
+            if alignment_offset != 0 {
+                args_start = args_start - alignment_offset;
+            }
+            // copy raw arg strings
+            let args_slice = unsafe {
+                core::slice::from_raw_parts_mut(
+                    args_start.as_ptr_mut::<u8>(),
+                    args.len(),
+                )
+            };
+            args_slice.copy_from_slice(&args);
+            // construct argv
+            let arg_lengths = task.args.arg_lengths();
+            let arg_pointers_size = arg_lengths.len() * 4;
+            let arg_pointers_start = args_start - arg_pointers_size as u32;
+            let arg_pointers = unsafe {
+                core::slice::from_raw_parts_mut(
+                    (arg_pointers_start).as_ptr_mut::<u32>(),
+                    arg_pointers_size,
+                );
+            };
+            let mut arg_pointer_index = arg_pointers_start;
+            let mut string_offset = 0;
+            for length in arg_lengths {
+                let ptr = arg_pointer_index.as_ptr_mut::<u32>();
+                unsafe { *ptr = args_start.as_u32() + string_offset };
+                string_offset += length;
+                arg_pointer_index = arg_pointer_index + 4;
+            }
+            // construct argc
+            let arg_count_ptr = (arg_pointers_start - 4).as_ptr_mut::<u32>();
+            unsafe { *arg_count_ptr = task.args.arg_count() };
+        }
+
         return Some(paddr);
     }
 

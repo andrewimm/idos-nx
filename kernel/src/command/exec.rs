@@ -175,6 +175,7 @@ fn try_exec(stdin: FileHandle, stdout: FileHandle, name: &str, args: &Vec<String
     }
 
     let exec_child = crate::task::actions::lifecycle::create_task();
+    crate::task::actions::lifecycle::add_args(exec_child, args);
     crate::task::actions::lifecycle::attach_executable_to_task(exec_child, name);
 
     let stdin_dup = dup_handle(stdin).unwrap();
