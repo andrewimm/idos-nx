@@ -1,5 +1,6 @@
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
@@ -131,7 +132,15 @@ impl OpenSocket {
 }
 
 #[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub struct SocketHandle(u32);
+pub struct SocketHandle(pub u32);
+
+impl Deref for SocketHandle {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 static OPEN_SOCKETS: RwLock<BTreeMap<SocketHandle, OpenSocket>> = RwLock::new(BTreeMap::new());
 /// Easily look up listening sockets by their local port (this excludes TCP connections)
@@ -204,6 +213,7 @@ pub fn create_socket(protocol: SocketProtocol) -> SocketHandle {
 /// address and port to all zeroes.
 pub fn bind_socket(socket: SocketHandle, local_ip: IPV4Address, local_port: SocketPort, remote_ip: IPV4Address, remote_port: SocketPort) -> Result<(), NetError> {
     if let Some(sock) = OPEN_SOCKETS.write().get_mut(&socket) {
+        crate::kprintln!("BIND SOCKET: {:}:{} {:}:{}", local_ip, local_port, remote_ip, remote_port);
         sock.bind(local_ip, local_port, remote_ip, remote_port);
     } else {
         return Err(NetError::InvalidSocket);

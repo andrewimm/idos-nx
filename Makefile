@@ -59,6 +59,6 @@ testkernel:
 	@cd kernel && \
 	cargo test --no-run $(kernel_build_flags) &>../testkernel.log
 	TEST_EXEC=$(shell grep -Po "Executable unittests src/main.rs \(\K[^\)]+" testkernel.log); \
-	cp kernel/$$TEST_EXEC $(kernel)
+	cp $$TEST_EXEC $(kernel)
 
 test: testkernel run

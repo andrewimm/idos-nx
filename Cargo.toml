@@ -5,6 +5,7 @@ members = [
   "bootloader/bootbin",
   "bootloader/mbr",
   "components/drivers/testdriver",
+  "components/programs/netcat",
   "kernel",
   "sdk",
 ]

@@ -47,6 +47,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "netcat"
+version = "0.1.0"
+dependencies = [
+ "idos_api",
+ "idos_sdk",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

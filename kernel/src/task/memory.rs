@@ -492,7 +492,7 @@ mod tests {
         );
         assert_eq!(
             regions.map_memory(Some(VirtualAddress::new(0x5000)), 0x2000, MemoryBacking::Anonymous).unwrap(),
-            VirtualAddress::new(0xbfffe000),
+            VirtualAddress::new(0xbfffc000),
         );
     }
 
@@ -501,11 +501,11 @@ mod tests {
         let mut regions = TaskMemory::new();
         assert_eq!(
             regions.map_memory(None, 0x1000, MemoryBacking::Anonymous).unwrap(),
-            VirtualAddress::new(0xbffff000),
+            VirtualAddress::new(0xbfffd000),
         );
         assert_eq!(
             regions.map_memory(None, 0x400, MemoryBacking::Anonymous).unwrap(),
-            VirtualAddress::new(0xbfffe000),
+            VirtualAddress::new(0xbfffc000),
         );
     }
 

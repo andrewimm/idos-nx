@@ -24,3 +24,7 @@ pub fn send_message(send_to: u32, message: Message, expiration: u32) {
     super::syscall(3, send_to, &message as *const Message as u32, expiration);
 }
 
+pub fn yield_coop() {
+    super::syscall(6, 0, 0, 0);
+}
+

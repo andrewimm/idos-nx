@@ -126,6 +126,18 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
         0x11 => { // close handle
         },
         0x12 => { // read
+            let handle = crate::task::files::FileHandle::new(registers.ebx as usize);
+            let dest_ptr = registers.ecx as *mut u8;
+            let length = registers.edx as usize;
+            let buffer = unsafe { core::slice::from_raw_parts_mut(dest_ptr, length) };
+            match actions::io::read_file(handle, buffer) {
+                Ok(written) => {
+                    registers.eax = written as u32;
+                },
+                Err(_) => {
+                    registers.eax = 0;
+                },
+            }
         },
         0x13 => { // write
             let handle = crate::task::files::FileHandle::new(registers.ebx as usize);
@@ -147,6 +159,61 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
         },
         0x31 => { // register device
             
+        },
+
+        // net
+        0x40 => { // create socket
+            // TODO: use a task-specific handle instead of a universal id
+            let protocol = match registers.ebx {
+                1 => crate::net::socket::SocketProtocol::TCP,
+                _ => crate::net::socket::SocketProtocol::UDP,
+            };
+            let id = crate::net::socket::create_socket(protocol);
+            registers.eax = *id;
+        },
+        0x41 => { // bind socket
+            let socket_id = crate::net::socket::SocketHandle(registers.ebx);
+            let local_binding_ptr = registers.ecx as *const u8;
+            let remote_binding_ptr = registers.edx as *const u8;
+            let local_ip = crate::net::ip::IPV4Address(
+                unsafe { core::slice::from_raw_parts(local_binding_ptr, 4).try_into().unwrap() }
+            );
+            let local_port_raw = unsafe { 
+                (*local_binding_ptr.offset(4) as u16) |
+                ((*local_binding_ptr.offset(5) as u16) << 8)
+            };
+            let local_port = crate::net::socket::SocketPort::new(local_port_raw);
+            let remote_ip = crate::net::ip::IPV4Address(
+                unsafe { core::slice::from_raw_parts(remote_binding_ptr, 4).try_into().unwrap() }
+            );
+            let remote_port_raw = unsafe {
+                (*remote_binding_ptr.offset(4) as u16) |
+                ((*remote_binding_ptr.offset(5) as u16) << 8)
+            };
+            let remote_port = crate::net::socket::SocketPort::new(remote_port_raw);
+            match crate::net::socket::bind_socket(socket_id, local_ip, local_port, remote_ip, remote_port) {
+                Ok(_) => registers.eax = 0,
+                Err(_) => registers.eax = 1,
+            }
+        },
+        0x42 => { // socket read
+            let socket_id = crate::net::socket::SocketHandle(registers.ebx);
+            let buffer_ptr = registers.ecx as *mut u8;
+            let buffer_len = registers.edx as usize;
+            let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
+            match crate::net::socket::socket_read(socket_id, buffer) {
+                Some(len) => registers.eax = len as u32,
+                None => registers.eax = 0,
+            }
+        },
+        0x43 => { // socket write
+        },
+        0x44 => { // socket accept
+            let socket_id = crate::net::socket::SocketHandle(registers.ebx);
+            match crate::net::socket::socket_accept(socket_id) {
+                Some(id) => registers.eax = *id,
+                None => registers.eax = 0,
+            }
         },
 
         0xffff => {
