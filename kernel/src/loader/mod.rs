@@ -35,8 +35,8 @@ pub fn load_executable(path_str: &str) -> Result<(OpenFile, ExecutionEnvironment
     } else if is_mz {
         self::mz::build_environment(exec_file.drive, exec_file.driver_handle)?
     } else {
-        let extension = Path::get_extension(path_str);
-        match extension {
+        let extension = Path::get_extension(path_str).map(|s| s.to_ascii_uppercase());
+        match extension.as_deref() {
             Some("COM") => self::com::build_environment(exec_file.drive, exec_file.driver_handle)?,
             _ => self::bin::build_environment(exec_file.drive, exec_file.driver_handle)?,
         }

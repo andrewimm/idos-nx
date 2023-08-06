@@ -98,6 +98,33 @@ impl DirEntry {
     pub fn is_directory(&self) -> bool {
         self.attributes & 0x10 != 0
     }
+
+    pub fn matches_name(&self, filename: &[u8; 8], ext: &[u8; 3]) -> bool {
+        // TODO: make case sensitivity configurable
+        for i in 0..8 {
+            if ascii_char_matches(self.file_name[i], filename[i]) {
+                continue;
+            }
+            return false;
+        }
+        for i in 0..3 {
+            if ascii_char_matches(self.ext[i], ext[i]) {
+                continue;
+            }
+            return false;
+        }
+        true
+    }
+}
+
+fn ascii_char_matches(a: u8, b: u8) -> bool {
+    if a > 0x40 && a < 0x5b {
+        return a == b || (a + 0x20) == b;
+    }
+    if a > 0x60 && a < 0x7b {
+        return a == b || a == (b + 0x20);
+    }
+    return a == b;
 }
 
 #[derive(Copy, Clone)]
@@ -184,8 +211,15 @@ impl RootDirectory {
             Some(pair) => pair,
             None => (name, ""),
         };
+        let mut short_filename: [u8; 8] = [0x20; 8];
+        let mut short_ext: [u8; 3] = [0x20; 3];
+        let filename_len = filename.len().min(8);
+        let ext_len = ext.len().min(3);
+        short_filename[..filename_len].copy_from_slice(&filename.as_bytes()[..filename_len]);
+        short_ext[..ext_len].copy_from_slice(&ext.as_bytes()[..ext_len]);
+
         for entry in self.iter(disk) {
-            if entry.get_filename() == filename && entry.get_ext() == ext {
+            if entry.matches_name(&short_filename, &short_ext) {
                 if entry.is_directory() {
                     return Some(Entity::Dir(Directory::from_dir_entry(entry)));
                 } else {
@@ -348,5 +382,37 @@ impl File {
                 return bytes_written as u32;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DirEntry;
+
+    #[test_case]
+    fn filename_matching() {
+        let mut direntry = DirEntry::new();
+        &direntry.file_name.copy_from_slice("MYFILE  ".as_bytes());
+        &direntry.ext.copy_from_slice("TXT".as_bytes());
+
+        assert!(
+            direntry.matches_name(
+                &[b'M', b'Y', b'F', b'I', b'L', b'E', b' ', b' '],
+                &[b'T', b'X', b'T'],
+            ),
+        );
+        assert!(
+            direntry.matches_name(
+                &[b'M', b'y', b'F', b'i', b'l', b'e', b' ', b' '],
+                &[b't', b'x', b't'],
+            ),
+        );
+ 
+        assert!(
+            !direntry.matches_name(
+                &[b'O', b'T', b'H', b'E', b'R', b' ', b' ', b' '],
+                &[b'T', b'X', b'T'],
+            ),
+        );
     }
 }

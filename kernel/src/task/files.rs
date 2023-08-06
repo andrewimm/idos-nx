@@ -47,3 +47,11 @@ impl Into<usize> for FileHandle {
     }
 }
 
+impl core::fmt::Write for FileHandle {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        crate::task::actions::io::write_file(*self, s.as_bytes())
+            .map(|_| ())
+            .map_err(|_| core::fmt::Error)
+    }
+}
+

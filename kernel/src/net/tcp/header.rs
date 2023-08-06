@@ -130,7 +130,7 @@ pub fn create_tcp_packet(
     };
     tcp_header.checksum = tcp_header.compute_checksum(source_ip, dest_ip, data);
     let data_start = total_size - data.len();
-    &mut packet_buffer[data_start..].copy_from_slice(data);
+    packet_buffer[data_start..].copy_from_slice(data);
     let tcp_start = tcp_header.copy_to_buffer(&mut packet_buffer[..data_start]);
     let tcp_size = (TCPHeader::get_size() + data.len()) as u16;
     let ip_header = IPHeader::new_tcp(source_ip, dest_ip, tcp_size, 127);

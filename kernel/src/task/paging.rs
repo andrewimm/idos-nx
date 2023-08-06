@@ -102,12 +102,6 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             let arg_lengths = task.args.arg_lengths();
             let arg_pointers_size = arg_lengths.len() * 4;
             let arg_pointers_start = args_start - arg_pointers_size as u32;
-            let arg_pointers = unsafe {
-                core::slice::from_raw_parts_mut(
-                    (arg_pointers_start).as_ptr_mut::<u32>(),
-                    arg_pointers_size,
-                );
-            };
             let mut arg_pointer_index = arg_pointers_start;
             let mut string_offset = 0;
             for length in arg_lengths {
