@@ -1,6 +1,7 @@
 pub mod actions;
 pub mod args;
 pub mod files;
+pub mod handle;
 pub mod id;
 pub mod memory;
 pub mod messaging;
