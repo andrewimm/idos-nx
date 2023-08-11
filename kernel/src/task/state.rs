@@ -7,6 +7,7 @@ use crate::time::system::{Timestamp, get_system_time};
 
 use super::args::ExecArgs;
 use super::files::{OpenFileMap, CurrentDrive, OpenFile};
+use super::handle::{OpenHandles, HandleType};
 use super::id::TaskID;
 use super::memory::TaskMemory;
 use super::messaging::{Message, MessagePacket, MessageQueue};
@@ -55,6 +56,8 @@ pub struct Task {
     pub filename: String,
     /// The arguments passed to the executable
     pub args: ExecArgs,
+
+    pub handles: OpenHandles,
 }
 
 impl Task {
@@ -76,6 +79,7 @@ impl Task {
             current_executable: None,
             filename: String::new(),
             args: ExecArgs::new(),
+            handles: OpenHandles::new(),
         }
     }
 
@@ -239,6 +243,17 @@ impl Task {
 
     /// Notify the task that a child task has terminated with an exit code
     pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
+        for handle in self.handles.iter_mut() {
+            if let HandleType::Task(child_id) = handle.handle_type {
+                if child_id == id {
+                    // assumes that the only valid op is waiting on a child to exit
+                    while handle.current_op().is_some() {
+                        handle.complete_current_op(exit_code);
+                    }
+                }
+            }
+        }
+
         let waiting_on = match self.state {
             RunState::Blocked(_, BlockType::WaitForChild(wait_id)) => wait_id,
             _ => return,
