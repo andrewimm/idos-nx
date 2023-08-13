@@ -224,6 +224,12 @@ impl Task {
     /// after which point the message is considered invalid.
     pub fn receive_message(&mut self, current_ticks: u32, from: TaskID, message: Message, expiration_ticks: u32) {
         self.message_queue.add(from, message, current_ticks, expiration_ticks);
+        for handle in self.handles.iter_mut() {
+            if let HandleType::MessageQueue = handle.handle_type {
+                handle.complete_current_op(1);
+            }
+        }
+
         match self.state {
             RunState::Blocked(_, BlockType::Message) => {
                 self.state = RunState::Running;

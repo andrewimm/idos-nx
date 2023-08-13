@@ -24,6 +24,7 @@ impl core::ops::Deref for Handle {
     }
 }
 
+#[derive(Copy, Clone)]
 pub struct HandleOp {
     pub op_code: u32,
     pub semaphore: PhysicalAddress,
@@ -62,6 +63,19 @@ pub const OPERATION_FLAG_INTERRUPT: u32 = 0x20000000;
 pub const OPERATION_FLAG_MESSAGE: u32 = 0x10000000;
 pub const OPERATION_FLAG_SOCKET: u32 = 0x08000000;
 
+pub const FILE_OP_OPEN: u32 = 1;
+pub const FILE_OP_READ: u32 = 2;
+pub const FILE_OP_WRITE: u32 = 3;
+pub const FILE_OP_SEEK: u32 = 4;
+pub const FILE_OP_STAT: u32 = 5;
+
+pub const SOCKET_OP_BIND: u32 = 1;
+pub const SOCKET_OP_READ: u32 = 2;
+pub const SOCKET_OP_WRITE: u32 = 3;
+
+pub const MESSAGE_OP_READ: u32 = 2;
+
+#[derive(Clone)]
 pub enum HandleType {
     /// A file or device
     File(Option<OpenFile>),
