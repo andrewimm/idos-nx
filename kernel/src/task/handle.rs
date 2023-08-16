@@ -84,7 +84,7 @@ pub enum HandleType {
     Socket(SocketHandle),
 
     /// A task spawned from the current one
-    Task(TaskID),
+    Task(TaskID, Option<u32>),
 
     /// Hardware interrupt
     HardwareInterrupt(u8),
@@ -101,7 +101,7 @@ impl HandleType {
     pub fn can_apply_op(&self, op: HandleOp) -> bool {
         match self {
             Self::File(_) => op.op_code & OPERATION_FLAG_FILE != 0,
-            Self::Task(_) => op.op_code & OPERATION_FLAG_TASK != 0,
+            Self::Task(_, _) => op.op_code & OPERATION_FLAG_TASK != 0,
             Self::HardwareInterrupt(_) => op.op_code & OPERATION_FLAG_INTERRUPT != 0,
             Self::SoftInterrupt(_) => op.op_code & OPERATION_FLAG_INTERRUPT != 0,
             Self::MessageQueue => op.op_code & OPERATION_FLAG_MESSAGE != 0,
@@ -158,7 +158,7 @@ impl OpenHandles {
     }
 
     pub fn create_task(&mut self, task: TaskID) -> Handle {
-        self.create_handle(HandleType::Task(task))
+        self.create_handle(HandleType::Task(task, None))
     }
 
     pub fn hw_interrupt(&mut self, irq: u8) -> Handle {
@@ -178,9 +178,10 @@ impl OpenHandles {
     }
 
     pub fn add_operation(&mut self, handle: Handle, op: HandleOp) -> Result<usize, ()> {
-        let handle = self.list.get_mut(*handle).ok_or(())?;
-        handle.queued_ops.push_back(op);
-        Ok(handle.queued_ops.len())
+        let open_handle = self.list.get_mut(*handle).ok_or(())?;
+        open_handle.queued_ops.push_back(op.clone());
+        run_op(&open_handle.handle_type, &op);
+        Ok(open_handle.queued_ops.len())
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &OpenHandle> {
@@ -189,6 +190,18 @@ impl OpenHandles {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut OpenHandle> {
         self.list.iter_mut()
+    }
+}
+
+fn run_op(handle_type: &HandleType, op: &HandleOp) {
+    match handle_type {
+        HandleType::Task(_, code_opt) => {
+            crate::kprintln!("RUN OPT {:?}", code_opt);
+            if let Some(code) = code_opt {
+                op.complete(*code);
+            }
+        },
+        _ => (),
     }
 }
 

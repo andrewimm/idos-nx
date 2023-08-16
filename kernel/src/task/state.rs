@@ -250,12 +250,14 @@ impl Task {
     /// Notify the task that a child task has terminated with an exit code
     pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
         for handle in self.handles.iter_mut() {
-            if let HandleType::Task(child_id) = handle.handle_type {
+            if let HandleType::Task(child_id, ref mut exit_code_opt) = handle.handle_type {
                 if child_id == id {
+                    exit_code_opt.replace(exit_code);
                     // assumes that the only valid op is waiting on a child to exit
                     while handle.current_op().is_some() {
                         handle.complete_current_op(exit_code);
                     }
+                    crate::kprintln!("OPT REPLACE");
                 }
             }
         }

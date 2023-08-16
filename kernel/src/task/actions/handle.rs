@@ -80,13 +80,23 @@ mod tests {
 
     #[test_case]
     fn wait_for_child() {
-        use core::sync::atomic::{AtomicU32, Ordering};
-
         fn child_task_body() -> ! {
             crate::task::actions::lifecycle::terminate(4);
         }
 
         let (handle, _) = super::create_kernel_task(child_task_body, Some("CHILD"));
+        let op = PendingHandleOp::new(handle, 0x40000001, 0, 0, 0);
+        let result = op.wait_for_completion();
+        assert_eq!(result, 4);
+    }
+
+    #[test_case]
+    fn child_early_exit() {
+        fn child_task_body() -> ! {
+            crate::task::actions::lifecycle::terminate(4);
+        }
+        let (handle, _) = super::create_kernel_task(child_task_body, Some("CHILD"));
+        crate::task::actions::sleep(500);
         let op = PendingHandleOp::new(handle, 0x40000001, 0, 0, 0);
         let result = op.wait_for_completion();
         assert_eq!(result, 4);
