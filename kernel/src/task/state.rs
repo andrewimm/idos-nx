@@ -7,7 +7,7 @@ use crate::time::system::{Timestamp, get_system_time};
 
 use super::args::ExecArgs;
 use super::files::{OpenFileMap, CurrentDrive, OpenFile};
-use super::handle::{OpenHandles, HandleType};
+use super::handle::{OpenHandles, HandleType, Handle, AsyncOp, OpenHandle};
 use super::id::TaskID;
 use super::memory::TaskMemory;
 use super::messaging::{Message, MessagePacket, MessageQueue};
@@ -224,11 +224,13 @@ impl Task {
     /// after which point the message is considered invalid.
     pub fn receive_message(&mut self, current_ticks: u32, from: TaskID, message: Message, expiration_ticks: u32) {
         self.message_queue.add(from, message, current_ticks, expiration_ticks);
+        /*
         for handle in self.handles.iter_mut() {
             if let HandleType::MessageQueue = handle.handle_type {
                 handle.complete_current_op(1);
             }
         }
+        */
 
         match self.state {
             RunState::Blocked(_, BlockType::Message) => {
@@ -253,14 +255,25 @@ impl Task {
             if let HandleType::Task(child_id, ref mut exit_code_opt) = handle.handle_type {
                 if child_id == id {
                     exit_code_opt.replace(exit_code);
+                    if let Some(op) = handle.current_op() {
+                        op.async_op.complete(exit_code);
+                    }
+                }
+            }
+        }
+        /*
+        for handle in self.handles.iter_mut() {
+            if let HandleType::Task(child_id, ref mut exit_code_opt) = handle.handle_type {
+                if child_id == id {
+                    exit_code_opt.replace(exit_code);
                     // assumes that the only valid op is waiting on a child to exit
                     while handle.current_op().is_some() {
                         handle.complete_current_op(exit_code);
                     }
-                    crate::kprintln!("OPT REPLACE");
                 }
             }
         }
+        */
 
         let waiting_on = match self.state {
             RunState::Blocked(_, BlockType::WaitForChild(wait_id)) => wait_id,
@@ -374,6 +387,33 @@ impl Task {
 
     pub fn has_executable(&self) -> bool {
         self.current_executable.is_some()
+    }
+
+    pub fn add_handle_op(&mut self, handle: Handle, op: AsyncOp) -> Result<(), ()> {
+        let _ = self.handles.add_operation(handle, op)?;
+        self.run_pending_handle_op(handle)
+    }
+
+    pub fn run_pending_handle_op(&mut self, handle: Handle) -> Result<(), ()> {
+        let open_handle = self.handles.get_handle(handle).ok_or(())?;
+        let first = open_handle.current_op().ok_or(())?;
+        if first.has_run() {
+            return Ok(());
+        }
+
+        match open_handle.handle_type {
+            HandleType::Task(id, exit_code) => {
+                if let Some(code) = exit_code {
+                    first.async_op.complete(code);
+                }
+                Ok(())
+            },
+            _ => Ok(()),
+        }
+    }
+
+    pub fn complete_handle_op(&mut self, handle: Handle) -> Result<(), ()> {
+        Ok(())
     }
 }
 

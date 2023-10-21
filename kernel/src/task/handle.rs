@@ -25,7 +25,7 @@ impl core::ops::Deref for Handle {
 }
 
 #[derive(Copy, Clone)]
-pub struct HandleOp {
+pub struct AsyncOp {
     pub op_code: u32,
     pub semaphore: PhysicalAddress,
     pub arg0: u32,
@@ -33,7 +33,7 @@ pub struct HandleOp {
     pub arg2: u32,
 }
 
-impl HandleOp {
+impl AsyncOp {
     pub fn new(code: u32, semaphore_addr: u32, arg0: u32, arg1: u32, arg2: u32) -> Self {
         let phys_addr = super::paging::get_current_physical_address(VirtualAddress::new(semaphore_addr)).unwrap();
         Self {
@@ -98,7 +98,7 @@ pub enum HandleType {
 
 impl HandleType {
     /// Determine whether this operation is applicable to this handle type
-    pub fn can_apply_op(&self, op: HandleOp) -> bool {
+    pub fn can_apply_op(&self, op: AsyncOp) -> bool {
         match self {
             Self::File(_) => op.op_code & OPERATION_FLAG_FILE != 0,
             Self::Task(_, _) => op.op_code & OPERATION_FLAG_TASK != 0,
@@ -110,22 +110,36 @@ impl HandleType {
     }
 }
 
+pub struct EnqueuedOp {
+    pub running: bool,
+    pub async_op: AsyncOp,
+}
+
+impl EnqueuedOp {
+    pub fn new(op: AsyncOp) -> Self {
+        Self {
+            running: false,
+            async_op: op,
+        }
+    }
+
+    pub fn has_run(&self) -> bool {
+        self.running
+    }
+}
+
 pub struct OpenHandle {
     pub handle_type: HandleType,
-    pub queued_ops: VecDeque<HandleOp>,
+    pub queued_ops: VecDeque<EnqueuedOp>,
 }
 
 impl OpenHandle {
-    pub fn current_op(&self) -> Option<&HandleOp> {
+    pub fn current_op(&self) -> Option<&EnqueuedOp> {
         self.queued_ops.get(0)
     }
 
-    pub fn complete_current_op(&mut self, result: u32) {
-        let current = match self.queued_ops.pop_front() {
-            Some(op) => op,
-            None => return,
-        };
-        current.complete(result);
+    pub fn current_op_mut(&mut self) -> Option<&mut EnqueuedOp> {
+        self.queued_ops.get_mut(0)
     }
 }
 
@@ -177,10 +191,13 @@ impl OpenHandles {
         self.list.get(*handle)
     }
 
-    pub fn add_operation(&mut self, handle: Handle, op: HandleOp) -> Result<usize, ()> {
+    pub fn get_handle_mut(&mut self, handle: Handle) -> Option<&mut OpenHandle> {
+        self.list.get_mut(*handle)
+    }
+
+    pub fn add_operation(&mut self, handle: Handle, op: AsyncOp) -> Result<usize, ()> {
         let open_handle = self.list.get_mut(*handle).ok_or(())?;
-        open_handle.queued_ops.push_back(op.clone());
-        run_op(&open_handle.handle_type, &op);
+        open_handle.queued_ops.push_back(EnqueuedOp::new(op.clone()));
         Ok(open_handle.queued_ops.len())
     }
 
@@ -190,18 +207,6 @@ impl OpenHandles {
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut OpenHandle> {
         self.list.iter_mut()
-    }
-}
-
-fn run_op(handle_type: &HandleType, op: &HandleOp) {
-    match handle_type {
-        HandleType::Task(_, code_opt) => {
-            crate::kprintln!("RUN OPT {:?}", code_opt);
-            if let Some(code) = code_opt {
-                op.complete(*code);
-            }
-        },
-        _ => (),
     }
 }
 

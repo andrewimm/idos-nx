@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::task::actions::yield_coop;
-use crate::task::handle::{HandleOp, Handle};
+use crate::task::handle::{AsyncOp, Handle};
 use crate::task::actions::handle::add_handle_op;
 
 pub struct PendingHandleOp {
@@ -14,7 +14,7 @@ impl PendingHandleOp {
         let signal = Box::new(AtomicU32::new(0));
 
         let signal_ptr = signal.as_mut_ptr();
-        let op = HandleOp::new(op_code, signal_ptr as u32, arg0, arg1, arg2);
+        let op = AsyncOp::new(op_code, signal_ptr as u32, arg0, arg1, arg2);
         add_handle_op(handle, op);
 
         Self {
