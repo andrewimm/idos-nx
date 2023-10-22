@@ -1,6 +1,8 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use crate::files::path::Path;
+use crate::io::async_io::{AsyncIOTable, IOType};
+use crate::io::handle::HandleTable;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
 use crate::time::system::{Timestamp, get_system_time};
@@ -49,6 +51,10 @@ pub struct Task {
     pub working_dir: Path,
     /// Store references to all currently open files
     pub open_files: OpenFileMap,
+    /// Store references to all open handles (will eventually replace open_files)
+    pub open_handles: HandleTable<u32>,
+    /// Stores the actual active async IO objects
+    pub async_io_table: AsyncIOTable,
     /// Store the open handle to the currently executing binary, if one exists
     pub current_executable: Option<OpenFile>,
     /// The name of the executable file running in the thread
@@ -73,6 +79,8 @@ impl Task {
             current_drive: CurrentDrive::empty(),
             working_dir: Path::from_str(""),
             open_files: OpenFileMap::new(),
+            open_handles: HandleTable::new(),
+            async_io_table: AsyncIOTable::new(),
             current_executable: None,
             filename: String::new(),
             args: ExecArgs::new(),
@@ -239,6 +247,13 @@ impl Task {
 
     /// Notify the task that a child task has terminated with an exit code
     pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
+        match self.async_io_table.get_task_io(id) {
+            Some(IOType::ChildTask(io)) => {
+                io.task_exited(exit_code);
+            },
+            _ => (),
+        }
+
         let waiting_on = match self.state {
             RunState::Blocked(_, BlockType::WaitForChild(wait_id)) => wait_id,
             _ => return,
