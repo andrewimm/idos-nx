@@ -50,6 +50,10 @@ impl IOProvider for MessageIOProvider {
         // convert the virtual address of the message pointer to a physical
         // address
         // TODO: if the message spans two physical pages, we're gonna have a problem!
+        let message_size = core::mem::size_of::<Message>() as u32;
+        if (op.arg0 & 0xfffff000) != ((op.arg0 + message_size) & 0xfffff000) {
+            panic!("Messages can't bridge multiple pages (yet)");
+        }
         let message_virt = VirtualAddress::new(op.arg0);
         let message_phys = match crate::task::paging::get_current_physical_address(message_virt) {
             Some(addr) => addr,
