@@ -1,7 +1,5 @@
 use alloc::collections::VecDeque;
-
-use crate::{task::id::TaskID, io::async_io::AsyncOp};
-
+use crate::{task::id::TaskID, io::async_io::{AsyncOp, OPERATION_FLAG_TASK, TASK_OP_WAIT}};
 use super::IOProvider;
 
 /// Inner contents of the handle generated when a child task is spawned. This
@@ -32,18 +30,30 @@ impl TaskIOProvider {
         for op in self.pending_ops.iter() {
             op.complete(code);
         }
+
+        self.pending_ops.clear();
     }
 }
 
 impl IOProvider for TaskIOProvider {
-    fn add_op(&mut self, op: AsyncOp) {
-        if let Some(code) = self.exit_code {
-            // immediately complete op without queueing
-            op.complete(code);
-            return;
+    fn add_op(&mut self, op: AsyncOp) -> Result<(), ()> {
+        if op.op_code & OPERATION_FLAG_TASK == 0 {
+            return Err(());
         }
 
-        self.pending_ops.push_back(op);
+        match op.op_code & 0xffff {
+            TASK_OP_WAIT => {
+                if let Some(code) = self.exit_code {
+                    // immediately complete op without queueing
+                    op.complete(code);
+                    return Ok(());
+                }
+
+                self.pending_ops.push_back(op);
+                Ok(())
+            },
+            _ => Err(()), // unsupported op
+        }
     }
 }
 
