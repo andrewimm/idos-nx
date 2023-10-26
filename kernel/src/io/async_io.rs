@@ -2,25 +2,26 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::collections::BTreeMap;
 
-use crate::{memory::{address::{PhysicalAddress, VirtualAddress}, virt::scratch::UnmappedPage}, task::id::TaskID};
+use crate::{memory::{address::{PhysicalAddress, VirtualAddress}, virt::scratch::UnmappedPage}, task::{id::TaskID, messaging::MessageQueue}};
 
-use super::provider::{task::TaskIOProvider, IOProvider};
+use super::provider::{task::TaskIOProvider, IOProvider, message::MessageIOProvider};
 
 pub enum IOType {
     ChildTask(TaskIOProvider),
-    MessageQueue,
+    MessageQueue(MessageIOProvider),
 }
 
 impl IOType {
-    pub fn add_op(&mut self, op: AsyncOp) {
+    pub fn add_op(&mut self, op: AsyncOp) -> Result<(), ()> {
         match self {
             Self::ChildTask(io) => io.add_op(op),
+            Self::MessageQueue(io) => io.add_op(op),
             _ => panic!("Not implemented"),
         }
     }
 }
 
-// Op Codes use the top bits to indicate the handle type they modify
+// Op Codes use the top 16 bits to indicate the handle type they modify
 pub const OPERATION_FLAG_FILE: u32 = 0x80000000;
 pub const OPERATION_FLAG_TASK: u32 = 0x40000000;
 pub const OPERATION_FLAG_INTERRUPT: u32 = 0x20000000;
@@ -143,11 +144,22 @@ impl AsyncIOTable {
                 _ => false,
             };
             if matched {
-                crate::kprintln!("FOUND MATCH");
                 return Some(&mut entry.io_type);
             }
         }
         None
+    }
+
+    /// convenience method for handling incoming IPC messages
+    pub fn handle_incoming_messages(&mut self, messages: &mut MessageQueue) {
+        let current_ticks = 0;
+
+        for (_, entry) in self.inner.iter_mut() {
+            match &mut entry.io_type {
+                IOType::MessageQueue(io) => io.check_message_queue(current_ticks, messages),
+                _ => continue,
+            }
+        }
     }
 }
 

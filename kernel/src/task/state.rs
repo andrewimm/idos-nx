@@ -228,12 +228,18 @@ impl Task {
     /// after which point the message is considered invalid.
     pub fn receive_message(&mut self, current_ticks: u32, from: TaskID, message: Message, expiration_ticks: u32) {
         self.message_queue.add(from, message, current_ticks, expiration_ticks);
+        self.handle_incoming_messages();
+
         match self.state {
             RunState::Blocked(_, BlockType::Message) => {
                 self.state = RunState::Running;
             },
             _ => (),
         }
+    }
+
+    pub fn handle_incoming_messages(&mut self) {
+        self.async_io_table.handle_incoming_messages(&mut self.message_queue);
     }
 
     /// Wait for a child process with the specified ID to return

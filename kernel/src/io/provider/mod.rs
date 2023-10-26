@@ -4,5 +4,5 @@ pub mod message;
 pub mod task;
 
 pub trait IOProvider {
-    fn add_op(&mut self, op: AsyncOp);
+    fn add_op(&mut self, op: AsyncOp) -> Result<(), ()>;
 }
