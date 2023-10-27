@@ -2,6 +2,7 @@ use core::ops::Deref;
 
 use crate::io::async_io::{IOType, AsyncOp, OPERATION_FLAG_MESSAGE};
 use crate::io::handle::Handle;
+use crate::io::provider::file::FileIOProvider;
 use crate::io::provider::message::MessageIOProvider;
 use crate::io::provider::task::TaskIOProvider;
 use crate::task::id::TaskID;
@@ -43,11 +44,18 @@ pub fn open_message_queue() -> Handle {
     task.open_handles.insert(io_index)
 }
 
+pub fn create_file_handle() -> Handle {
+    let task_lock = get_current_task();
+    let mut task = task_lock.write();
+    let io = IOType::File(FileIOProvider::new());
+    let io_index = task.async_io_table.add_io(io);
+    task.open_handles.insert(io_index)
+}
 
 #[cfg(test)]
 mod tests {
     use crate::io::handle::PendingHandleOp;
-    use crate::io::async_io::{OPERATION_FLAG_TASK, TASK_OP_WAIT, OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ};
+    use crate::io::async_io::{OPERATION_FLAG_TASK, TASK_OP_WAIT, OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ, OPERATION_FLAG_FILE, FILE_OP_OPEN};
 
     #[test_case]
     fn wait_for_child() {
@@ -68,7 +76,7 @@ mod tests {
         }
         let (handle, _) = super::create_kernel_task(child_task_body, Some("CHILD"));
         crate::task::actions::sleep(500);
-        let op = PendingHandleOp::new(handle, 0x40000001, 0, 0, 0);
+        let op = PendingHandleOp::new(handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
         let result = op.wait_for_completion();
         assert_eq!(result, 4);
     }
@@ -122,7 +130,6 @@ mod tests {
         use crate::task::actions::send_message;
         use crate::task::actions::lifecycle::terminate;
         use crate::task::actions::messaging::Message;
-        use crate::io::async_io::{OPERATION_FLAG_MESSAGE, OPERATION_FLAG_TASK, MESSAGE_OP_READ, TASK_OP_WAIT};
 
         fn child_task_body() -> ! {
             let msg_handle = super::open_message_queue();
@@ -143,5 +150,16 @@ mod tests {
 
         let op = PendingHandleOp::new(handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
         op.wait_for_completion();
+    }
+
+    #[test_case]
+    fn open_file() {
+        let handle = super::create_file_handle();
+        let path: &str = "FAKE:\\MYFILE.TXT";
+        let path_ptr = path.as_ptr() as u32;
+        let path_len = path.len() as u32;
+        let op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+        let result = op.wait_for_completion();
+        assert_eq!(result, 1);
     }
 }

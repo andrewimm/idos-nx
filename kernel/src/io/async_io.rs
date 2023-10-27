@@ -4,18 +4,20 @@ use alloc::collections::BTreeMap;
 
 use crate::{memory::{address::{PhysicalAddress, VirtualAddress}, virt::scratch::UnmappedPage}, task::{id::TaskID, messaging::MessageQueue}};
 
-use super::provider::{task::TaskIOProvider, IOProvider, message::MessageIOProvider};
+use super::provider::{task::TaskIOProvider, IOProvider, message::MessageIOProvider, file::FileIOProvider};
 
 pub enum IOType {
     ChildTask(TaskIOProvider),
     MessageQueue(MessageIOProvider),
+    File(FileIOProvider),
 }
 
 impl IOType {
-    pub fn add_op(&mut self, op: AsyncOp) -> Result<(), ()> {
+    pub fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<(), ()> {
         match self {
-            Self::ChildTask(io) => io.add_op(op),
-            Self::MessageQueue(io) => io.add_op(op),
+            Self::ChildTask(io) => io.add_op(index, op),
+            Self::MessageQueue(io) => io.add_op(index, op),
+            Self::File(io) => io.add_op(index, op),
             _ => panic!("Not implemented"),
         }
     }
@@ -127,7 +129,7 @@ impl AsyncIOTable {
 
     pub fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<(), ()> {
         let entry = self.inner.get_mut(&index).ok_or(())?;
-        entry.io_type.add_op(op);
+        entry.io_type.add_op(index, op);
         Ok(())
     }
 

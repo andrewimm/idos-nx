@@ -46,7 +46,7 @@ impl MessageIOProvider {
 }
 
 impl IOProvider for MessageIOProvider {
-    fn add_op(&mut self, op: AsyncOp) -> Result<(), ()> {
+    fn add_op(&mut self, _index: u32, op: AsyncOp) -> Result<(), ()> {
         // convert the virtual address of the message pointer to a physical
         // address
         // TODO: if the message spans two physical pages, we're gonna have a problem!

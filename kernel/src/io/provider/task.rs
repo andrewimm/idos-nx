@@ -36,7 +36,7 @@ impl TaskIOProvider {
 }
 
 impl IOProvider for TaskIOProvider {
-    fn add_op(&mut self, op: AsyncOp) -> Result<(), ()> {
+    fn add_op(&mut self, _index: u32, op: AsyncOp) -> Result<(), ()> {
         if op.op_code & OPERATION_FLAG_TASK == 0 {
             return Err(());
         }
