@@ -59,6 +59,8 @@ pub extern "C" fn _start() -> ! {
 
     init::init_device_drivers();
 
+    io::init_async_io_system();
+
     #[cfg(test)]
     {
         task::actions::lifecycle::create_kernel_task(run_tests, Some("TESTS"));

@@ -269,6 +269,10 @@ impl Task {
         }
     }
 
+    pub fn async_io_complete(&mut self, io_index: usize, op_id: usize, return_value: u32) {
+        
+    }
+
     pub fn io_complete(&mut self) {
         match self.state {
             RunState::Blocked(_, BlockType::IO) => {
