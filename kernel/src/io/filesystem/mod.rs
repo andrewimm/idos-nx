@@ -6,12 +6,13 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
+use idos_api::io::error::IOError;
 use spin::RwLock;
 
 use crate::files::path::Path;
 use crate::task::id::TaskID;
 
-use self::driver::DriverID;
+use self::driver::{DriverID, IOResult};
 use self::driver::DriverType;
 use self::driver::InstalledDriver;
 
@@ -37,20 +38,33 @@ pub fn install_sync_fs(name: &str, driver: InstalledDriver) -> DriverID {
 }
 
 /// Run the open() operation on an installed driver
-pub fn driver_open(id: DriverID, path: Path, op: AsyncOp) {
+pub fn driver_open(id: DriverID, path: Path) -> Option<IOResult> {
     let drivers = INSTALLED_DRIVERS.read();
     let (_, driver) = match drivers.get(&id) {
         Some(d) => d,
         None => {
-            // TODO: encode errors
-            op.complete(0x80000000);
-            return;
+            return Some(Err(IOError::NotFound));
         },
     };
     match driver {
         DriverType::SyncFilesystem(fs) => {
-            let result = fs.open(path);
-            op.complete_with_result(result);
+            return Some(fs.open(path));
+        },
+        _ => panic!("Not implemented"),
+    }
+}
+
+pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8]) -> Option<IOResult> {
+    let drivers = INSTALLED_DRIVERS.read();
+    let (_, driver) = match drivers.get(&id) {
+        Some(d) => d,
+        None => {
+            return Some(Err(IOError::NotFound));
+        },
+    };
+    match driver {
+        DriverType::SyncFilesystem(fs) => {
+            return Some(fs.read(instance, buffer));
         },
         _ => panic!("Not implemented"),
     }

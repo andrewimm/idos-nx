@@ -3,6 +3,7 @@ use idos_api::io::error::IOError;
 
 use crate::{task::id::TaskID, files::path::Path};
 
+#[derive(Copy, Clone)]
 pub struct DriverID(u32);
 
 impl DriverID {
@@ -33,7 +34,7 @@ pub trait SyncDriver {
 
     fn open(&self, path: Path) -> IOResult;
 
-    fn read(&self, instance: usize, buffer: &mut [u8]) -> IOResult;
+    fn read(&self, instance: u32, buffer: &mut [u8]) -> IOResult;
 }
 
 pub type IOResult = Result<u32, IOError>;
