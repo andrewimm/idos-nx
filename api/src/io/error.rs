@@ -37,3 +37,9 @@ impl TryFrom<u32> for IOError {
         }
     }
 }
+
+impl Into<u32> for IOError {
+    fn into(self) -> u32 {
+        self as u32
+    }
+}

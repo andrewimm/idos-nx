@@ -153,13 +153,26 @@ mod tests {
     }
 
     #[test_case]
-    fn open_file() {
+    fn open_file_sync() {
         let handle = super::create_file_handle();
-        let path: &str = "FAKE:\\MYFILE.TXT";
-        let path_ptr = path.as_ptr() as u32;
-        let path_len = path.len() as u32;
-        let op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
-        let result = op.wait_for_completion();
-        assert_eq!(result, 1);
+
+        {
+            let path: &str = "TEST:\\MYFILE.TXT";
+            let path_ptr = path.as_ptr() as u32;
+            let path_len = path.len() as u32;
+            let op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+            let result = op.wait_for_completion();
+            assert_eq!(result, 1);
+        }
+
+        {
+            let path = "TEST:\\NOTREAL.TXT";
+            let path_ptr = path.as_ptr() as u32;
+            let path_len = path.len() as u32;
+            let op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+            let result = op.wait_for_completion();
+            // Error: Not Found
+            assert_eq!(result, 0x80000002);
+        }
     }
 }

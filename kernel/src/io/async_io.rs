@@ -75,6 +75,14 @@ impl AsyncOp {
         }
     }
 
+    pub fn complete_with_result<E: Into<u32>>(&self, result: Result<u32, E>) {
+        let value = match result {
+            Ok(inner) => inner & 0x7fffffff,
+            Err(inner) => Into::<u32>::into(inner) | 0x80000000,
+        };
+        self.complete(value);
+    }
+
     pub fn complete(&self, return_value: u32) {
         // if this becomes configurable, make it an argument
         let semaphore_value = 1;

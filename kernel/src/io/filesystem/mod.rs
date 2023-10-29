@@ -1,15 +1,58 @@
 pub mod driver;
+#[cfg(test)]
+pub mod testing;
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
+use alloc::collections::BTreeMap;
+use alloc::string::{String, ToString};
+use spin::RwLock;
+
+use crate::files::path::Path;
 use crate::task::id::TaskID;
 
 use self::driver::DriverID;
+use self::driver::DriverType;
+use self::driver::InstalledDriver;
 
 use super::async_io::AsyncOp;
 
-pub fn get_driver_id_by_name(name: &str) -> Result<DriverID, ()> {
-    Ok(DriverID::new(1))
+static INSTALLED_DRIVERS: RwLock<BTreeMap<u32, (String, DriverType)>> = RwLock::new(BTreeMap::new());
+static NEXT_DRIVER_ID: AtomicU32 = AtomicU32::new(1);
+
+pub fn get_driver_id_by_name(name: &str) -> Option<DriverID> {
+    let drivers = INSTALLED_DRIVERS.read();
+    for (id, (drive_name, _)) in drivers.iter() {
+        if drive_name.as_str() == name {
+            return Some(DriverID::new(*id));
+        }
+    }
+    None
 }
 
-pub fn send_driver_io_request(task: TaskID, driver: DriverID, op: AsyncOp) {
-    op.complete(1);
+pub fn install_sync_fs(name: &str, driver: InstalledDriver) -> DriverID {
+    let id = NEXT_DRIVER_ID.fetch_add(1, Ordering::SeqCst);
+    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::SyncFilesystem(driver))); 
+    DriverID::new(id)
 }
+
+/// Run the open() operation on an installed driver
+pub fn driver_open(id: DriverID, path: Path, op: AsyncOp) {
+    let drivers = INSTALLED_DRIVERS.read();
+    let (_, driver) = match drivers.get(&id) {
+        Some(d) => d,
+        None => {
+            // TODO: encode errors
+            op.complete(0x80000000);
+            return;
+        },
+    };
+    match driver {
+        DriverType::SyncFilesystem(fs) => {
+            let result = fs.open(path);
+            op.complete_with_result(result);
+        },
+        _ => panic!("Not implemented"),
+    }
+}
+
