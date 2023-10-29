@@ -1,8 +1,9 @@
 use alloc::{collections::VecDeque, string::String};
+use idos_api::io::error::IOError;
 use crate::{
     io::{
         async_io::{AsyncOp, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ},
-        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open},
+        filesystem::{get_driver_id_by_name, driver::{DriverID, IOResult}, driver_open, driver_read},
     },
     files::path::Path,
     task::switching::{get_current_task, get_current_id},
@@ -11,32 +12,39 @@ use super::IOProvider;
 
 /// Inner contents of a handle that is bound to a file for reading/writing
 pub struct FileIOProvider {
-    pending_ops: VecDeque<AsyncOp>
+    pending_ops: VecDeque<AsyncOp>,
+    driver_id: Option<DriverID>,
+    bound_instance: Option<u32>,
 }
 
 impl FileIOProvider {
     pub fn new() -> Self {
         Self {
             pending_ops: VecDeque::new(),
+            driver_id: None,
+            bound_instance: None,
         }
     }
 
     pub fn is_bound(&self) -> bool {
-        false
+        self.bound_instance.is_some()
     }
 
-    pub fn op_completed(&mut self, id: u32, result: Result<u32, u32>) {
+    pub fn op_completed(&mut self, id: u32, result: IOResult) {
         // find the op
         // for now, just pull the first
         if self.pending_ops.is_empty() {
             return;
         }
         let op = self.pending_ops.pop_front().unwrap();
-        let result_code = match result {
-            Ok(value) => value & 0x7fffffff,
-            Err(value) => (value & 0x7fffffff) | 0x80000000,
-        };
-        op.complete(result_code);
+        if op.op_code & 0xffff == FILE_OP_OPEN {
+            if let Ok(value) = result {
+                self.bound_instance = Some(value);
+                op.complete(1);
+                return;
+            }
+        }
+        op.complete_with_result(result);
     }
 }
 
@@ -48,14 +56,27 @@ impl IOProvider for FileIOProvider {
 
         let op_code = op.op_code & 0xffff;
 
-        if self.is_bound() {
+        if let Some(instance) = self.bound_instance {
             match op_code {
-                FILE_OP_READ => panic!("NOT SUPPORTED"),
+                FILE_OP_READ => {
+                    let buffer_ptr = op.arg0 as *mut u8;
+                    let buffer_len = op.arg1 as usize;
+                    let buffer = unsafe {
+                        core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
+                    };
+
+                    self.pending_ops.push_back(op);
+                    let driver_id = self.driver_id.unwrap();
+                    if let Some(result) = driver_read(driver_id, instance, buffer) {
+                        self.op_completed(0, result);
+                    }
+                },
                 FILE_OP_WRITE => panic!("NOT SUPPORTED"),
                 FILE_OP_SEEK => panic!("NOT SUPPORTED"),
                 FILE_OP_STAT => panic!("NOT SUPPORTED"),
                 _ => return Err(()),
             }
+            return Ok(());
         }
 
         if op_code == FILE_OP_OPEN {
@@ -67,13 +88,14 @@ impl IOProvider for FileIOProvider {
             crate::kprintln!("Open path \"{}\"", path_str);
             match prepare_file_path(path_str) {
                 Ok((driver_id, path)) => {
-                    self.pending_ops.push_back(op.clone());
-                    driver_open(driver_id, path, op);
+                    self.pending_ops.push_back(op);
+                    self.driver_id = Some(driver_id);
+                    if let Some(result) = driver_open(driver_id, path) {
+                        self.op_completed(0, result);
+                    }
                 },
                 Err(_) => {
-                    // maybe drive doesn't exist, should create a good error there
-                    crate::kprintln!("Invalid path");
-                    op.complete(0xffffffff);
+                    op.complete_with_result(Err(IOError::NotFound));
                 },
             }
             return Ok(());

@@ -55,7 +55,7 @@ pub fn create_file_handle() -> Handle {
 #[cfg(test)]
 mod tests {
     use crate::io::handle::PendingHandleOp;
-    use crate::io::async_io::{OPERATION_FLAG_TASK, TASK_OP_WAIT, OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ, OPERATION_FLAG_FILE, FILE_OP_OPEN};
+    use crate::io::async_io::{OPERATION_FLAG_TASK, TASK_OP_WAIT, OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ};
 
     #[test_case]
     fn wait_for_child() {
@@ -154,9 +154,8 @@ mod tests {
 
     #[test_case]
     fn open_file_sync() {
-        let handle = super::create_file_handle();
-
         {
+            let handle = super::create_file_handle();
             let path: &str = "TEST:\\MYFILE.TXT";
             let path_ptr = path.as_ptr() as u32;
             let path_len = path.len() as u32;
@@ -166,6 +165,7 @@ mod tests {
         }
 
         {
+            let handle = super::create_file_handle();
             let path = "TEST:\\NOTREAL.TXT";
             let path_ptr = path.as_ptr() as u32;
             let path_len = path.len() as u32;
@@ -174,5 +174,22 @@ mod tests {
             // Error: Not Found
             assert_eq!(result, 0x80000002);
         }
+    }
+
+    #[test_case]
+    fn read_file_sync() {
+        let handle = super::create_file_handle();
+        let path = "TEST:\\MYFILE.TXT";
+        let path_ptr = path.as_ptr() as u32;
+        let path_len = path.len() as u32;
+        let mut op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+        let mut result = op.wait_for_completion();
+        assert_eq!(result, 1);
+
+        let mut buffer: [u8; 5] = [0; 5];
+        op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_READ, buffer.as_ptr() as u32, buffer.len() as u32, 0);
+        result = op.wait_for_completion();
+        assert_eq!(result, 5);
+        assert_eq!(buffer, [b'A', b'B', b'C', b'D', b'E']);
     }
 }
