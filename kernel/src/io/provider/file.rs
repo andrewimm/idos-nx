@@ -1,5 +1,12 @@
 use alloc::{collections::VecDeque, string::String};
-use crate::{io::{async_io::{AsyncOp, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ}, filesystem::{get_driver_id_by_name, driver::DriverID, send_driver_io_request}}, files::path::Path, task::switching::{get_current_task, get_current_id}};
+use crate::{
+    io::{
+        async_io::{AsyncOp, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ},
+        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open},
+    },
+    files::path::Path,
+    task::switching::{get_current_task, get_current_id},
+};
 use super::IOProvider;
 
 /// Inner contents of a handle that is bound to a file for reading/writing
@@ -18,14 +25,18 @@ impl FileIOProvider {
         false
     }
 
-    pub fn op_completed(&mut self, id: u32, result: u32) {
+    pub fn op_completed(&mut self, id: u32, result: Result<u32, u32>) {
         // find the op
         // for now, just pull the first
         if self.pending_ops.is_empty() {
             return;
         }
         let op = self.pending_ops.pop_front().unwrap();
-        op.complete(result);
+        let result_code = match result {
+            Ok(value) => value & 0x7fffffff,
+            Err(value) => (value & 0x7fffffff) | 0x80000000,
+        };
+        op.complete(result_code);
     }
 }
 
@@ -57,9 +68,11 @@ impl IOProvider for FileIOProvider {
             match prepare_file_path(path_str) {
                 Ok((driver_id, path)) => {
                     self.pending_ops.push_back(op.clone());
-                    send_driver_io_request(get_current_id(), driver_id, op);
+                    driver_open(driver_id, path, op);
                 },
                 Err(_) => {
+                    // maybe drive doesn't exist, should create a good error there
+                    crate::kprintln!("Invalid path");
                     op.complete(0xffffffff);
                 },
             }
@@ -73,7 +86,7 @@ impl IOProvider for FileIOProvider {
 fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), ()> {
     if Path::is_absolute(raw_path) {
         let (drive_name, path_portion) = Path::split_absolute_path(raw_path).ok_or(())?;
-        let driver_id = get_driver_id_by_name(drive_name).map_err(|_| ())?;
+        let driver_id = get_driver_id_by_name(drive_name).ok_or(())?;
 
         Ok((driver_id, Path::from_str(path_portion)))
     } else {
