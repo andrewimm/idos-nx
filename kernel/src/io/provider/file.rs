@@ -108,7 +108,12 @@ impl IOProvider for FileIOProvider {
 fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), ()> {
     if Path::is_absolute(raw_path) {
         let (drive_name, path_portion) = Path::split_absolute_path(raw_path).ok_or(())?;
-        let driver_id = get_driver_id_by_name(drive_name).ok_or(())?;
+        let driver_id = if drive_name == "DEV" {
+            crate::kprintln!("FIND DEV \"{}\"", path_portion);
+            get_driver_id_by_name(&path_portion[1..]).ok_or(())?
+        } else {
+            get_driver_id_by_name(drive_name).ok_or(())?
+        };
 
         Ok((driver_id, Path::from_str(path_portion)))
     } else {

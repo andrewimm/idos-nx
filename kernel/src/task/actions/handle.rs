@@ -192,4 +192,46 @@ mod tests {
         assert_eq!(result, 5);
         assert_eq!(buffer, [b'A', b'B', b'C', b'D', b'E']);
     }
+
+    #[test_case]
+    fn open_device_sync() {
+        {
+            let handle = super::create_file_handle();
+            let path: &str = "DEV:\\ZERO";
+            let path_ptr = path.as_ptr() as u32;
+            let path_len = path.len() as u32;
+            let op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+            let result = op.wait_for_completion();
+            assert_eq!(result, 1);
+        }
+
+        {
+            let handle = super::create_file_handle();
+            let path = "DEV:\\FAKE";
+            let path_ptr = path.as_ptr() as u32;
+            let path_len = path.len() as u32;
+            let op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+            let result = op.wait_for_completion();
+            // Error: Not Found
+            assert_eq!(result, 0x80000002);
+        }
+    }
+
+    #[test_case]
+    fn read_device_sync() {
+        let handle = super::create_file_handle();
+        let path = "DEV:\\ZERO";
+        let path_ptr = path.as_ptr() as u32;
+        let path_len = path.len() as u32;
+        let mut op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+        let mut result = op.wait_for_completion();
+        assert_eq!(result, 1);
+
+        let mut buffer: [u8; 3] = [0xAA; 3];
+        op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_READ, buffer.as_ptr() as u32, buffer.len() as u32, 0);
+        result = op.wait_for_completion();
+        assert_eq!(result, 3);
+        assert_eq!(buffer, [0, 0, 0]);
+
+    }
 }
