@@ -37,6 +37,12 @@ pub fn install_sync_fs(name: &str, driver: InstalledDriver) -> DriverID {
     DriverID::new(id)
 }
 
+pub fn install_sync_dev(name: &str, driver: InstalledDriver) -> DriverID {
+    let id = NEXT_DRIVER_ID.fetch_add(1, Ordering::SeqCst);
+    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::SyncDevice(driver)));
+    DriverID::new(id)
+}
+
 /// Run the open() operation on an installed driver
 pub fn driver_open(id: DriverID, path: Path) -> Option<IOResult> {
     let drivers = INSTALLED_DRIVERS.read();
@@ -49,6 +55,9 @@ pub fn driver_open(id: DriverID, path: Path) -> Option<IOResult> {
     match driver {
         DriverType::SyncFilesystem(fs) => {
             return Some(fs.open(path));
+        },
+        DriverType::SyncDevice(dev) => {
+            return Some(dev.open(Path::from_str("")));
         },
         _ => panic!("Not implemented"),
     }
@@ -65,6 +74,9 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8]) -> Option<IOR
     match driver {
         DriverType::SyncFilesystem(fs) => {
             return Some(fs.read(instance, buffer));
+        },
+        DriverType::SyncDevice(dev) => {
+            return Some(dev.read(instance, buffer));
         },
         _ => panic!("Not implemented"),
     }
