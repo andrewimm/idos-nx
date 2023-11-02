@@ -13,11 +13,9 @@ use crate::files::path::Path;
 use crate::memory::shared::SharedMemoryRange;
 use crate::task::id::TaskID;
 
-use self::driver::DriverID;
-use self::driver::DriverType;
-use self::driver::InstalledDriver;
+use self::driver::{DriverID, DriverType, InstalledDriver, AsyncIOCallback};
 
-use super::async_io::AsyncOp;
+use super::async_io::{AsyncOp, AsyncOpID};
 use super::driver::comms::{IOResult, DriverIOAction};
 use super::driver::io_task::send_async_request;
 
@@ -59,7 +57,7 @@ pub fn install_async_dev(name: &str, task: TaskID) -> DriverID {
 }
 
 /// Run the open() operation on an installed driver
-pub fn driver_open(id: DriverID, path: Path, io_callback: (u32, u32)) -> Option<IOResult> {
+pub fn driver_open(id: DriverID, path: Path, io_callback: AsyncIOCallback) -> Option<IOResult> {
     let drivers = INSTALLED_DRIVERS.read();
     let (_, driver) = match drivers.get(&id) {
         Some(d) => d,
@@ -86,7 +84,7 @@ pub fn driver_open(id: DriverID, path: Path, io_callback: (u32, u32)) -> Option<
     }
 }
 
-fn async_open(task: TaskID, path: Path, io_callback: (u32, u32)) {
+fn async_open(task: TaskID, path: Path, io_callback: AsyncIOCallback) {
     // clone the string so that when the method returns, the original path can
     // be dropped or moved
     let path_copy = Into::<String>::into(path).clone();
@@ -110,14 +108,13 @@ fn async_open(task: TaskID, path: Path, io_callback: (u32, u32)) {
 
     send_async_request(
         task,
-        io_callback.0,
-        io_callback.1,
+        io_callback,
         action,
         shared_range,
     );
 }
 
-pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: (u32, u32)) -> Option<IOResult> {
+pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
     let drivers = INSTALLED_DRIVERS.read();
     let (_, driver) = match drivers.get(&id) {
         Some(d) => d,
@@ -144,7 +141,7 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: 
     }
 }
 
-fn async_read(task: TaskID, instance: u32, buffer: &mut [u8], io_callback: (u32, u32)) {
+fn async_read(task: TaskID, instance: u32, buffer: &mut [u8], io_callback: (u32, AsyncOpID)) {
     let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
     let shared_to_driver = shared_range.share_with_task(task);
 
@@ -156,8 +153,7 @@ fn async_read(task: TaskID, instance: u32, buffer: &mut [u8], io_callback: (u32,
 
     send_async_request(
         task,
-        io_callback.0,
-        io_callback.1,
+        io_callback,
         action,
         Some(shared_range),
     );

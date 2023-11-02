@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::{collections::BTreeMap, sync::Arc};
+use alloc::{collections::{BTreeMap, VecDeque}, sync::Arc};
 use spin::Mutex;
 
 use crate::{memory::{address::{PhysicalAddress, VirtualAddress}, virt::scratch::UnmappedPage}, task::{id::TaskID, messaging::MessageQueue}};
@@ -14,7 +14,7 @@ pub enum IOType {
 }
 
 impl IOType {
-    pub fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<(), ()> {
+    pub fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<AsyncOpID, ()> {
         match self {
             Self::ChildTask(io) => io.add_op(index, op),
             Self::MessageQueue(io) => io.add_op(index, op),
@@ -107,6 +107,83 @@ impl AsyncOp {
             let ptr = (unmapped_for_dir.virtual_address() + semaphore_offset).as_ptr::<AtomicU32>();
             (&*ptr).store(semaphore_value, Ordering::SeqCst);
         }
+    }
+}
+
+/// When an op is added to an open IO instance, it is given a unique identifier
+/// This can be used to cancel or complete the operation from an outside source
+/// like an async driver.
+#[derive(Copy, Clone, Eq, PartialEq)]
+pub struct AsyncOpID(u32);
+
+impl AsyncOpID {
+    pub fn new(inner: u32) -> Self {
+        Self(inner)
+    }
+}
+
+impl core::ops::Deref for AsyncOpID {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Convenience struct to generate new Op IDs
+pub struct OpIdGenerator(AtomicU32);
+
+impl OpIdGenerator {
+    pub fn new() -> Self {
+        Self(AtomicU32::new(1))
+    }
+
+    pub fn next_id(&self) -> AsyncOpID {
+        let next = self.0.fetch_add(1, Ordering::SeqCst);
+        AsyncOpID::new(next)
+    }
+}
+
+/// Stores a queue of pending Async Ops
+pub struct AsyncOpQueue {
+    inner: VecDeque<(AsyncOpID, AsyncOp)>,
+}
+
+impl AsyncOpQueue {
+    pub fn new() -> Self {
+        Self {
+            inner: VecDeque::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    pub fn push(&mut self, id: AsyncOpID, op: AsyncOp) {
+        self.inner.push_back((id, op));
+    }
+
+    pub fn peek(&self) -> Option<&(AsyncOpID, AsyncOp)> {
+        self.inner.get(0)
+    }
+
+    pub fn pop(&mut self) -> Option<(AsyncOpID, AsyncOp)> {
+        self.inner.pop_front()
+    }
+
+    pub fn find_by_id(&self, seek: AsyncOpID) -> Option<&AsyncOp> {
+        for (id, op) in self.inner.iter() {
+            if *id == seek {
+                return Some(op);
+            }
+        }
+        None
+    }
+
+    pub fn remove(&mut self, seek: AsyncOpID) -> Option<AsyncOp> {
+        let index = self.inner.iter().position(|pair| pair.0 == seek)?;
+        self.inner.remove(index).map(|pair| pair.1)
     }
 }
 

@@ -1,29 +1,27 @@
-use alloc::collections::VecDeque;
-use crate::{task::{id::TaskID, messaging::{MessageQueue, Message}}, io::async_io::AsyncOp, memory::{address::{VirtualAddress, PhysicalAddress}, virt::scratch::UnmappedPage}};
+use crate::{task::{id::TaskID, messaging::{MessageQueue, Message}}, io::async_io::{AsyncOp, OpIdGenerator, AsyncOpQueue, AsyncOpID}, memory::{address::{VirtualAddress, PhysicalAddress}, virt::scratch::UnmappedPage}};
 use super::IOProvider;
 
 /// Inner contents of the handle used to read IPC messages.
 pub struct MessageIOProvider {
-    pending_ops: VecDeque<AsyncOp>
+    next_id: OpIdGenerator,
+    pending_ops: AsyncOpQueue,
 }
 
 impl MessageIOProvider {
     pub fn new() -> Self {
         Self {
-            pending_ops: VecDeque::new(),
+            next_id: OpIdGenerator::new(),
+            pending_ops: AsyncOpQueue::new(),
         }
     }
 
     pub fn check_message_queue(&mut self, current_ticks: u32, messages: &mut MessageQueue) {
-        if self.pending_ops.is_empty() {
-            return;
-        }
         while !self.pending_ops.is_empty() {
             let (first_message, has_more) = messages.read(current_ticks);
             match first_message {
                 Some(packet) => {
                     let (sender, message) = packet.open();
-                    let op = self.pending_ops.pop_front().unwrap();
+                    let (_, op) = self.pending_ops.pop().unwrap();
                     // arg0 is the address of the Message
                     // return value is the ID of the sender
                     let phys_frame_start = op.arg0 & 0xfffff000;
@@ -46,7 +44,7 @@ impl MessageIOProvider {
 }
 
 impl IOProvider for MessageIOProvider {
-    fn add_op(&mut self, _index: u32, op: AsyncOp) -> Result<(), ()> {
+    fn add_op(&mut self, _index: u32, op: AsyncOp) -> Result<AsyncOpID, ()> {
         // convert the virtual address of the message pointer to a physical
         // address
         // TODO: if the message spans two physical pages, we're gonna have a problem!
@@ -61,9 +59,11 @@ impl IOProvider for MessageIOProvider {
         };
         let mut op_clone = op.clone();
         op_clone.arg0 = message_phys.as_u32();
-        self.pending_ops.push_back(op_clone);
 
-        Ok(())
+        let id = self.next_id.next_id();
+        self.pending_ops.push(id, op_clone);
+
+        Ok(id)
     }
 }
 

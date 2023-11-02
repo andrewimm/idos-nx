@@ -1,5 +1,5 @@
-use alloc::collections::VecDeque;
-use crate::{task::id::TaskID, io::async_io::{AsyncOp, OPERATION_FLAG_TASK, TASK_OP_WAIT}};
+use crate::task::id::TaskID;
+use crate::io::async_io::{AsyncOp, OPERATION_FLAG_TASK, TASK_OP_WAIT, AsyncOpID, OpIdGenerator, AsyncOpQueue};
 use super::IOProvider;
 
 /// Inner contents of the handle generated when a child task is spawned. This
@@ -9,7 +9,8 @@ pub struct TaskIOProvider {
     child_id: TaskID,
     exit_code: Option<u32>,
 
-    pending_ops: VecDeque<AsyncOp>
+    next_op_id: OpIdGenerator,
+    pending_ops: AsyncOpQueue,
 }
 
 impl TaskIOProvider {
@@ -17,7 +18,8 @@ impl TaskIOProvider {
         Self {
             child_id: id,
             exit_code: None,
-            pending_ops: VecDeque::new(),
+            next_op_id: OpIdGenerator::new(),
+            pending_ops: AsyncOpQueue::new(),
         }
     }
 
@@ -27,30 +29,32 @@ impl TaskIOProvider {
 
     pub fn task_exited(&mut self, code: u32) {
         self.exit_code = Some(code);
-        for op in self.pending_ops.iter() {
-            op.complete(code);
+        loop {
+            match self.pending_ops.pop() {
+                Some((_, op)) => op.complete(code),
+                None => break,
+            }
         }
-
-        self.pending_ops.clear();
     }
 }
 
 impl IOProvider for TaskIOProvider {
-    fn add_op(&mut self, _index: u32, op: AsyncOp) -> Result<(), ()> {
+    fn add_op(&mut self, _index: u32, op: AsyncOp) -> Result<AsyncOpID, ()> {
         if op.op_code & OPERATION_FLAG_TASK == 0 {
             return Err(());
         }
 
         match op.op_code & 0xffff {
             TASK_OP_WAIT => {
+                let id = self.next_op_id.next_id();
                 if let Some(code) = self.exit_code {
                     // immediately complete op without queueing
                     op.complete(code);
-                    return Ok(());
+                    return Ok(id);
                 }
 
-                self.pending_ops.push_back(op);
-                Ok(())
+                self.pending_ops.push(id, op);
+                Ok(id)
             },
             _ => Err(()), // unsupported op
         }

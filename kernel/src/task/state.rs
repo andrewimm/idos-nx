@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 use crate::files::path::Path;
-use crate::io::async_io::{AsyncIOTable, IOType};
+use crate::io::async_io::{AsyncIOTable, IOType, AsyncOpID};
 use crate::io::driver::comms::IOResult;
 use crate::io::handle::HandleTable;
 use crate::loader::environment::ExecutionEnvironment;
@@ -272,7 +272,7 @@ impl Task {
         }
     }
 
-    pub fn async_io_complete(&mut self, io_index: u32, op_id: u32, return_value: IOResult) {
+    pub fn async_io_complete(&mut self, io_index: u32, op_id: AsyncOpID, return_value: IOResult) {
         match self.async_io_table.get(io_index) {
             Some(async_io) => {
                 match *async_io.io_type.lock() {
