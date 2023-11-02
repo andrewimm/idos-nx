@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 
-use crate::{task::id::TaskID, io::driver::sync_driver::SyncDriver};
+use crate::{task::id::TaskID, io::{driver::sync_driver::SyncDriver, async_io::AsyncOpID}};
 
 #[derive(Copy, Clone)]
 pub struct DriverID(u32);
@@ -28,3 +28,4 @@ pub enum DriverType {
     AsyncFilesystem(TaskID),
 }
 
+pub type AsyncIOCallback = (u32, AsyncOpID);

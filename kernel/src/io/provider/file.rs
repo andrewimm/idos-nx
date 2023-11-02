@@ -1,8 +1,7 @@
-use alloc::{collections::VecDeque, string::String};
 use idos_api::io::error::IOError;
 use crate::{
     io::{
-        async_io::{AsyncOp, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ},
+        async_io::{AsyncOp, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ, AsyncOpQueue, OpIdGenerator, AsyncOpID},
         driver::comms::IOResult,
         filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read},
     },
@@ -13,7 +12,8 @@ use super::IOProvider;
 
 /// Inner contents of a handle that is bound to a file for reading/writing
 pub struct FileIOProvider {
-    pending_ops: VecDeque<AsyncOp>,
+    next_op_id: OpIdGenerator,
+    pending_ops: AsyncOpQueue,
     driver_id: Option<DriverID>,
     bound_instance: Option<u32>,
 }
@@ -21,7 +21,8 @@ pub struct FileIOProvider {
 impl FileIOProvider {
     pub fn new() -> Self {
         Self {
-            pending_ops: VecDeque::new(),
+            next_op_id: OpIdGenerator::new(),
+            pending_ops: AsyncOpQueue::new(),
             driver_id: None,
             bound_instance: None,
         }
@@ -31,13 +32,11 @@ impl FileIOProvider {
         self.bound_instance.is_some()
     }
 
-    pub fn op_completed(&mut self, id: u32, result: IOResult) {
-        // find the op
-        // for now, just pull the first
-        if self.pending_ops.is_empty() {
-            return;
-        }
-        let op = self.pending_ops.pop_front().unwrap();
+    pub fn op_completed(&mut self, id: AsyncOpID, result: IOResult) {
+        let op = match self.pending_ops.remove(id) {
+            Some(op) => op,
+            None => return,
+        };
         if op.op_code & 0xffff == FILE_OP_OPEN {
             if let Ok(value) = result {
                 self.bound_instance = Some(value);
@@ -50,10 +49,15 @@ impl FileIOProvider {
 }
 
 impl IOProvider for FileIOProvider {
-    fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<(), ()> {
+    fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<AsyncOpID, ()> {
         if op.op_code & OPERATION_FLAG_FILE == 0 {
             return Err(());
         }
+
+        // TODO: This is completely broken. Ops need to wait on the end of the
+        // queue, and only run when they are at the front.
+
+        let id = self.next_op_id.next_id();
 
         let op_code = op.op_code & 0xffff;
 
@@ -66,10 +70,10 @@ impl IOProvider for FileIOProvider {
                         core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
                     };
 
-                    self.pending_ops.push_back(op);
+                    self.pending_ops.push(id, op);
                     let driver_id = self.driver_id.unwrap();
-                    if let Some(result) = driver_read(driver_id, instance, buffer, (index, 0)) {
-                        self.op_completed(0, result);
+                    if let Some(result) = driver_read(driver_id, instance, buffer, (index, id)) {
+                        self.op_completed(id, result);
                     }
                 },
                 FILE_OP_WRITE => panic!("NOT SUPPORTED"),
@@ -77,7 +81,7 @@ impl IOProvider for FileIOProvider {
                 FILE_OP_STAT => panic!("NOT SUPPORTED"),
                 _ => return Err(()),
             }
-            return Ok(());
+            return Ok(id);
         }
 
         if op_code == FILE_OP_OPEN {
@@ -89,17 +93,17 @@ impl IOProvider for FileIOProvider {
             crate::kprintln!("Open path \"{}\"", path_str);
             match prepare_file_path(path_str) {
                 Ok((driver_id, path)) => {
-                    self.pending_ops.push_back(op);
+                    self.pending_ops.push(id, op);
                     self.driver_id = Some(driver_id);
-                    if let Some(result) = driver_open(driver_id, path, (index, 0)) {
-                        self.op_completed(0, result);
+                    if let Some(result) = driver_open(driver_id, path, (index, id)) {
+                        self.op_completed(id, result);
                     }
                 },
                 Err(_) => {
                     op.complete_with_result(Err(IOError::NotFound));
                 },
             }
-            return Ok(());
+            return Ok(id);
         }
 
         Err(())

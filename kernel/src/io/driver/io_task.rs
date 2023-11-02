@@ -2,7 +2,7 @@ use alloc::collections::{VecDeque, BTreeMap};
 use idos_api::io::error::IOError;
 use spin::{RwLock, Once, Mutex, MutexGuard};
 
-use crate::{task::{id::TaskID, switching::{get_current_id, get_task}, actions::{handle::open_message_queue, send_message}, messaging::Message}, memory::shared::SharedMemoryRange};
+use crate::{task::{id::TaskID, switching::{get_current_id, get_task}, actions::{handle::open_message_queue, send_message}, messaging::Message}, memory::shared::SharedMemoryRange, io::{filesystem::driver::AsyncIOCallback, async_io::AsyncOpID}};
 
 use crate::io::{async_io::{OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ}, handle::PendingHandleOp};
 
@@ -17,7 +17,7 @@ struct IncomingRequest {
     /// The index of the async io handle pointing to this file
     pub source_io: u32,
     /// The individual async op
-    pub source_op: u32,
+    pub source_op: AsyncOpID,
 
     // the actual action data:
     /// The action to encode and send to the driver
@@ -44,8 +44,7 @@ fn get_incoming_queue() -> MutexGuard<'static, VecDeque<IncomingRequest>> {
 
 pub fn send_async_request(
     driver_id: TaskID,
-    source_io: u32,
-    source_op: u32,
+    io_callback: AsyncIOCallback,
     action: DriverIOAction,
     shared_range: Option<SharedMemoryRange>,
 ) {
@@ -54,8 +53,8 @@ pub fn send_async_request(
     let request = IncomingRequest {
         driver_id,
         source_task,
-        source_io,
-        source_op,
+        source_io: io_callback.0,
+        source_op: io_callback.1,
         action,
         shared_range,
     };
