@@ -1,6 +1,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::collections::BTreeMap;
+use alloc::{collections::BTreeMap, sync::Arc};
+use spin::Mutex;
 
 use crate::{memory::{address::{PhysicalAddress, VirtualAddress}, virt::scratch::UnmappedPage}, task::{id::TaskID, messaging::MessageQueue}};
 
@@ -128,7 +129,7 @@ impl AsyncIOTable {
     pub fn add_io(&mut self, io_type: IOType) -> u32 {
         let entry = AsyncIOTableEntry {
             ref_count: AtomicU32::new(1),
-            io_type,
+            io_type: Arc::new(Mutex::new(io_type)),
         };
         let index = self.next.fetch_add(1, Ordering::SeqCst);
         self.inner.insert(index, entry);
@@ -137,7 +138,7 @@ impl AsyncIOTable {
 
     pub fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<(), ()> {
         let entry = self.inner.get_mut(&index).ok_or(())?;
-        entry.io_type.add_op(index, op);
+        entry.io_type.lock().add_op(index, op);
         Ok(())
     }
 
@@ -147,14 +148,14 @@ impl AsyncIOTable {
 
     /// convenience method to get first (and ideally, only) async io
     /// referencing a specific child task
-    pub fn get_task_io(&mut self, id: TaskID) -> Option<&mut IOType> {
+    pub fn get_task_io(&mut self, id: TaskID) -> Option<Arc<Mutex<IOType>>> {
         for (_, entry) in self.inner.iter_mut() {
-            let matched = match &entry.io_type {
-                IOType::ChildTask(io) => io.matches_task(id),
+            let matched = match *entry.io_type.lock() {
+                IOType::ChildTask(ref io) => io.matches_task(id),
                 _ => false,
             };
             if matched {
-                return Some(&mut entry.io_type);
+                return Some(entry.io_type.clone());
             }
         }
         None
@@ -165,8 +166,8 @@ impl AsyncIOTable {
         let current_ticks = 0;
 
         for (_, entry) in self.inner.iter_mut() {
-            match &mut entry.io_type {
-                IOType::MessageQueue(io) => io.check_message_queue(current_ticks, messages),
+            match *entry.io_type.lock() {
+                IOType::MessageQueue(ref mut io) => io.check_message_queue(current_ticks, messages),
                 _ => continue,
             }
         }
@@ -175,5 +176,5 @@ impl AsyncIOTable {
 
 pub struct AsyncIOTableEntry {
     pub ref_count: AtomicU32,
-    pub io_type: IOType,
+    pub io_type: Arc<Mutex<IOType>>,
 }

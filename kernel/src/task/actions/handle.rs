@@ -23,14 +23,18 @@ pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> (Handle, 
 
 pub fn add_io_op(handle: Handle, op: AsyncOp) -> Result<(), ()> {
     let task_lock = get_current_task();
-    let mut task = task_lock.write();
-    let io_index = task.open_handles.get(handle).ok_or(())?.clone();
     let code = op.op_code;
-    let _ = task.async_io_table.add_op(io_index, op)?;
+    let (io_index, io_type) = {
+        let mut task = task_lock.read();
+        let io_index = task.open_handles.get(handle).ok_or(())?.clone();
+        let io = task.async_io_table.get(io_index).ok_or(())?;
+        (io_index, io.io_type.clone())
+    };
+    io_type.lock().add_op(io_index, op)?;
     if code & OPERATION_FLAG_MESSAGE != 0 {
         // if it's a messaging op, and it was successfully added, make sure
         // all message queue handles are refreshed
-        task.handle_incoming_messages();
+        task_lock.write().handle_incoming_messages();
     }
     Ok(())
 }
@@ -232,6 +236,29 @@ mod tests {
         result = op.wait_for_completion();
         assert_eq!(result, 3);
         assert_eq!(buffer, [0, 0, 0]);
+    }
 
+    #[test_case]
+    fn open_file_async() {
+        {
+            let handle = super::create_file_handle();
+            let path: &str = "ATEST:\\MYFILE.TXT";
+            let path_ptr = path.as_ptr() as u32;
+            let path_len = path.len() as u32;
+            let op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+            let result = op.wait_for_completion();
+            assert_eq!(result, 1);
+        }
+
+        {
+            let handle = super::create_file_handle();
+            let path = "ATEST:\\NOTREAL.TXT";
+            let path_ptr = path.as_ptr() as u32;
+            let path_len = path.len() as u32;
+            let op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+            let result = op.wait_for_completion();
+            // Error: Not Found
+            assert_eq!(result, 0x80000002);
+        }
     }
 }

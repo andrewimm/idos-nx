@@ -2,7 +2,7 @@ extern crate idos_api;
 
 pub mod async_io;
 pub mod devices;
-pub mod driver_io;
+pub mod driver;
 pub mod filesystem;
 pub mod handle;
 pub mod provider;
@@ -19,6 +19,9 @@ pub fn init_async_io_system() {
     {
         let test_sync_fs = self::filesystem::testing::sync_fs::TestSyncFS::new();
         self::filesystem::install_sync_fs("TEST", Box::new(test_sync_fs));
+
+        let async_fs_task = create_kernel_task(self::filesystem::testing::async_fs::driver_task, Some("TEST FS ASYNC"));
+        self::filesystem::install_async_fs("ATEST", async_fs_task);
     }
 
     let null_dev = self::devices::null::NullDev::new();
@@ -27,5 +30,5 @@ pub fn init_async_io_system() {
     let zero_dev = self::devices::zero::ZeroDev::new();
     self::filesystem::install_sync_dev("ZERO", Box::new(zero_dev));
 
-    create_kernel_task(self::driver_io::driver_io_task, Some("DRIVER IO"));
+    create_kernel_task(self::driver::io_task::driver_io_task, Some("DRIVER IO"));
 }
