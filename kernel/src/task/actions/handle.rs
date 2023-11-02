@@ -283,4 +283,27 @@ mod tests {
         assert_eq!(result, 3);
         assert_eq!(buffer, [0, 0, 0]);
     }
+
+    #[test_case]
+    fn read_device_async() {
+        let handle = super::create_file_handle();
+        let path = "DEV:\\ASYNCDEV";
+        let path_ptr = path.as_ptr() as u32;
+        let path_len = path.len() as u32;
+        let mut op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+        let mut result = op.wait_for_completion();
+        assert_eq!(result, 1);
+
+        let mut buffer: [u8; 4] = [0xBB; 4];
+        op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_READ, buffer.as_ptr() as u32, 2, 0);
+        result = op.wait_for_completion();
+        assert_eq!(result, 2);
+        assert_eq!(buffer, [b't', b'e', 0xbb, 0xbb]);
+
+        op = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_READ, buffer.as_ptr() as u32, 4, 0);
+        result = op.wait_for_completion();
+        assert_eq!(result, 4);
+        assert_eq!(buffer, [b's', b't', b't', b'e']);
+
+    }
 }
