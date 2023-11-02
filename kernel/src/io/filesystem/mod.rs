@@ -52,6 +52,12 @@ pub fn install_async_fs(name: &str, task: TaskID) -> DriverID {
     DriverID::new(id)
 }
 
+pub fn install_async_dev(name: &str, task: TaskID) -> DriverID {
+    let id = NEXT_DRIVER_ID.fetch_add(1, Ordering::SeqCst);
+    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::AsyncDevice(task)));
+    DriverID::new(id)
+}
+
 /// Run the open() operation on an installed driver
 pub fn driver_open(id: DriverID, path: Path, io_callback: (u32, u32)) -> Option<IOResult> {
     let drivers = INSTALLED_DRIVERS.read();
@@ -71,6 +77,10 @@ pub fn driver_open(id: DriverID, path: Path, io_callback: (u32, u32)) -> Option<
         },
         DriverType::SyncDevice(dev) => {
             return Some(dev.open(Path::from_str("")));
+        },
+        DriverType::AsyncDevice(dev) => {
+            async_open(*dev, path, io_callback);
+            return None;
         },
         _ => panic!("Not implemented"),
     }
@@ -125,6 +135,10 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: 
         },
         DriverType::SyncDevice(dev) => {
             return Some(dev.read(instance, buffer));
+        },
+        DriverType::AsyncDevice(dev) => {
+            async_read(*dev, instance, buffer, io_callback);
+            return None;
         },
         _ => panic!("Not implemented"),
     }
