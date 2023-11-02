@@ -3,7 +3,8 @@ use idos_api::io::error::IOError;
 use crate::{
     io::{
         async_io::{AsyncOp, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ},
-        filesystem::{get_driver_id_by_name, driver::{DriverID, IOResult}, driver_open, driver_read},
+        driver::comms::IOResult,
+        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read},
     },
     files::path::Path,
     task::switching::{get_current_task, get_current_id},
@@ -90,7 +91,7 @@ impl IOProvider for FileIOProvider {
                 Ok((driver_id, path)) => {
                     self.pending_ops.push_back(op);
                     self.driver_id = Some(driver_id);
-                    if let Some(result) = driver_open(driver_id, path) {
+                    if let Some(result) = driver_open(driver_id, path, (index, 0)) {
                         self.op_completed(0, result);
                     }
                 },
@@ -109,7 +110,6 @@ fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), ()> {
     if Path::is_absolute(raw_path) {
         let (drive_name, path_portion) = Path::split_absolute_path(raw_path).ok_or(())?;
         let driver_id = if drive_name == "DEV" {
-            crate::kprintln!("FIND DEV \"{}\"", path_portion);
             get_driver_id_by_name(&path_portion[1..]).ok_or(())?
         } else {
             get_driver_id_by_name(drive_name).ok_or(())?

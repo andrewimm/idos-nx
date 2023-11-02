@@ -1,7 +1,8 @@
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};
 use crate::files::path::Path;
-use crate::io::filesystem::driver::{SyncDriver, IOResult};
+use crate::io::driver::comms::IOResult;
+use crate::io::driver::sync_driver::SyncDriver;
 use idos_api::io::error::IOError;
 use spin::RwLock;
 

@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use alloc::string::String;
 use crate::files::path::Path;
 use crate::io::async_io::{AsyncIOTable, IOType};
+use crate::io::driver::comms::IOResult;
 use crate::io::handle::HandleTable;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
@@ -254,8 +255,10 @@ impl Task {
     /// Notify the task that a child task has terminated with an exit code
     pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
         match self.async_io_table.get_task_io(id) {
-            Some(IOType::ChildTask(io)) => {
-                io.task_exited(exit_code);
+            Some(mutex) => {
+                if let IOType::ChildTask(ref mut io) = *mutex.lock() {
+                    io.task_exited(exit_code);
+                }
             },
             _ => (),
         }
@@ -269,8 +272,16 @@ impl Task {
         }
     }
 
-    pub fn async_io_complete(&mut self, io_index: usize, op_id: usize, return_value: u32) {
-        
+    pub fn async_io_complete(&mut self, io_index: u32, op_id: u32, return_value: IOResult) {
+        match self.async_io_table.get(io_index) {
+            Some(async_io) => {
+                match *async_io.io_type.lock() {
+                    IOType::File(ref mut fp) => fp.op_completed(op_id, return_value),
+                    _ => (),
+                }
+            },
+            _ => (),
+        }
     }
 
     pub fn io_complete(&mut self) {

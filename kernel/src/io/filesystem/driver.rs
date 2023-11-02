@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
-use idos_api::io::error::IOError;
 
-use crate::{task::id::TaskID, files::path::Path};
+use crate::{task::id::TaskID, io::driver::sync_driver::SyncDriver};
 
 #[derive(Copy, Clone)]
 pub struct DriverID(u32);
@@ -28,14 +27,4 @@ pub enum DriverType {
     SyncFilesystem(InstalledDriver),
     AsyncFilesystem(TaskID),
 }
-
-pub trait SyncDriver {
-    #![allow(unused_variables)]
-
-    fn open(&self, path: Path) -> IOResult;
-
-    fn read(&self, instance: u32, buffer: &mut [u8]) -> IOResult;
-}
-
-pub type IOResult = Result<u32, IOError>;
 

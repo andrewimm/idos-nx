@@ -1,19 +1,30 @@
 use alloc::collections::{VecDeque, BTreeMap};
+use idos_api::io::error::IOError;
 use spin::{RwLock, Once, Mutex, MutexGuard};
 
-use crate::task::{id::TaskID, switching::{get_current_id, get_task}, actions::{handle::open_message_queue, send_message}, messaging::Message};
+use crate::{task::{id::TaskID, switching::{get_current_id, get_task}, actions::{handle::open_message_queue, send_message}, messaging::Message}, memory::shared::SharedMemoryRange};
 
-use super::{async_io::{OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ}, handle::PendingHandleOp};
+use crate::io::{async_io::{OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ}, handle::PendingHandleOp};
 
+use super::comms::{DriverIOAction, DRIVER_RESPONSE_MAGIC};
 
 struct IncomingRequest {
+    // information on the handle/op performing the async action:
+    /// The ID of the driver task
     pub driver_id: TaskID,
+    /// The ID of the originating task
     pub source_task: TaskID,
-    pub source_io: usize,
-    pub source_op: usize,
-}
+    /// The index of the async io handle pointing to this file
+    pub source_io: u32,
+    /// The individual async op
+    pub source_op: u32,
 
-pub const DRIVER_IO_RESPONSE_MAGIC: u32 = 0x00534552; // "RES\0"
+    // the actual action data:
+    /// The action to encode and send to the driver
+    pub action: DriverIOAction,
+    /// A shared memory range, if needed to share a buffer with the driver
+    pub shared_range: Option<SharedMemoryRange>,
+}
 
 static DRIVER_IO_TASK_ID: RwLock<TaskID> = RwLock::new(TaskID::new(0));
 
@@ -31,6 +42,31 @@ fn get_incoming_queue() -> MutexGuard<'static, VecDeque<IncomingRequest>> {
     }).lock()
 }
 
+pub fn send_async_request(
+    driver_id: TaskID,
+    source_io: u32,
+    source_op: u32,
+    action: DriverIOAction,
+    shared_range: Option<SharedMemoryRange>,
+) {
+    let source_task = get_current_id();
+
+    let request = IncomingRequest {
+        driver_id,
+        source_task,
+        source_io,
+        source_op,
+        action,
+        shared_range,
+    };
+
+    get_incoming_queue().push_back(request);
+
+    // make sure the driverio task is awake
+    let id = get_driver_io_task_id();
+    send_message(id, Message::empty(), 0xffffffff);
+}
+
 pub fn driver_io_task() -> ! {
     let id = get_current_id();
     *DRIVER_IO_TASK_ID.write() = id;
@@ -45,9 +81,14 @@ pub fn driver_io_task() -> ! {
         let op = PendingHandleOp::new(message_handle, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, message_ptr, 0, 0);
         let sender = op.wait_for_completion();
 
-        if message.0 == DRIVER_IO_RESPONSE_MAGIC {
+        if message.0 == DRIVER_RESPONSE_MAGIC {
             let response_to = message.1;
-            let return_value = message.2;
+            let return_value = if message.2 & 0x80000000 == 0 {
+                Ok(message.2 & 0x7fffffff)
+            } else {
+                let error = IOError::try_from(message.2 & 0x7fffffff).unwrap();
+                Err(error)
+            };
 
             match PENDING_REQUESTS.lock().remove(&response_to) {
                 Some(request) => {
@@ -78,10 +119,11 @@ pub fn driver_io_task() -> ! {
                         let request_id = next_request_id;
                         next_request_id += 1;
 
+                        let message = request.action.encode_to_message(request_id);
+
                         // TODO: I don't like locking this when also holding the queue lock
                         PENDING_REQUESTS.lock().insert(request_id, request);
 
-                        let message = encode_request(request_id);
                         send_message(driver_id, message, 0xffffffff);
                     },
                     None => break,
@@ -91,6 +133,3 @@ pub fn driver_io_task() -> ! {
     }
 }
 
-fn encode_request(id: u32) -> Message {
-    Message(0, 0, 0, 0)
-}
