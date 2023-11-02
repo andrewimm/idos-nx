@@ -68,7 +68,7 @@ impl IOProvider for FileIOProvider {
 
                     self.pending_ops.push_back(op);
                     let driver_id = self.driver_id.unwrap();
-                    if let Some(result) = driver_read(driver_id, instance, buffer) {
+                    if let Some(result) = driver_read(driver_id, instance, buffer, (index, 0)) {
                         self.op_completed(0, result);
                     }
                 },

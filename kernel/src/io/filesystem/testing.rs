@@ -83,6 +83,15 @@ pub mod async_fs {
     }
 
     struct OpenFile {
+        written: usize,
+    }
+
+    impl OpenFile {
+        pub fn new() -> Self {
+            Self {
+                written: 0,
+            }
+        }
     }
 
     impl AsyncDriver for AsyncTestFS {
@@ -90,7 +99,7 @@ pub mod async_fs {
             crate::kprintln!("Async open \"{}\"", path);
             if path == "MYFILE.TXT" {
                 let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
-                self.open_files.write().insert(instance, OpenFile {});
+                self.open_files.write().insert(instance, OpenFile::new());
                 Ok(instance)
             } else {
                 Err(IOError::NotFound)
@@ -98,7 +107,14 @@ pub mod async_fs {
         }
 
         fn read(&mut self, instance: u32, buffer: &mut [u8]) -> IOResult {
-            Ok(0)
+            let mut open_files = self.open_files.write();
+            let found = open_files.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
+            for i in 0..buffer.len() {
+                let value = ((found.written + i) % 26) + 0x41;
+                buffer[i] = value as u8;
+            }
+            found.written += buffer.len();
+            Ok(buffer.len() as u32)
         }
     }
 

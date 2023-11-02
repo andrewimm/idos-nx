@@ -107,7 +107,7 @@ fn async_open(task: TaskID, path: Path, io_callback: (u32, u32)) {
     );
 }
 
-pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8]) -> Option<IOResult> {
+pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: (u32, u32)) -> Option<IOResult> {
     let drivers = INSTALLED_DRIVERS.read();
     let (_, driver) = match drivers.get(&id) {
         Some(d) => d,
@@ -119,10 +119,33 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8]) -> Option<IOR
         DriverType::SyncFilesystem(fs) => {
             return Some(fs.read(instance, buffer));
         },
+        DriverType::AsyncFilesystem(fs_id) => {
+            async_read(*fs_id, instance, buffer, io_callback);
+            return None;
+        },
         DriverType::SyncDevice(dev) => {
             return Some(dev.read(instance, buffer));
         },
         _ => panic!("Not implemented"),
     }
+}
+
+fn async_read(task: TaskID, instance: u32, buffer: &mut [u8], io_callback: (u32, u32)) {
+    let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
+    let shared_to_driver = shared_range.share_with_task(task);
+
+    let action = DriverIOAction::Read(
+        instance,
+        shared_to_driver.get_range_start(),
+        shared_to_driver.range_length,
+    );
+
+    send_async_request(
+        task,
+        io_callback.0,
+        io_callback.1,
+        action,
+        Some(shared_range),
+    );
 }
 
