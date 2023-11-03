@@ -229,29 +229,36 @@ impl AsyncIOTable {
 
     /// convenience method to get first (and ideally, only) async io
     /// referencing a specific child task
-    pub fn get_task_io(&mut self, id: TaskID) -> Option<Arc<Mutex<IOType>>> {
-        for (_, entry) in self.inner.iter_mut() {
+    pub fn get_task_io(&mut self, id: TaskID) -> Option<(u32, Arc<Mutex<IOType>>)> {
+        for (io_index, entry) in self.inner.iter_mut() {
             let matched = match *entry.io_type.lock() {
                 IOType::ChildTask(ref io) => io.matches_task(id),
                 _ => false,
             };
             if matched {
-                return Some(entry.io_type.clone());
+                return Some((*io_index, entry.io_type.clone()));
             }
         }
         None
     }
 
     /// convenience method for handling incoming IPC messages
-    pub fn handle_incoming_messages(&mut self, messages: &mut MessageQueue) {
+    /// We _explicitly_ don't support more than one Message Queue handle. Only
+    /// the first one, numerically, will receive any messages from the queue.
+    pub fn handle_incoming_messages(&mut self, messages: &mut MessageQueue) -> Option<u32> {
+        // TODO: Fill this with the actual current ticks
         let current_ticks = 0;
 
-        for (_, entry) in self.inner.iter_mut() {
+        for (io_index, entry) in self.inner.iter_mut() {
             match *entry.io_type.lock() {
-                IOType::MessageQueue(ref mut io) => io.check_message_queue(current_ticks, messages),
+                IOType::MessageQueue(ref mut io) => {
+                    io.check_message_queue(current_ticks, messages);
+                    return Some(*io_index);
+                },
                 _ => continue,
             }
         }
+        None
     }
 }
 
