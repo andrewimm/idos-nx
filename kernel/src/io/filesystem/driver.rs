@@ -28,4 +28,4 @@ pub enum DriverType {
     AsyncFilesystem(TaskID),
 }
 
-pub type AsyncIOCallback = (u32, AsyncOpID);
+pub type AsyncIOCallback = (TaskID, u32, AsyncOpID);

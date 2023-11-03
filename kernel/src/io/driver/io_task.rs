@@ -48,13 +48,11 @@ pub fn send_async_request(
     action: DriverIOAction,
     shared_range: Option<SharedMemoryRange>,
 ) {
-    let source_task = get_current_id();
-
     let request = IncomingRequest {
         driver_id,
-        source_task,
-        source_io: io_callback.0,
-        source_op: io_callback.1,
+        source_task: io_callback.0,
+        source_io: io_callback.1,
+        source_op: io_callback.2,
         action,
         shared_range,
     };

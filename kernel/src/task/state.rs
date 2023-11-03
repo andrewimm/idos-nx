@@ -276,7 +276,7 @@ impl Task {
         match self.async_io_table.get(io_index) {
             Some(async_io) => {
                 match *async_io.io_type.lock() {
-                    IOType::File(ref mut fp) => fp.op_completed(op_id, return_value),
+                    IOType::File(ref mut fp) => fp.op_completed(io_index, op_id, return_value),
                     _ => (),
                 }
             },
