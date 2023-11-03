@@ -2,12 +2,14 @@ use core::ops::Deref;
 
 use crate::io::async_io::{IOType, AsyncOp, OPERATION_FLAG_MESSAGE};
 use crate::io::handle::Handle;
+use crate::io::notify::NotifyQueue;
 use crate::io::provider::file::FileIOProvider;
 use crate::io::provider::message::MessageIOProvider;
 use crate::io::provider::task::TaskIOProvider;
 use crate::task::id::TaskID;
 
 use super::switching::get_current_task;
+use super::yield_coop;
 
 pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> (Handle, TaskID) {
     let child = super::lifecycle::create_kernel_task(task_body, name);
@@ -54,6 +56,33 @@ pub fn create_file_handle() -> Handle {
     let io = IOType::File(FileIOProvider::new(task.id));
     let io_index = task.async_io_table.add_io(io);
     task.open_handles.insert(io_index)
+}
+
+pub fn create_notify_queue() -> Handle {
+    let task_lock = get_current_task();
+    let mut task = task_lock.write();
+    let queue = NotifyQueue::new();
+    task.notify_queues.insert(queue)
+}
+
+pub fn add_handle_to_notify_queue(queue: Handle, handle: Handle) {
+    let task_lock = get_current_task();
+    let mut task = task_lock.write();
+    let io_index = match task.open_handles.get(handle) {
+        Some(index) => *index,
+        None => return,
+    };
+
+    match task.notify_queues.get_mut(queue) {
+        Some(q) => q.add_listener(io_index),
+        None => (),
+    }
+}
+
+pub fn wait_on_notify(queue: Handle, timeout: Option<u32>) {
+    let task_lock = get_current_task();
+    task_lock.write().wait_on_notify_queue(queue, timeout);
+    yield_coop();
 }
 
 #[cfg(test)]
@@ -319,5 +348,19 @@ mod tests {
         let result = op2.wait_for_completion();
         assert_eq!(result, 4);
         assert_eq!(buffer, [b'A', b'B', b'C', b'D']);
+    }
+
+    #[test_case]
+    fn notify_queue() {
+        let queue = super::create_notify_queue();
+        let file = super::create_file_handle();
+        super::add_handle_to_notify_queue(queue, file);
+        let path = "ATEST:\\MYFILE.TXT";
+        let path_ptr = path.as_ptr() as u32;
+        let path_len = path.len() as u32;
+        let op = PendingHandleOp::new(file, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+        super::wait_on_notify(queue, None);
+        assert!(op.is_complete());
+        assert_eq!(op.get_result(), Some(1));
     }
 }

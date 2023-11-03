@@ -3,7 +3,8 @@ use alloc::string::String;
 use crate::files::path::Path;
 use crate::io::async_io::{AsyncIOTable, IOType, AsyncOpID};
 use crate::io::driver::comms::IOResult;
-use crate::io::handle::HandleTable;
+use crate::io::handle::{HandleTable, Handle};
+use crate::io::notify::NotifyQueue;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
 use crate::time::system::{Timestamp, get_system_time};
@@ -56,6 +57,8 @@ pub struct Task {
     pub open_handles: HandleTable<u32>,
     /// Stores the actual active async IO objects
     pub async_io_table: AsyncIOTable,
+    /// The set of active notify queues, which can be used to wait on handles
+    pub notify_queues: HandleTable<NotifyQueue>,
     /// Store the open handle to the currently executing binary, if one exists
     pub current_executable: Option<OpenFile>,
     /// The name of the executable file running in the thread
@@ -82,6 +85,7 @@ impl Task {
             open_files: OpenFileMap::new(),
             open_handles: HandleTable::new(),
             async_io_table: AsyncIOTable::new(),
+            notify_queues: HandleTable::new(),
             current_executable: None,
             filename: String::new(),
             args: ExecArgs::new(),
@@ -272,15 +276,44 @@ impl Task {
         }
     }
 
-    pub fn async_io_complete(&mut self, io_index: u32, op_id: AsyncOpID, return_value: IOResult) {
-        match self.async_io_table.get(io_index) {
-            Some(async_io) => {
-                match *async_io.io_type.lock() {
-                    IOType::File(ref mut fp) => fp.op_completed(io_index, op_id, return_value),
-                    _ => (),
+    pub fn wait_on_notify_queue(&mut self, handle: Handle, timeout: Option<u32>) {
+        if self.notify_queues.get(handle).is_none() {
+            return;
+        }
+        self.state = RunState::Blocked(timeout, BlockType::Notify(handle));
+    }
+
+    pub fn io_action_notify(&mut self, io_index: u32) {
+        let waiting_on = match self.state {
+            RunState::Blocked(_, BlockType::Notify(handle)) => handle,
+            _ => return,
+        };
+        match self.notify_queues.get(waiting_on) {
+            Some(queue) => {
+                if queue.contains(io_index) {
+                    self.state = RunState::Running;
                 }
             },
-            _ => (),
+            None => return,
+        }
+    }
+
+    pub fn async_io_complete(&mut self, io_index: u32, op_id: AsyncOpID, return_value: IOResult) {
+        let should_notify = match self.async_io_table.get(io_index) {
+            Some(async_io) => {
+                match *async_io.io_type.lock() {
+                    IOType::File(ref mut fp) => {
+                        fp.op_completed(io_index, op_id, return_value);
+                        true
+                    },
+                    _ => false,
+                }
+            },
+            _ => false,
+        };
+
+        if should_notify {
+            self.io_action_notify(io_index);
         }
     }
 
@@ -451,6 +484,7 @@ impl core::fmt::Display for RunState {
             Self::Blocked(_, BlockType::Message) => f.write_str("WaitMsg"),
             Self::Blocked(_, BlockType::WaitForChild(_)) => f.write_str("WaitTask"),
             Self::Blocked(_, BlockType::IO) => f.write_str("WaitIO"),
+            Self::Blocked(_, BlockType::Notify(_)) => f.write_str("NotifyQueue"),
         }
     }
 }
@@ -467,4 +501,7 @@ pub enum BlockType {
     WaitForChild(TaskID),
     /// The Task is blocked on async IO
     IO,
+
+    /// The task is blocked on a notify queue
+    Notify(Handle),
 }
