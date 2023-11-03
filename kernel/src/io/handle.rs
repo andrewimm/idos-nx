@@ -15,7 +15,7 @@ use super::async_io::AsyncOp;
 /// Handles are used for all async IO. Each task has a table of active IO
 /// objects, and Handles are used to index each entry in this table. Userspace
 /// code uses Handles to tell the task which IO object should be manipulated.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Handle(usize);
 
 impl Handle {
@@ -52,12 +52,24 @@ impl<T> HandleTable<T> {
         self.inner.get(*handle)
     }
 
+    pub fn get_mut(&mut self, handle: Handle) -> Option<&mut T> {
+        self.inner.get_mut(*handle)
+    }
+
     pub fn remove(&mut self, handle: Handle) -> Option<T> {
         self.inner.remove(*handle)
     }
 
     pub fn replace(&mut self, handle: Handle, value: T) -> Option<T> {
         self.inner.replace(*handle, value)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (Handle, &T)> {
+        self.inner.enumerate().map(|(index, item)| (Handle::new(index), item))
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &mut T)> {
+        self.inner.enumerate_mut().map(|(index, item)| (Handle::new(index), item))
     }
 }
 
@@ -95,6 +107,13 @@ impl PendingHandleOp {
         semaphore != 0
     }
 
+    pub fn get_result(&self) -> Option<u32> {
+        if self.is_complete() {
+            return Some(*self.return_value);
+        }
+        None
+    }
+
     pub fn wait_for_completion(&self) -> u32 {
         loop {
             let semaphore = self.semaphore.load(Ordering::SeqCst);
@@ -103,6 +122,26 @@ impl PendingHandleOp {
             }
             crate::task::actions::yield_coop();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Handle, HandleTable};
+
+    #[test_case]
+    fn handle_table() {
+        let mut table = HandleTable::<u32>::new();
+        let a = table.insert(5);
+        let b = table.insert(7);
+        let c = table.insert(12);
+        assert_eq!(table.get(a), Some(&5));
+        assert_eq!(table.remove(b), Some(7));
+        assert_eq!(table.get(b), None);
+        let mut iter = table.iter();
+        assert_eq!(iter.next(), Some((Handle::new(0), &5)));
+        assert_eq!(iter.next(), Some((Handle::new(2), &12)));
+        assert_eq!(iter.next(), None);
     }
 }
 

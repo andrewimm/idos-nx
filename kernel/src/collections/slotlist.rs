@@ -84,6 +84,14 @@ impl<T: Sized> SlotList<T> {
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut T> {
         self.slots.iter_mut().filter_map(|i| i.as_mut())
     }
+
+    pub fn enumerate(&self) -> impl Iterator<Item = (usize, &T)> {
+        self.slots.iter().enumerate().filter_map(|(index, i)| i.as_ref().map(|t| (index, t)))
+    }
+
+    pub fn enumerate_mut(&mut self) -> impl Iterator<Item = (usize, &mut T)> {
+        self.slots.iter_mut().enumerate().filter_map(|(index, i)| i.as_mut().map(|t| (index, t)))
+    }
 }
 
 impl<T: Clone> Clone for SlotList<T> {
