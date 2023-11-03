@@ -1,6 +1,8 @@
 # IDOS NX
 The next iteration of an experimental DOS-compatible OS
 
+https://github.com/andrewimm/idos-nx/assets/494043/4c86f739-f5ea-4692-ac50-f1565cd940c5
+
 The original [IMM-DOS](https://medium.com/@andrewimm/writing-a-dos-clone-in-2019-70eac97ec3e1)
 was an experiment in building a strict DOS clone: a real-mode OS for x86
 processors that implemented the same API surface as DOS and imitated many of
