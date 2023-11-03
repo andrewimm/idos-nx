@@ -244,7 +244,9 @@ impl Task {
     }
 
     pub fn handle_incoming_messages(&mut self) {
-        self.async_io_table.handle_incoming_messages(&mut self.message_queue);
+        if let Some(io_index) = self.async_io_table.handle_incoming_messages(&mut self.message_queue) {
+            self.io_action_notify(io_index);
+        }
     }
 
     /// Wait for a child process with the specified ID to return
@@ -259,9 +261,15 @@ impl Task {
     /// Notify the task that a child task has terminated with an exit code
     pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
         match self.async_io_table.get_task_io(id) {
-            Some(mutex) => {
-                if let IOType::ChildTask(ref mut io) = *mutex.lock() {
+            Some((io_index, mutex)) => {
+                let notify = if let IOType::ChildTask(ref mut io) = *mutex.lock() {
                     io.task_exited(exit_code);
+                    true
+                } else {
+                    false
+                };
+                if notify {
+                    self.io_action_notify(io_index);
                 }
             },
             _ => (),
