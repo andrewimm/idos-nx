@@ -113,7 +113,7 @@ impl AsyncOp {
 /// When an op is added to an open IO instance, it is given a unique identifier
 /// This can be used to cancel or complete the operation from an outside source
 /// like an async driver.
-#[derive(Copy, Clone, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct AsyncOpID(u32);
 
 impl AsyncOpID {
@@ -158,6 +158,10 @@ impl AsyncOpQueue {
 
     pub fn is_empty(&self) -> bool {
         self.inner.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.inner.len()
     }
 
     pub fn push(&mut self, id: AsyncOpID, op: AsyncOp) {

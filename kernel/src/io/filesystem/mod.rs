@@ -4,6 +4,7 @@ pub mod testing;
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use idos_api::io::error::IOError;
@@ -57,9 +58,9 @@ pub fn install_async_dev(name: &str, task: TaskID) -> DriverID {
 }
 
 /// Run the open() operation on an installed driver
-pub fn driver_open(id: DriverID, path: Path, io_callback: AsyncIOCallback) -> Option<IOResult> {
+pub fn driver_open(driver_id: DriverID, path: Path, io_callback: AsyncIOCallback) -> Option<IOResult> {
     let drivers = INSTALLED_DRIVERS.read();
-    let (_, driver) = match drivers.get(&id) {
+    let (_, driver) = match drivers.get(&driver_id) {
         Some(d) => d,
         None => {
             return Some(Err(IOError::NotFound));
@@ -85,17 +86,27 @@ pub fn driver_open(id: DriverID, path: Path, io_callback: AsyncIOCallback) -> Op
 }
 
 fn async_open(task: TaskID, path: Path, io_callback: AsyncIOCallback) {
-    // clone the string so that when the method returns, the original path can
-    // be dropped or moved
-    let path_copy = Into::<String>::into(path).clone();
-    let path_str = path_copy.as_str();
-    let path_slice = path_str.as_bytes();
-
-    let (shared_range, action) = if path_slice.len() == 0 {
+    // Unlike other ops that wait for a buffer to be filled, the path string
+    // passed to the original call is never used again. This means the original
+    // memory can easily be dropped by the time the driver tries to consume the
+    // path. In order to ensure a version of the string is still available, we
+    // create a copy that will be dropped when the op completes.
+    let path_boxed = Into::<String>::into(path).into_boxed_str();
+    let path_len = path_boxed.len();
+    // doing this ensures the box is not dropped
+    let path_ptr = Box::into_raw(path_boxed) as *const u8;
+    let (shared_range, action) = if path_len == 0 {
         // can't share memory for an empty slice, just hardcode it
         (None, DriverIOAction::Open(0, 0))
     } else {
-        let shared_range = SharedMemoryRange::for_slice::<u8>(path_slice);
+        // TODO: This is not ideal. We're sharing a page of kernel heap with
+        // the driver. That's not safe. We should create a new shared memory
+        // concept that allocates a new frame, copies a string to it, and maps
+        // it to the shared task.
+        let boxed_slice = unsafe {
+            core::slice::from_raw_parts(path_ptr, path_len)
+        };
+        let shared_range = SharedMemoryRange::for_slice::<u8>(boxed_slice);
         let shared_to_driver = shared_range.share_with_task(task);
         (
             Some(shared_range),
@@ -141,7 +152,7 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: 
     }
 }
 
-fn async_read(task: TaskID, instance: u32, buffer: &mut [u8], io_callback: (u32, AsyncOpID)) {
+fn async_read(task: TaskID, instance: u32, buffer: &mut [u8], io_callback: AsyncIOCallback) {
     let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
     let shared_to_driver = shared_range.share_with_task(task);
 

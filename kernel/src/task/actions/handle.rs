@@ -51,7 +51,7 @@ pub fn open_message_queue() -> Handle {
 pub fn create_file_handle() -> Handle {
     let task_lock = get_current_task();
     let mut task = task_lock.write();
-    let io = IOType::File(FileIOProvider::new());
+    let io = IOType::File(FileIOProvider::new(task.id));
     let io_index = task.async_io_table.add_io(io);
     task.open_handles.insert(io_index)
 }
@@ -304,6 +304,20 @@ mod tests {
         result = op.wait_for_completion();
         assert_eq!(result, 4);
         assert_eq!(buffer, [b's', b't', b't', b'e']);
+    }
 
+    #[test_case]
+    fn queueing_ops() {
+        let handle = super::create_file_handle();
+        let path = "ATEST:\\MYFILE.TXT";
+        let path_ptr = path.as_ptr() as u32;
+        let path_len = path.len() as u32;
+        let mut buffer: [u8; 4] = [0; 4];
+        let op1 = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0);
+        let op2 = PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_READ, buffer.as_ptr() as u32, buffer.len() as u32, 0);
+
+        let result = op2.wait_for_completion();
+        assert_eq!(result, 4);
+        assert_eq!(buffer, [b'A', b'B', b'C', b'D']);
     }
 }
