@@ -6,6 +6,7 @@
 #![feature(const_btree_new)]
 #![feature(const_mut_refs)]
 #![feature(custom_test_frameworks)]
+#![feature(map_try_insert)]
 #![feature(naked_functions)]
 #![feature(vec_into_raw_parts)]
 

@@ -1,7 +1,11 @@
 use core::arch::{asm, global_asm};
 use core::ops::DerefMut;
+use core::sync::atomic::{AtomicU32, Ordering};
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 use spin::RwLock;
 
+use crate::io::async_io::AsyncOpID;
 use crate::{hardware::pic::PIC, task::{id::TaskID, switching::get_task}};
 use super::stack::{SavedState, StackFrame};
 
@@ -101,7 +105,7 @@ pub extern "C" fn _handle_pic_interrupt(_registers: SavedState, irq: u32, _frame
         // IRQ 0 is not installable, and is hard-coded to the kernel's PIT
         // interrupt handler
         handle_pit_interrupt();
-        pic.acknowledge_interrupt(0);
+        pic.end_of_interrupt(0);
         return;
     }
 
@@ -115,14 +119,22 @@ pub extern "C" fn _handle_pic_interrupt(_registers: SavedState, irq: u32, _frame
     if irq == 15 {
         let serviced = pic.get_interrupts_in_service();
         if serviced & 0x8000 == 0 {
-            pic.acknowledge_interrupt(2);
+            pic.end_of_interrupt(2);
             return;
         }
     }
 
     try_installed_handler(irq);
 
-    pic.acknowledge_interrupt(irq as u8);
+    crate::kprintln!("!!! INT {}", irq);
+
+    let should_notify = has_listeners(irq as u8);
+    if should_notify {
+        pic.mask_interrupt(irq as u8);
+        notify_interrupt_listeners(irq as u8);
+    }
+
+    pic.end_of_interrupt(irq as u8);
 }
 
 /// The PIT triggers at 100Hz, and is used to update the internal clock and the
@@ -130,6 +142,84 @@ pub extern "C" fn _handle_pic_interrupt(_registers: SavedState, irq: u32, _frame
 pub fn handle_pit_interrupt() {
     crate::time::system::tick();
     crate::task::switching::update_timeouts(crate::time::system::MS_PER_TICK);
+}
+
+const EMPTY_LISTENERS: RwLock<BTreeMap<TaskID, u32>> = RwLock::new(BTreeMap::new());
+static INTERRUPT_LISTENERS: [RwLock<BTreeMap<TaskID, u32>>; 16] = [EMPTY_LISTENERS; 16];
+static ACTIVE_INTERRUPTS_LOW: AtomicU32 = AtomicU32::new(0);
+static ACTIVE_INTERRUPTS_HIGH: AtomicU32 = AtomicU32::new(0);
+
+pub fn add_interrupt_listener(irq: u8, task: TaskID, io_index: u32) -> bool {
+    if irq > 15 {
+        return false;
+    }
+    match INTERRUPT_LISTENERS[irq as usize].write().try_insert(task, io_index) {
+        Ok(_) => true,
+        Err(_) => false,
+    }
+}
+
+pub fn has_listeners(irq: u8) -> bool {
+    if irq > 15 {
+        return false;
+    }
+    let is_empty = match INTERRUPT_LISTENERS[irq as usize].try_read() {
+        Some(map) => map.is_empty(),
+        None => true,
+    };
+    !is_empty
+}
+
+pub fn notify_interrupt_listeners(irq: u8) {
+    if irq > 15 {
+        return;
+    }
+    let active = if irq > 7 {
+        &ACTIVE_INTERRUPTS_HIGH
+    } else {
+        &ACTIVE_INTERRUPTS_LOW
+    };
+    let mask = 1 << ((irq & 7) as usize);
+    let prev_mask = active.fetch_or(mask, Ordering::SeqCst);
+    if prev_mask & mask == 0 {
+        // the flag was newly raised
+        let task_list: Vec<(TaskID, u32)> = INTERRUPT_LISTENERS[irq as usize].read().iter().map(|(id, index)| (*id, *index)).collect();
+        for (id, io_index) in task_list.iter() {
+            let task_lock = match get_task(*id) {
+                Some(lock) => lock,
+                None => continue,
+            };
+            task_lock.write().async_io_complete(*io_index, AsyncOpID::new(0), Ok(1));
+        }
+    }
+}
+
+pub fn is_interrupt_active(irq: u8) -> bool {
+    if irq > 15 {
+        return false;
+    }
+    let active = if irq > 7 {
+        &ACTIVE_INTERRUPTS_HIGH
+    } else {
+        &ACTIVE_INTERRUPTS_LOW
+    };
+    let mask = 1 << ((irq & 7) as usize);
+    let value = active.load(Ordering::SeqCst);
+    value & mask != 0
+}
+
+pub fn acknowledge_interrupt(irq: u8) {
+    if irq > 15 {
+        return;
+    }
+    let active = if irq > 7 {
+        &ACTIVE_INTERRUPTS_HIGH
+    } else {
+        &ACTIVE_INTERRUPTS_LOW
+    };
+    let mask = !(1 << ((irq & 7) as usize));
+    active.fetch_and(mask, Ordering::SeqCst);
+    PIC::new().unmask_interrupt(irq);
 }
 
 #[derive(Copy, Clone)]

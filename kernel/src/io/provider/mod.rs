@@ -1,6 +1,7 @@
 use super::async_io::{AsyncOp, AsyncOpID};
 
 pub mod file;
+pub mod irq;
 pub mod message;
 pub mod task;
 

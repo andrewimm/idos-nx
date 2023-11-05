@@ -41,7 +41,7 @@ impl PIC {
         self.secondary_data.write_u8(0x01);
     }
 
-    pub fn acknowledge_interrupt(&self, irq: u8) {
+    pub fn end_of_interrupt(&self, irq: u8) {
         // regardless of whether the interrupt happened on the primary or
         // secondary, the primary still needs to be cleared
         self.primary_command.write_u8(0x20);
@@ -61,6 +61,30 @@ impl PIC {
         let high = (self.secondary_command.read_u8() as u16) << 8;
 
         high | low
+    }
+
+    pub fn mask_interrupt(&self, irq: u8) {
+        let port = if irq >= 8 {
+            &self.secondary_data
+        } else {
+            &self.primary_data
+        };
+        let shift = (irq & 7) as usize;
+        let mask: u8 = 1 << shift;
+        let value = port.read_u8();
+        port.write_u8(value | mask);
+    }
+
+    pub fn unmask_interrupt(&self, irq: u8) {
+        let port = if irq >= 8 {
+            &self.secondary_data
+        } else {
+            &self.primary_data
+        };
+        let shift = (irq & 7) as usize;
+        let mask: u8 = !(1 << shift);
+        let value = port.read_u8();
+        port.write_u8(value & mask);
     }
 }
 
