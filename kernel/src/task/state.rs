@@ -314,6 +314,10 @@ impl Task {
                         fp.op_completed(io_index, op_id, return_value);
                         true
                     },
+                    IOType::Interrupt(ref mut ip) => {
+                        ip.interrupt_notify();
+                        true
+                    },
                     _ => false,
                 }
             },

@@ -1,9 +1,11 @@
 use core::ops::Deref;
 
+use crate::interrupts::pic::add_interrupt_listener;
 use crate::io::async_io::{IOType, AsyncOp, OPERATION_FLAG_MESSAGE};
 use crate::io::handle::Handle;
 use crate::io::notify::NotifyQueue;
 use crate::io::provider::file::FileIOProvider;
+use crate::io::provider::irq::InterruptIOProvider;
 use crate::io::provider::message::MessageIOProvider;
 use crate::io::provider::task::TaskIOProvider;
 use crate::task::id::TaskID;
@@ -56,6 +58,20 @@ pub fn create_file_handle() -> Handle {
     let io = IOType::File(FileIOProvider::new(task.id));
     let io_index = task.async_io_table.add_io(io);
     task.open_handles.insert(io_index)
+}
+
+pub fn open_interrupt_handle(irq: u8) -> Handle {
+    let task_lock = get_current_task();
+    let (task_id, handle, io_index) = {
+        let mut task = task_lock.write();
+        let io = IOType::Interrupt(InterruptIOProvider::new(irq));
+        let io_index = task.async_io_table.add_io(io);
+        let handle = task.open_handles.insert(io_index);
+
+        (task.id, handle, io_index)
+    };
+    add_interrupt_listener(irq, task_id, io_index);
+    handle
 }
 
 pub fn create_notify_queue() -> Handle {

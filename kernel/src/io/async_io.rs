@@ -5,12 +5,13 @@ use spin::Mutex;
 
 use crate::{memory::{address::{PhysicalAddress, VirtualAddress}, virt::scratch::UnmappedPage}, task::{id::TaskID, messaging::MessageQueue}};
 
-use super::provider::{task::TaskIOProvider, IOProvider, message::MessageIOProvider, file::FileIOProvider};
+use super::provider::{task::TaskIOProvider, IOProvider, message::MessageIOProvider, file::FileIOProvider, irq::InterruptIOProvider};
 
 pub enum IOType {
     ChildTask(TaskIOProvider),
     MessageQueue(MessageIOProvider),
     File(FileIOProvider),
+    Interrupt(InterruptIOProvider),
 }
 
 impl IOType {
@@ -19,6 +20,7 @@ impl IOType {
             Self::ChildTask(io) => io.add_op(index, op),
             Self::MessageQueue(io) => io.add_op(index, op),
             Self::File(io) => io.add_op(index, op),
+            Self::Interrupt(io) => io.add_op(index, op),
             _ => panic!("Not implemented"),
         }
     }
@@ -38,6 +40,9 @@ pub const FILE_OP_SEEK: u32 = 4;
 pub const FILE_OP_STAT: u32 = 5;
 
 pub const TASK_OP_WAIT: u32 = 1;
+
+pub const INTERRUPT_OP_LISTEN: u32 = 1;
+pub const INTERRUPT_OP_ACK: u32 = 2;
 
 pub const SOCKET_OP_BIND: u32 = 1;
 pub const SOCKET_OP_READ: u32 = 2;
