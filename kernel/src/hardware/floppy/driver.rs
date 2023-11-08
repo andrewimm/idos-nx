@@ -1,16 +1,26 @@
+use core::cell::RefCell;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering, AtomicU32};
 use core::task::{Context, Waker, Poll};
 use core::{pin::Pin, future::Future};
 
 use alloc::sync::Arc;
 use alloc::{boxed::Box, task::Wake};
-use alloc::collections::VecDeque;
+use alloc::collections::{VecDeque, BTreeMap};
 use idos_api::io::error::IOError;
 
 use crate::io::driver::comms::{decode_command_and_id, DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::task::actions::{yield_coop, send_message};
-use crate::{task::{switching::get_current_id, actions::{handle::{open_message_queue, open_interrupt_handle, create_notify_queue, add_handle_to_notify_queue, wait_on_notify}, memory::map_memory}, messaging::Message, id::TaskID, memory::MemoryBacking, paging::page_on_demand}, memory::address::{VirtualAddress, PhysicalAddress}, io::{async_io::{OPERATION_FLAG_INTERRUPT, INTERRUPT_OP_LISTEN, OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ, INTERRUPT_OP_ACK}, handle::PendingHandleOp}};
+use crate::task::switching::get_current_id;
+use crate::task::actions::handle::{open_message_queue, open_interrupt_handle, create_notify_queue, add_handle_to_notify_queue, wait_on_notify};
+use crate::task::actions::memory::map_memory;
+use crate::task::messaging::Message;
+use crate::task::id::TaskID;
+use crate::task::memory::MemoryBacking;
+use crate::task::paging::page_on_demand;
+use crate::memory::address::{VirtualAddress, PhysicalAddress};
+use crate::io::async_io::{OPERATION_FLAG_INTERRUPT, INTERRUPT_OP_LISTEN, OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ, INTERRUPT_OP_ACK};
+use crate::io::handle::PendingHandleOp;
 
 use super::controller::{FloppyController, Command, ControllerError, DriveSelect};
 use super::geometry::ChsGeometry;
@@ -20,6 +30,10 @@ pub struct FloppyDeviceDriver {
     dma_vaddr: VirtualAddress,
     dma_paddr: PhysicalAddress,
     interrupt_received: Arc<AtomicBool>,
+
+    next_instance: AtomicU32,
+    open_instances: BTreeMap<u32, OpenFile>,
+
 }
 
 impl FloppyDeviceDriver {
@@ -32,6 +46,9 @@ impl FloppyDeviceDriver {
             dma_vaddr,
             dma_paddr,
             interrupt_received: Arc::new(AtomicBool::new(false)),
+
+            next_instance: AtomicU32::new(1),
+            open_instances: BTreeMap::new(),
         }
     }
 
@@ -142,16 +159,30 @@ impl FloppyDeviceDriver {
 
     // Async IO methods:
     
-    pub fn open(&self) -> IOResult {
-        Ok(1)
+    pub fn open(&mut self) -> IOResult {
+        // TODO: make drive configurable via path param
+        let file = OpenFile {
+            drive: DriveSelect::Primary,
+            position: 0,
+        };
+        let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
+        self.open_instances.insert(instance, file);
+        Ok(instance)
     }
 
-    pub async fn read(&self, instance: u32, buffer: &mut [u8]) -> IOResult {
+    pub async fn read(&mut self, instance: u32, buffer: &mut [u8]) -> IOResult {
+        let file = self.open_instances.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
         for i in 0..buffer.len() {
             buffer[i] = b'A';
         }
+        file.position += buffer.len() as u32;
         Ok(buffer.len() as u32)
     }
+}
+
+struct OpenFile {
+    drive: DriveSelect,
+    position: u32,
 }
 
 struct InterruptFuture {
@@ -224,13 +255,15 @@ pub fn run_driver() -> ! {
     add_handle_to_notify_queue(notify, messages);
     add_handle_to_notify_queue(notify, interrupt);
 
-    let mut driver_impl = FloppyDeviceDriver::new();
+    // I know this event loop won't create multiple mutable references, but the
+    // borrow checker doesn't...
+    let driver_impl = Arc::new(RefCell::new(FloppyDeviceDriver::new()));
 
     let mut interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
     let mut message_read = PendingHandleOp::new(messages, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &mut incoming_message as *mut Message as u32, 0, 0);
 
     let init_request = async {
-        match driver_impl.init().await {
+        match driver_impl.clone().borrow().init().await {
             Ok(_) => (),
             Err(_) => {
                 crate::kprintln!("=!=! Failed to init floppy controller");
@@ -247,7 +280,7 @@ pub fn run_driver() -> ! {
     loop {
         if interrupt_read.is_complete() {
             PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_ACK, 0, 0, 0);
-            driver_impl.raise_interrupt();
+            driver_impl.borrow().raise_interrupt();
             interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
         } else if let Some(sender) = message_read.get_result() {
             pending_requests.push_back((TaskID::new(sender), incoming_message.clone()));
@@ -257,7 +290,7 @@ pub fn run_driver() -> ! {
             if active_request.is_none() {
                 active_request = pending_requests.pop_front().map(|(sender, message)| {
                     DriverTask::new(
-                        handle_driver_request(&driver_impl, sender, message)
+                        handle_driver_request(driver_impl.clone(), sender, message)
                     )
                 });
             }
@@ -277,7 +310,8 @@ pub fn run_driver() -> ! {
     }
 }
 
-async fn handle_driver_request(driver: &FloppyDeviceDriver, respond_to: TaskID, message: Message) {
+async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, respond_to: TaskID, message: Message) {
+    let driver = &mut driver_ref.borrow_mut();
     let (command, request_id) = decode_command_and_id(message.0);
         match command {
             DriverCommand::Open => {
