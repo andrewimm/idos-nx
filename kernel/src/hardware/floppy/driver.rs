@@ -11,6 +11,7 @@ use idos_api::io::error::IOError;
 
 use crate::hardware::dma::DmaChannelRegisters;
 use crate::io::driver::comms::{decode_command_and_id, DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
+use crate::io::filesystem::install_async_dev;
 use crate::task::actions::{yield_coop, send_message};
 use crate::task::switching::get_current_id;
 use crate::task::actions::handle::{open_message_queue, open_interrupt_handle, create_notify_queue, add_handle_to_notify_queue, wait_on_notify};
@@ -23,7 +24,7 @@ use crate::memory::address::{VirtualAddress, PhysicalAddress};
 use crate::io::async_io::{OPERATION_FLAG_INTERRUPT, INTERRUPT_OP_LISTEN, OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ, INTERRUPT_OP_ACK};
 use crate::io::handle::PendingHandleOp;
 
-use super::controller::{FloppyController, Command, ControllerError, DriveSelect};
+use super::controller::{FloppyController, Command, ControllerError, DriveSelect, DriveType};
 use super::geometry::ChsGeometry;
 
 pub struct FloppyDeviceDriver {
@@ -31,6 +32,8 @@ pub struct FloppyDeviceDriver {
     dma_vaddr: VirtualAddress,
     dma_paddr: PhysicalAddress,
     interrupt_received: Arc<AtomicBool>,
+    attached: [Option<AttachedDrive>; 2],
+    selected_drive: Option<DriveSelect>,
 
     next_instance: AtomicU32,
     open_instances: BTreeMap<u32, OpenFile>,
@@ -47,13 +50,23 @@ impl FloppyDeviceDriver {
             dma_vaddr,
             dma_paddr,
             interrupt_received: interrupt_flag,
+            attached: [None, None],
+            selected_drive: None,
 
             next_instance: AtomicU32::new(1),
             open_instances: BTreeMap::new(),
         }
     }
 
-    pub async fn init(&self) -> Result<(), ControllerError> {
+    pub fn set_device(&mut self, index: usize, drive_type: DriveType) {
+        self.attached[index] = Some(
+            AttachedDrive {
+                drive_type,
+            }
+        );
+    }
+
+    pub async fn init(&mut self) -> Result<(), ControllerError> {
         let mut response = [0];
 
         self.send_command(Command::Version, &[]).await?;
@@ -76,6 +89,14 @@ impl FloppyDeviceDriver {
         self.reset().await?;
 
         // enable motors, recalibrate
+        if !self.attached[0].is_none() {
+            self.controller.ensure_motor_on(DriveSelect::Primary);
+            self.recalibrate(DriveSelect::Primary).await?;
+        }
+        if !self.attached[1].is_none() {
+            self.controller.ensure_motor_on(DriveSelect::Secondary);
+            self.recalibrate(DriveSelect::Secondary).await?;
+        }
         
         crate::kprintln!("FLOPPY INIT SUCCESSFUL");
 
@@ -113,6 +134,37 @@ impl FloppyDeviceDriver {
         Ok(())
     }
 
+    async fn select_drive(&mut self, drive: DriveSelect) {
+        if self.selected_drive == Some(drive) {
+            return;
+        }
+        let dor = self.controller.dor_read();
+        let flag = match drive {
+            DriveSelect::Primary => 0,
+            DriveSelect::Secondary => 1,
+        };
+        self.controller.dor_write(
+            (dor & 0xfc) | flag
+        );
+        self.selected_drive = Some(drive);
+    }
+
+    async fn recalibrate(&mut self, drive: DriveSelect) -> Result<(), ControllerError> {
+        self.select_drive(drive).await;
+        let mut st0 = [0, 0];
+        for _retry in 0..2 {
+            self.controller.send_command(Command::Recalibrate, &[0])?;
+            self.wait_for_interrupt().await;
+            self.controller.send_command(Command::SenseInterrupt, &[])?;
+            self.controller.get_response(&mut st0)?;
+
+            if st0[0] & 0x20 == 0x20 {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     async fn send_command(&self, command: Command, params: &[u8]) -> Result<(), ControllerError> {
         if self.controller.get_status() & 0xc0 != 0x80 {
             self.reset().await?;
@@ -145,8 +197,8 @@ impl FloppyDeviceDriver {
         Ok(())
     }
 
-    async fn dma_read(&self, drive: DriveSelect, chs: ChsGeometry) -> Result<(), ControllerError> {
-        //self.select_drive(drive);
+    async fn dma_read(&mut self, drive: DriveSelect, chs: ChsGeometry) -> Result<(), ControllerError> {
+        self.select_drive(drive).await;
         let drive_number = match drive {
             DriveSelect::Primary => 0,
             DriveSelect::Secondary => 1,
@@ -171,10 +223,17 @@ impl FloppyDeviceDriver {
 
     // Async IO methods:
     
-    pub fn open(&mut self) -> IOResult {
-        // TODO: make drive configurable via path param
+    pub fn open(&mut self, sub_driver: u32) -> IOResult {
+        match self.attached.get(sub_driver as usize) {
+            None => return Err(IOError::NotFound),
+            _ => (),
+        }
+        let drive = match sub_driver {
+            1 => DriveSelect::Secondary,
+            _ => DriveSelect::Primary,
+        };
         let file = OpenFile {
-            drive: DriveSelect::Primary,
+            drive,
             position: 0,
         };
         let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
@@ -209,6 +268,11 @@ impl FloppyDeviceDriver {
 
         Ok(bytes_read)
     }
+}
+
+struct AttachedDrive {
+    /// Size and type of the disk in the drive
+    drive_type: DriveType,
 }
 
 struct OpenFile {
@@ -274,10 +338,6 @@ pub fn run_driver() -> ! {
     let task_id = get_current_id();
     crate::kprintln!("Install Floppy device driver ({:?})\n", task_id);
 
-    // detect drives
-
-    crate::io::filesystem::install_async_dev("FD", task_id);
-    
     // run event loop
     let messages = open_message_queue();
     let mut incoming_message = Message(0, 0, 0, 0);
@@ -291,11 +351,28 @@ pub fn run_driver() -> ! {
     // borrow checker doesn't...
     let driver_impl = Arc::new(RefCell::new(FloppyDeviceDriver::new(interrupt_flag.clone())));
 
+    // detect drives
+    let mut fd_count = 0;
+    let drives = DriveType::read_cmos();
+    for drive_type in drives {
+        crate::kprintln!("    {}\n", drive_type);
+        if let DriveType::None = drive_type {
+            continue;
+        }
+
+        driver_impl.borrow_mut().set_device(fd_count, drive_type);
+        let sub_id = fd_count as u32;
+        fd_count += 1;
+        let dev_name = alloc::format!("FD{}", fd_count);
+        crate::kprintln!("Install driver as DEV:\\{}\n", dev_name);
+        install_async_dev(dev_name.as_str(), task_id, sub_id);
+    }
+
     let mut interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
     let mut message_read = PendingHandleOp::new(messages, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &mut incoming_message as *mut Message as u32, 0, 0);
 
     let init_request = async {
-        match driver_impl.clone().borrow().init().await {
+        match driver_impl.clone().borrow_mut().init().await {
             Ok(_) => (),
             Err(_) => {
                 crate::kprintln!("=!=! Failed to init floppy controller");
@@ -345,8 +422,9 @@ pub fn run_driver() -> ! {
 async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, respond_to: TaskID, message: Message) {
     let (command, request_id) = decode_command_and_id(message.0);
     match command {
-        DriverCommand::Open => {
-            let response = driver_ref.borrow_mut().open();
+        DriverCommand::OpenRaw => {
+            let sub_driver = message.1;
+            let response = driver_ref.borrow_mut().open(sub_driver);
             send_response(respond_to, request_id, response);
         },
         DriverCommand::Read => {
