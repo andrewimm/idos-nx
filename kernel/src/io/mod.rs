@@ -25,7 +25,7 @@ pub fn init_async_io_system() {
         self::filesystem::install_async_fs("ATEST", async_fs_task);
 
         let async_dev_task = create_kernel_task(self::filesystem::testing::async_dev::driver_task, Some("TEST DEV ASYNC"));
-        self::filesystem::install_async_dev("ASYNCDEV", async_dev_task);
+        self::filesystem::install_async_dev("ASYNCDEV", async_dev_task, 0);
     }
 
     let null_dev = self::devices::null::NullDev::new();
