@@ -53,7 +53,7 @@ fn run_driver() -> ! {
 
 pub fn mount_fat_fs() {
     let pairs = [
-        ("A", "FD1"),
+        //("A", "FD1"),
         ("C", "ATA1"),
     ];
 

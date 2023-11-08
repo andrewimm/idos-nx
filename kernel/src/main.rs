@@ -99,7 +99,10 @@ fn init_system() -> ! {
         hardware::ata::dev::install_drivers();
 
         task::actions::io::write_file(con, "Installing Floppy Drivers...\n".as_bytes());
-        hardware::floppy::dev::install_drivers();
+        //hardware::floppy::dev::install_drivers();
+
+        // new floppy driver
+        hardware::floppy::install();
 
         task::actions::io::write_file(con, "Installing Network Device Drivers...\n".as_bytes());
         hardware::ethernet::dev::install_driver();
@@ -128,6 +131,14 @@ fn init_system() -> ! {
 
         task::actions::io::write_file(con, "System ready! Welcome to IDOS\n\n".as_bytes());
         console::console_ready();
+
+        {
+            let handle = task::actions::handle::create_file_handle();
+            crate::task::actions::handle::open_file_op(handle, "DEV:\\FD").wait_for_completion();
+            let mut buffer: [u8; 5] = [0; 5];
+            let read = crate::task::actions::handle::read_file_op(handle, &mut buffer).wait_for_completion();
+            crate::kprintln!("Read these bytes {}", read);
+        }
     }
 
     /*{
