@@ -9,6 +9,7 @@ use alloc::{boxed::Box, task::Wake};
 use alloc::collections::{VecDeque, BTreeMap};
 use idos_api::io::error::IOError;
 
+use crate::hardware::dma::DmaChannelRegisters;
 use crate::io::driver::comms::{decode_command_and_id, DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::task::actions::{yield_coop, send_message};
 use crate::task::switching::get_current_id;
@@ -37,7 +38,7 @@ pub struct FloppyDeviceDriver {
 }
 
 impl FloppyDeviceDriver {
-    pub fn new() -> Self {
+    pub fn new(interrupt_flag: Arc<AtomicBool>) -> Self {
         let dma_vaddr = map_memory(None, 0x1000, MemoryBacking::DMA).unwrap();
         let dma_paddr = page_on_demand(dma_vaddr).unwrap();
 
@@ -45,15 +46,11 @@ impl FloppyDeviceDriver {
             controller: FloppyController::new(),
             dma_vaddr,
             dma_paddr,
-            interrupt_received: Arc::new(AtomicBool::new(false)),
+            interrupt_received: interrupt_flag,
 
             next_instance: AtomicU32::new(1),
             open_instances: BTreeMap::new(),
         }
-    }
-
-    pub fn raise_interrupt(&self) {
-        self.interrupt_received.store(true, Ordering::SeqCst);
     }
 
     pub async fn init(&self) -> Result<(), ControllerError> {
@@ -157,6 +154,21 @@ impl FloppyDeviceDriver {
         self.dma(Command::ReadData, drive_number, chs).await
     }
 
+    fn get_dma_buffer(&self) -> &mut [u8] {
+        unsafe {
+            let buffer_ptr = self.dma_vaddr.as_ptr_mut::<u8>();
+            let buffer_len = 0x1000;
+            core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
+        }
+    }
+
+    fn dma_prepare(&self, sector_count: usize, dma_mode: u8) {
+        let dma_channel = DmaChannelRegisters::for_channel(2);
+        dma_channel.set_address(self.dma_paddr);
+        dma_channel.set_count((sector_count * super::geometry::SECTOR_SIZE) as u32 - 1);
+        dma_channel.set_mode(dma_mode);
+    }
+
     // Async IO methods:
     
     pub fn open(&mut self) -> IOResult {
@@ -171,12 +183,31 @@ impl FloppyDeviceDriver {
     }
 
     pub async fn read(&mut self, instance: u32, buffer: &mut [u8]) -> IOResult {
-        let file = self.open_instances.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
+        let (drive_select, position) = match self.open_instances.get(&instance) {
+            Some(file) => (file.drive, file.position as usize),
+            None => return Err(IOError::FileHandleInvalid),
+        };
+
+        let first_sector = position / super::geometry::SECTOR_SIZE;
+        let read_offset = position % super::geometry::SECTOR_SIZE;
+        let last_sector = (position + buffer.len()) / super::geometry::SECTOR_SIZE;
+        let sector_count = last_sector - first_sector + 1;
+
+        self.dma_prepare(sector_count, 0x56);
+        let chs = ChsGeometry::from_lba(first_sector);
+        self.dma_read(drive_select, chs).await.map_err(|_| IOError::FileSystemError)?;
+
+        let dma_buffer = self.get_dma_buffer();
+
         for i in 0..buffer.len() {
-            buffer[i] = b'A';
+            buffer[i] = dma_buffer[read_offset + i];
         }
-        file.position += buffer.len() as u32;
-        Ok(buffer.len() as u32)
+
+        let bytes_read = buffer.len() as u32;
+
+        self.open_instances.get_mut(&instance).unwrap().position += bytes_read;
+
+        Ok(bytes_read)
     }
 }
 
@@ -255,9 +286,10 @@ pub fn run_driver() -> ! {
     add_handle_to_notify_queue(notify, messages);
     add_handle_to_notify_queue(notify, interrupt);
 
+    let interrupt_flag: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     // I know this event loop won't create multiple mutable references, but the
     // borrow checker doesn't...
-    let driver_impl = Arc::new(RefCell::new(FloppyDeviceDriver::new()));
+    let driver_impl = Arc::new(RefCell::new(FloppyDeviceDriver::new(interrupt_flag.clone())));
 
     let mut interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
     let mut message_read = PendingHandleOp::new(messages, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &mut incoming_message as *mut Message as u32, 0, 0);
@@ -280,7 +312,7 @@ pub fn run_driver() -> ! {
     loop {
         if interrupt_read.is_complete() {
             PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_ACK, 0, 0, 0);
-            driver_impl.borrow().raise_interrupt();
+            interrupt_flag.store(true, Ordering::SeqCst);
             interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
         } else if let Some(sender) = message_read.get_result() {
             pending_requests.push_back((TaskID::new(sender), incoming_message.clone()));
@@ -311,25 +343,24 @@ pub fn run_driver() -> ! {
 }
 
 async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, respond_to: TaskID, message: Message) {
-    let driver = &mut driver_ref.borrow_mut();
     let (command, request_id) = decode_command_and_id(message.0);
-        match command {
-            DriverCommand::Open => {
-                let response = driver.open();
-                send_response(respond_to, request_id, response);
-            },
-            DriverCommand::Read => {
-                let instance = message.1;
-                let buffer_ptr = message.2 as *mut u8;
-                let buffer_len = message.3 as usize;
-                let buffer = unsafe {
-                    core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
-                };
-                let result = driver.read(instance, buffer).await;
-                send_response(respond_to, request_id, result);
-            },
-            _ => send_response(respond_to, request_id, Err(IOError::UnsupportedOperation)),
-        }
+    match command {
+        DriverCommand::Open => {
+            let response = driver_ref.borrow_mut().open();
+            send_response(respond_to, request_id, response);
+        },
+        DriverCommand::Read => {
+            let instance = message.1;
+            let buffer_ptr = message.2 as *mut u8;
+            let buffer_len = message.3 as usize;
+            let buffer = unsafe {
+                core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
+            };
+            let result = driver_ref.borrow_mut().read(instance, buffer).await;
+            send_response(respond_to, request_id, result);
+        },
+        _ => send_response(respond_to, request_id, Err(IOError::UnsupportedOperation)),
+    }
 }
 
 fn send_response(task: TaskID, request_id: u32, result: IOResult) {
