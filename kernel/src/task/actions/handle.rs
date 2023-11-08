@@ -2,7 +2,7 @@ use core::ops::Deref;
 
 use crate::interrupts::pic::add_interrupt_listener;
 use crate::io::async_io::{IOType, AsyncOp, OPERATION_FLAG_MESSAGE};
-use crate::io::handle::Handle;
+use crate::io::handle::{Handle, PendingHandleOp};
 use crate::io::notify::NotifyQueue;
 use crate::io::provider::file::FileIOProvider;
 use crate::io::provider::irq::InterruptIOProvider;
@@ -99,6 +99,22 @@ pub fn wait_on_notify(queue: Handle, timeout: Option<u32>) {
     let task_lock = get_current_task();
     task_lock.write().wait_on_notify_queue(queue, timeout);
     yield_coop();
+}
+
+pub fn open_file_op(handle: Handle, path: &str) -> PendingHandleOp {
+    use crate::io::async_io::{OPERATION_FLAG_FILE, FILE_OP_OPEN};
+
+    let path_ptr = path.as_ptr() as u32;
+    let path_len = path.len() as u32;
+    PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0)
+}
+
+pub fn read_file_op(handle: Handle, buffer: &mut [u8]) -> PendingHandleOp {
+    use crate::io::async_io::{OPERATION_FLAG_FILE, FILE_OP_READ};
+
+    let buffer_ptr = buffer.as_ptr() as u32;
+    let buffer_len = buffer.len() as u32;
+    PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_READ, buffer_ptr, buffer_len, 0)
 }
 
 #[cfg(test)]
