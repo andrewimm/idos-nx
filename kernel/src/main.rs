@@ -134,7 +134,7 @@ fn init_system() -> ! {
 
         {
             let handle = task::actions::handle::create_file_handle();
-            crate::task::actions::handle::open_file_op(handle, "DEV:\\FD").wait_for_completion();
+            crate::task::actions::handle::open_file_op(handle, "DEV:\\FD1").wait_for_completion();
             let mut buffer: [u8; 5] = [0; 5];
             let read = crate::task::actions::handle::read_file_op(handle, &mut buffer).wait_for_completion();
             crate::kprint!("Read these {} bytes: ", read);

@@ -23,7 +23,7 @@ pub type InstalledDriver = Box<dyn SyncDriver + Sync + Send>;
 
 pub enum DriverType {
     SyncDevice(InstalledDriver),
-    AsyncDevice(TaskID),
+    AsyncDevice(TaskID, u32),
     SyncFilesystem(InstalledDriver),
     AsyncFilesystem(TaskID),
 }

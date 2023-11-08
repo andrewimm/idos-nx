@@ -69,7 +69,7 @@ pub fn run_driver() -> ! {
 pub fn install() {
     let task_id = create_kernel_task(run_driver, Some("COMDEV"));
 
-    crate::io::filesystem::install_async_dev("COM1", task_id);
+    crate::io::filesystem::install_async_dev("COM1", task_id, 0);
 }
 
 struct ComDeviceDriver {
@@ -106,7 +106,7 @@ impl ComDeviceDriver {
     pub fn handle_request(&mut self, message: Message, sender: TaskID) {
         let (command, request_id) = decode_command_and_id(message.0);
         match command {
-            DriverCommand::Open => {
+            DriverCommand::OpenRaw => {
                 let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
                 self.open_instances.insert(instance, OpenFile {});
                 self.send_response(sender, request_id, Ok(instance));
