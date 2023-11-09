@@ -11,7 +11,7 @@ use idos_api::io::error::IOError;
 
 use crate::hardware::dma::DmaChannelRegisters;
 use crate::io::driver::comms::{decode_command_and_id, DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
-use crate::io::filesystem::install_async_dev;
+use crate::io::filesystem::install_task_dev;
 use crate::task::actions::{yield_coop, send_message};
 use crate::task::switching::get_current_id;
 use crate::task::actions::handle::{open_message_queue, open_interrupt_handle, create_notify_queue, add_handle_to_notify_queue, wait_on_notify};
@@ -365,7 +365,7 @@ pub fn run_driver() -> ! {
         fd_count += 1;
         let dev_name = alloc::format!("FD{}", fd_count);
         crate::kprintln!("Install driver as DEV:\\{}\n", dev_name);
-        install_async_dev(dev_name.as_str(), task_id, sub_id);
+        install_task_dev(dev_name.as_str(), task_id, sub_id);
     }
 
     let mut interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
