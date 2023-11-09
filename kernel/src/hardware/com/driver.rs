@@ -69,7 +69,7 @@ pub fn run_driver() -> ! {
 pub fn install() {
     let task_id = create_kernel_task(run_driver, Some("COMDEV"));
 
-    crate::io::filesystem::install_async_dev("COM1", task_id, 0);
+    crate::io::filesystem::install_task_dev("COM1", task_id, 0);
 }
 
 struct ComDeviceDriver {

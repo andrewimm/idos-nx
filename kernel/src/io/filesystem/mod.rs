@@ -33,27 +33,27 @@ pub fn get_driver_id_by_name(name: &str) -> Option<DriverID> {
     None
 }
 
-pub fn install_sync_fs(name: &str, driver: InstalledDriver) -> DriverID {
+pub fn install_kernel_fs(name: &str, driver: InstalledDriver) -> DriverID {
     let id = NEXT_DRIVER_ID.fetch_add(1, Ordering::SeqCst);
-    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::SyncFilesystem(driver))); 
+    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::KernelFilesystem(driver))); 
     DriverID::new(id)
 }
 
-pub fn install_sync_dev(name: &str, driver: InstalledDriver) -> DriverID {
+pub fn install_kernel_dev(name: &str, driver: InstalledDriver) -> DriverID {
     let id = NEXT_DRIVER_ID.fetch_add(1, Ordering::SeqCst);
-    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::SyncDevice(driver)));
+    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::KernelDevice(driver)));
     DriverID::new(id)
 }
 
-pub fn install_async_fs(name: &str, task: TaskID) -> DriverID {
+pub fn install_task_fs(name: &str, task: TaskID) -> DriverID {
     let id = NEXT_DRIVER_ID.fetch_add(1, Ordering::SeqCst);
-    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::AsyncFilesystem(task)));
+    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::TaskFilesystem(task)));
     DriverID::new(id)
 }
 
-pub fn install_async_dev(name: &str, task: TaskID, sub_driver: u32) -> DriverID {
+pub fn install_task_dev(name: &str, task: TaskID, sub_driver: u32) -> DriverID {
     let id = NEXT_DRIVER_ID.fetch_add(1, Ordering::SeqCst);
-    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::AsyncDevice(task, sub_driver)));
+    INSTALLED_DRIVERS.write().insert(id, (name.to_string(), DriverType::TaskDevice(task, sub_driver)));
     DriverID::new(id)
 }
 
@@ -67,17 +67,17 @@ pub fn driver_open(driver_id: DriverID, path: Path, io_callback: AsyncIOCallback
         },
     };
     match driver {
-        DriverType::SyncFilesystem(fs) => {
-            return Some(fs.open(path));
+        DriverType::KernelFilesystem(fs) => {
+            return fs.open(Some(path), io_callback);
         },
-        DriverType::AsyncFilesystem(fs) => {
-            async_open(*fs, path, io_callback);
+        DriverType::TaskFilesystem(task) => {
+            async_open(*task, path, io_callback);
             return None;
         },
-        DriverType::SyncDevice(dev) => {
-            return Some(dev.open(Path::from_str("")));
+        DriverType::KernelDevice(dev) => {
+            return dev.open(None, io_callback);
         },
-        DriverType::AsyncDevice(dev, sub) => {
+        DriverType::TaskDevice(dev, sub) => {
             let action = DriverIOAction::OpenRaw(*sub);
             send_async_request(*dev, io_callback, action, None);
             return None;
@@ -135,17 +135,17 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: 
         },
     };
     match driver {
-        DriverType::SyncFilesystem(fs) => {
-            return Some(fs.read(instance, buffer));
+        DriverType::KernelFilesystem(fs) => {
+            return fs.read(instance, buffer, io_callback);
         },
-        DriverType::AsyncFilesystem(fs_id) => {
+        DriverType::TaskFilesystem(fs_id) => {
             async_read(*fs_id, instance, buffer, io_callback);
             return None;
         },
-        DriverType::SyncDevice(dev) => {
-            return Some(dev.read(instance, buffer));
+        DriverType::KernelDevice(dev) => {
+            return dev.read(instance, buffer, io_callback);
         },
-        DriverType::AsyncDevice(dev, _) => {
+        DriverType::TaskDevice(dev, _) => {
             async_read(*dev, instance, buffer, io_callback);
             return None;
         },

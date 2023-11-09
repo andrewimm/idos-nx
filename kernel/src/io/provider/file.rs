@@ -153,11 +153,12 @@ fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), ()> {
 
         Ok((driver_id, Path::from_str(path_portion)))
     } else {
-        let (current_drive_id, mut working_dir) = {
+        let (current_drive_id, mut working_dir): (DriverID, Path) = {
             let task_lock = get_current_task();
             let task = task_lock.read();
             // TODO: task doesn't have a DriverID compatible current drive!
-            (DriverID::new(0), task.working_dir.clone())
+            panic!("Task doesn't have a current drive for the handle API!");
+            //(task.current_drive, task.working_dir.clone())
         };
         working_dir.push(raw_path);
         Ok((current_drive_id, working_dir))

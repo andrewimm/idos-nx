@@ -7,7 +7,7 @@ use crate::files::path::Path;
 
 use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::driver::comms::IOResult;
-use crate::io::driver::sync_driver::SyncDriver;
+use crate::io::driver::kernel_driver::KernelDriver;
 use crate::task::actions::handle::open_message_queue;
 use crate::task::actions::send_message;
 use crate::task::messaging::Message;
@@ -16,6 +16,8 @@ use crate::io::handle::PendingHandleOp;
 use crate::io::async_io::{OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ};
 
 pub mod sync_fs {
+    use crate::io::filesystem::driver::AsyncIOCallback;
+
     use super::*;
 
     pub struct TestSyncFS {
@@ -44,27 +46,35 @@ pub mod sync_fs {
         }
     }
 
-    impl SyncDriver for TestSyncFS {
-        fn open(&self, path: Path) -> IOResult {
-            crate::kprintln!("TEST FS OPEN \"{}\"", path.as_str());
-            if path.as_str() == "MYFILE.TXT" {
-                let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
-                self.open_files.write().insert(instance, OpenFile::new());
-                Ok(instance)
-            } else {
-                Err(IOError::NotFound)
-            }
+    impl KernelDriver for TestSyncFS {
+        fn open(&self, path: Option<Path>, _: AsyncIOCallback) -> Option<IOResult> {
+            let result = match path {
+                Some(path) => {
+                    if path.as_str() == "MYFILE.TXT" {
+                        let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
+                        self.open_files.write().insert(instance, OpenFile::new());
+                        Ok(instance)
+                    } else {
+                        Err(IOError::NotFound)
+                    }
+                },
+                None => Err(IOError::NotFound),
+            };
+            Some(result)
         }
 
-        fn read(&self, instance: u32, buffer: &mut [u8]) -> IOResult {
+        fn read(&self, instance: u32, buffer: &mut [u8], _: AsyncIOCallback) -> Option<IOResult> {
             let mut open_files = self.open_files.write();
-            let found = open_files.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
+            let found = match open_files.get_mut(&instance) {
+                Some(file) => file,
+                None => return Some(Err(IOError::FileHandleInvalid)),
+            };
             for i in 0..buffer.len() {
                 let value = ((found.written + i) % 26) + 0x41;
                 buffer[i] = value as u8;
             }
             found.written += buffer.len();
-            Ok(buffer.len() as u32)
+            Some(Ok(buffer.len() as u32))
         }
     }
 }
