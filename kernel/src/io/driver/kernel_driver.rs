@@ -1,3 +1,5 @@
+use idos_api::io::error::IOError;
+
 use crate::{files::path::Path, io::filesystem::driver::AsyncIOCallback};
 
 use super::comms::IOResult;
@@ -13,4 +15,8 @@ pub trait KernelDriver {
     fn open(&self, path: Option<Path>, io_callback: AsyncIOCallback) -> Option<IOResult>;
 
     fn read(&self, instance: u32, buffer: &mut [u8], io_callback: AsyncIOCallback) -> Option<IOResult>;
+
+    fn write(&self, instance: u32, buffer: &[u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
+        Some(Err(IOError::UnsupportedOperation))
+    }
 }

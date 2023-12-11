@@ -171,3 +171,47 @@ fn async_read(task: TaskID, instance: u32, buffer: &mut [u8], io_callback: Async
     );
 }
 
+pub fn driver_write(id: DriverID, instance: u32, buffer: &[u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
+    let drivers = INSTALLED_DRIVERS.read();
+    let (_, driver) = match drivers.get(&id) {
+        Some(d) => d,
+        None => {
+            return Some(Err(IOError::NotFound));
+        },
+    };
+    match driver {
+        DriverType::KernelFilesystem(fs) => {
+            return fs.write(instance, buffer, io_callback);
+        },
+        DriverType::TaskFilesystem(fs_id) => {
+            async_write(*fs_id, instance, buffer, io_callback);
+            return None;
+        },
+        DriverType::KernelDevice(dev) => {
+            return dev.write(instance, buffer, io_callback);
+        },
+        DriverType::TaskDevice(dev, _) => {
+            async_write(*dev, instance, buffer, io_callback);
+            return None;
+        },
+        _ => panic!("Not implemented"),
+    }
+}
+
+fn async_write(task: TaskID, instance: u32, buffer: &[u8], io_callback: AsyncIOCallback) {
+    let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
+    let shared_to_driver = shared_range.share_with_task(task);
+
+    let action = DriverIOAction::Write(
+        instance,
+        shared_to_driver.get_range_start(),
+        shared_to_driver.range_length,
+    );
+
+    send_async_request(
+        task,
+        io_callback,
+        action,
+        Some(shared_range),
+    );
+}

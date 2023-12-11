@@ -8,6 +8,7 @@ use crate::io::provider::file::FileIOProvider;
 use crate::io::provider::irq::InterruptIOProvider;
 use crate::io::provider::message::MessageIOProvider;
 use crate::io::provider::task::TaskIOProvider;
+use crate::pipes::driver::{create_pipe, get_pipe_drive_id};
 use crate::task::id::TaskID;
 
 use super::switching::get_current_task;
@@ -58,6 +59,22 @@ pub fn create_file_handle() -> Handle {
     let io = IOType::File(FileIOProvider::new(task.id));
     let io_index = task.async_io_table.add_io(io);
     task.open_handles.insert(io_index)
+}
+
+pub fn create_pipe_handles() -> (Handle, Handle) {
+    let (reader_instance, writer_instance) = create_pipe();
+    let pipe_driver_id = get_pipe_drive_id();
+    let task_lock = get_current_task();
+    let mut task = task_lock.write();
+    let read_io = FileIOProvider::bound(task.id, pipe_driver_id, reader_instance);
+    let read_io_index = task.async_io_table.add_io(IOType::File(read_io));
+    let write_io = FileIOProvider::bound(task.id, pipe_driver_id, writer_instance);
+    let write_io_index = task.async_io_table.add_io(IOType::File(write_io));
+    
+    (
+        task.open_handles.insert(read_io_index),
+        task.open_handles.insert(write_io_index),
+    )
 }
 
 pub fn open_interrupt_handle(irq: u8) -> Handle {
@@ -115,6 +132,14 @@ pub fn read_file_op(handle: Handle, buffer: &mut [u8]) -> PendingHandleOp {
     let buffer_ptr = buffer.as_ptr() as u32;
     let buffer_len = buffer.len() as u32;
     PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_READ, buffer_ptr, buffer_len, 0)
+}
+
+pub fn write_file_op(handle: Handle, buffer: &[u8]) -> PendingHandleOp {
+    use crate::io::async_io::{OPERATION_FLAG_FILE, FILE_OP_WRITE};
+
+    let buffer_ptr = buffer.as_ptr() as u32;
+    let buffer_len = buffer.len() as u32;
+    PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_WRITE, buffer_ptr, buffer_len, 0)
 }
 
 #[cfg(test)]
