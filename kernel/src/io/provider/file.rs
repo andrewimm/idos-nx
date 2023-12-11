@@ -3,7 +3,7 @@ use crate::{
     io::{
         async_io::{AsyncOp, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ, AsyncOpQueue, OpIdGenerator, AsyncOpID},
         driver::comms::IOResult,
-        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read},
+        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write},
     },
     files::path::Path,
     task::{switching::{get_current_task, get_current_id}, id::TaskID},
@@ -27,6 +27,16 @@ impl FileIOProvider {
             driver_id: None,
             source_id,
             bound_instance: None,
+        }
+    }
+
+    pub fn bound(source_id: TaskID, driver_id: DriverID, bound_instance: u32) -> Self {
+        Self {
+            next_op_id: OpIdGenerator::new(),
+            pending_ops: AsyncOpQueue::new(),
+            driver_id: Some(driver_id),
+            source_id,
+            bound_instance: Some(bound_instance),
         }
     }
 
@@ -78,7 +88,19 @@ impl FileIOProvider {
                         None
                     }
                 },
-                FILE_OP_WRITE => panic!("NOT SUPPORTED"),
+                FILE_OP_WRITE => {
+                    let buffer_ptr = arg0 as *const u8;
+                    let buffer_len = arg1 as usize;
+                    let buffer = unsafe {
+                        core::slice::from_raw_parts(buffer_ptr, buffer_len)
+                    };
+                    let driver_id = self.driver_id.unwrap();
+                    if let Some(result) = driver_write(driver_id, instance, buffer, (self.source_id, index, id)) {
+                        Some(result)
+                    } else {
+                        None
+                    }
+                },
                 FILE_OP_SEEK => panic!("NOT SUPPORTED"),
                 FILE_OP_STAT => panic!("NOT SUPPORTED"),
                 _ => {

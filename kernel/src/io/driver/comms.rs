@@ -15,6 +15,8 @@ pub enum DriverIOAction {
     OpenRaw(u32),
     /// Read(instance, buffer pointer, buffer length)
     Read(u32, u32, u32),
+    /// Write(instance, buffer pointer, buffer length)
+    Write(u32, u32, u32),
 }
 
 impl DriverIOAction {
@@ -30,6 +32,10 @@ impl DriverIOAction {
             },
             Self::Read(open_instance, buffer_ptr, buffer_len) => {
                 let code = create_request_code(request_id, DriverCommand::Read);
+                Message(code, *open_instance, *buffer_ptr, *buffer_len)
+            },
+            Self::Write(open_instance, buffer_ptr, buffer_len) => {
+                let code = create_request_code(request_id, DriverCommand::Write);
                 Message(code, *open_instance, *buffer_ptr, *buffer_len)
             },
         }
