@@ -291,8 +291,11 @@ pub fn get_pipe_drive_id() -> DriverID {
 mod tests {
     use super::Pipe;
     use crate::task::id::TaskID;
-    use crate::io::async_io::AsyncOpID;
-    use crate::task::actions::handle::{create_pipe_handles, read_file_op, write_file_op};
+    use crate::io::async_io::{AsyncOpID, OPERATION_FLAG_TASK, TASK_OP_WAIT};
+    use crate::io::handle::{Handle, PendingHandleOp};
+    use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, read_file_op, write_file_op, transfer_handle};
+    use crate::task::actions::lifecycle::terminate;
+    use crate::task::actions::yield_coop;
 
     // pipe tests
 
@@ -388,5 +391,49 @@ mod tests {
         assert_eq!(write_op.wait_for_completion(), 3);
         assert_eq!(read_op.wait_for_completion(), 3);
         assert_eq!(read_buffer, [2, 4, 6]);
+    }
+
+    #[test_case]
+    fn write_then_read() {
+        let (reader, writer) = create_pipe_handles();
+        let write_op = write_file_op(writer, &[12, 8]);
+        assert_eq!(write_op.wait_for_completion(), 2);
+
+        fn child_task_body() -> ! {
+            let reader = Handle::new(0);
+            let mut read_buffer: [u8; 2] = [0; 2];
+            let read_op = read_file_op(reader, &mut read_buffer);
+            assert_eq!(read_op.wait_for_completion(), 2);
+            assert_eq!(read_buffer, [12, 8]);
+            terminate(1);
+        }
+
+        let (child_handle, child_id) = create_kernel_task(child_task_body, Some("CHILD"));
+        transfer_handle(reader, child_id);
+
+        let op = PendingHandleOp::new(child_handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
+        op.wait_for_completion();
+    }
+
+    #[test_case]
+    fn read_then_write() {
+        let (reader, writer) = create_pipe_handles();
+        fn child_task_body() -> ! {
+            let reader = Handle::new(0);
+            let mut read_buffer: [u8; 2] = [0; 2];
+            let read_op = read_file_op(reader, &mut read_buffer);
+            assert_eq!(read_op.wait_for_completion(), 2);
+            assert_eq!(read_buffer, [22, 80]);
+            terminate(1);
+        }
+
+        let (child_handle, child_id) = create_kernel_task(child_task_body, Some("CHILD"));
+        transfer_handle(reader, child_id);
+        yield_coop();
+        let write_op = write_file_op(writer, &[22, 80]);
+        assert_eq!(write_op.wait_for_completion(), 2);
+
+        let op = PendingHandleOp::new(child_handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
+        op.wait_for_completion();
     }
 }
