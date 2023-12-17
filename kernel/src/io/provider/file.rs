@@ -44,6 +44,10 @@ impl FileIOProvider {
         self.bound_instance.is_some()
     }
 
+    pub fn set_task(&mut self, source_id: TaskID) {
+        self.source_id = source_id;
+    }
+
     pub fn op_completed(&mut self, index: u32, id: AsyncOpID, result: IOResult) {
         let op = match self.pending_ops.remove(id) {
             Some(op) => op,

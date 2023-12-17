@@ -10,6 +10,7 @@ use crate::io::provider::message::MessageIOProvider;
 use crate::io::provider::task::TaskIOProvider;
 use crate::pipes::driver::{create_pipe, get_pipe_drive_id};
 use crate::task::id::TaskID;
+use crate::task::switching::get_task;
 
 use super::switching::get_current_task;
 use super::yield_coop;
@@ -116,6 +117,33 @@ pub fn wait_on_notify(queue: Handle, timeout: Option<u32>) {
     let task_lock = get_current_task();
     task_lock.write().wait_on_notify_queue(queue, timeout);
     yield_coop();
+}
+
+pub fn transfer_handle(handle: Handle, transfer_to: TaskID) -> Option<Handle> {
+    let task_lock = get_current_task();
+    let dest_lock = get_task(transfer_to)?;
+
+    let async_io_entry = {
+        let mut task = task_lock.write();
+        let io_index = task.open_handles.remove(handle)?;
+
+        match task.async_io_table.remove_reference(io_index) {
+            Some(io_entry) => {
+                // This was the only reference to this entry
+                // It can be modified and added to the destination task
+                io_entry.lock().set_task(transfer_to);
+                io_entry
+            },
+            None => {
+                panic!("Not implemented");
+                // TODO: entry needs to be duplicated
+            },
+        }
+    };
+    
+    let mut dest_task = dest_lock.write();
+    let dest_index = dest_task.async_io_table.insert(async_io_entry);
+    Some(dest_task.open_handles.insert(dest_index))
 }
 
 pub fn open_file_op(handle: Handle, path: &str) -> PendingHandleOp {

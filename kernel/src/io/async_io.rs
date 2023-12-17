@@ -24,6 +24,13 @@ impl IOType {
             _ => panic!("Not implemented"),
         }
     }
+
+    pub fn set_task(&mut self, task: TaskID) {
+        match self {
+            Self::File(io) => io.set_task(task),
+            _ => (),
+        }
+    }
 }
 
 // Op Codes use the top 16 bits to indicate the handle type they modify
@@ -212,14 +219,18 @@ impl AsyncIOTable {
         }
     }
 
-    pub fn add_io(&mut self, io_type: IOType) -> u32 {
+    pub fn insert(&mut self, io_type: Arc<Mutex<IOType>>) -> u32 {
         let entry = AsyncIOTableEntry {
             ref_count: AtomicU32::new(1),
-            io_type: Arc::new(Mutex::new(io_type)),
+            io_type,
         };
         let index = self.next.fetch_add(1, Ordering::SeqCst);
         self.inner.insert(index, entry);
         index
+    }
+
+    pub fn add_io(&mut self, io_type: IOType) -> u32 {
+        self.insert(Arc::new(Mutex::new(io_type)))
     }
 
     pub fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<(), ()> {
@@ -230,6 +241,23 @@ impl AsyncIOTable {
 
     pub fn get(&self, index: u32) -> Option<&AsyncIOTableEntry> {
         self.inner.get(&index)
+    }
+
+    pub fn add_reference(&self, index: u32) -> Option<u32> {
+        let entry = self.inner.get(&index)?;
+        let count = entry.ref_count.fetch_add(1, Ordering::SeqCst) + 1;
+        Some(count)
+    }
+
+    /// If the last reference is removed, the table entry will be removed from
+    /// the map as well, and returned
+    pub fn remove_reference(&mut self, index: u32) -> Option<Arc<Mutex<IOType>>> {
+        let entry = self.inner.get(&index)?;
+        let count = entry.ref_count.fetch_sub(1, Ordering::SeqCst);
+        if count > 1 {
+            return None;
+        }
+        self.inner.remove(&index).map(|entry| entry.io_type)
     }
 
     /// convenience method to get first (and ideally, only) async io
