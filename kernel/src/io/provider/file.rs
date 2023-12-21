@@ -48,6 +48,11 @@ impl FileIOProvider {
         self.source_id = source_id;
     }
 
+    pub fn close(&mut self) {
+        // TODO: implement this?
+        crate::kprintln!("CLOSE FILE");
+    }
+
     pub fn op_completed(&mut self, index: u32, id: AsyncOpID, result: IOResult) {
         let op = match self.pending_ops.remove(id) {
             Some(op) => op,
