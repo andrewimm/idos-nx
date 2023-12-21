@@ -92,6 +92,22 @@ pub fn open_interrupt_handle(irq: u8) -> Handle {
     handle
 }
 
+pub fn close_handle(handle: Handle) {
+    let task_lock = get_current_task();
+    let mut task = task_lock.write();
+    let io_index = match task.open_handles.remove(handle) {
+        Some(index) => index,
+        None => return,
+    };
+
+    match task.async_io_table.remove_reference(io_index) {
+        Some(io_entry) => {
+            io_entry.lock().close();
+        },
+        None => {},
+    }
+}
+
 pub fn create_notify_queue() -> Handle {
     let task_lock = get_current_task();
     let mut task = task_lock.write();
@@ -144,6 +160,14 @@ pub fn transfer_handle(handle: Handle, transfer_to: TaskID) -> Option<Handle> {
     let mut dest_task = dest_lock.write();
     let dest_index = dest_task.async_io_table.insert(async_io_entry);
     Some(dest_task.open_handles.insert(dest_index))
+}
+
+pub fn dup_handle(handle: Handle) -> Option<Handle> {
+    let task_lock = get_current_task();
+    let mut task = task_lock.write();
+    let io_index = *task.open_handles.get(handle)?;
+    task.async_io_table.add_reference(io_index);
+    Some(task.open_handles.insert(io_index))
 }
 
 pub fn open_file_op(handle: Handle, path: &str) -> PendingHandleOp {
@@ -447,5 +471,26 @@ mod tests {
         super::wait_on_notify(queue, None);
         assert!(op.is_complete());
         assert_eq!(op.get_result(), Some(1));
+    }
+
+    #[test_case]
+    fn dup_file() {
+        let handle = super::create_file_handle();
+        super::open_file_op(handle, "TEST:\\MYFILE.TXT").wait_for_completion();
+        let handle_dup = super::dup_handle(handle).unwrap();
+
+        let mut read_buffer: [u8; 3] = [0; 3];
+        super::read_file_op(handle, &mut read_buffer).wait_for_completion();
+        assert_eq!(read_buffer, [b'A', b'B', b'C']);
+        
+        super::read_file_op(handle_dup, &mut read_buffer).wait_for_completion();
+        // dup handle should point to the same instance
+        assert_eq!(read_buffer, [b'D', b'E', b'F']);
+
+        super::close_handle(handle);
+        // the io instance should remain open because the dup'd handle still
+        // points to it
+        super::read_file_op(handle_dup, &mut read_buffer).wait_for_completion();
+        assert_eq!(read_buffer, [b'G', b'H', b'I']);
     }
 }
