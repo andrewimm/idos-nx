@@ -47,6 +47,9 @@ pub struct Pipe {
     pipe_buffer: RwLock<Box<[u8]>>,
     write_head: AtomicUsize,
     write_tail: AtomicUsize,
+
+    open_readers: AtomicUsize,
+    open_writers: AtomicUsize,
 }
 
 impl Pipe {
@@ -64,6 +67,9 @@ impl Pipe {
             pipe_buffer: RwLock::new(buffer.into_boxed_slice()),
             write_head: AtomicUsize::new(0),
             write_tail: AtomicUsize::new(0),
+
+            open_readers: AtomicUsize::new(1),
+            open_writers: AtomicUsize::new(1),
         }
     }
 
@@ -197,6 +203,37 @@ impl Pipe {
 
         return (written, callback);
     }
+
+    pub fn open_reader(&self) {
+        let prev = self.open_readers.fetch_add(1, Ordering::SeqCst);
+        if prev == 0 {
+            panic!("Cannot reopen a closed pipe");
+        }
+    }
+
+    pub fn close_reader(&self) {
+        let prev = self.open_readers.fetch_sub(1, Ordering::SeqCst);
+        if prev == 0 {
+            panic!("Pipe already closed");
+        }
+    }
+
+    pub fn close_writer(&self) {
+        let prev = self.open_writers.fetch_sub(1, Ordering::SeqCst);
+        if prev == 0 {
+            panic!("Pipe already closed");
+        }
+    }
+
+    pub fn is_write_open(&self) -> bool {
+        let open = self.open_writers.load(Ordering::SeqCst);
+        open > 0
+    }
+
+    pub fn is_read_open(&self) -> bool {
+        let open = self.open_readers.load(Ordering::SeqCst);
+        open > 0
+    }
 }
 
 pub enum PipeEnd {
@@ -225,6 +262,10 @@ impl PipeDriver {
             Some(pipe) => pipe,
             None => return Some(Err(IOError::NotFound)),
         };
+        if !pipe.is_write_open() {
+            // if the write end is not open, any read should result in an EOF
+            return Some(Ok(0));
+        }
         pipe.read(buffer, io_callback).map(|bytes_read| Ok(bytes_read as u32))
     }
 
@@ -234,6 +275,9 @@ impl PipeDriver {
             Some(pipe) => pipe,
             None => return Some(Err(IOError::NotFound)),
         };
+        if !pipe.is_read_open() {
+            return Some(Err(IOError::WriteToClosedIO));
+        }
         let (written, callback_opt) = pipe.write(buffer);
         if let Some((read, callback)) = callback_opt {
             let (task_id, io_index, op_id) = callback;
@@ -244,6 +288,38 @@ impl PipeDriver {
             task_lock.write().async_io_complete(io_index, op_id, Ok(read as u32));
         }
         Some(Ok(written as u32))
+    }
+
+    fn close_reader(pipe_index: usize) {
+        let mut pipes = PIPES.write();
+        let pipe = match pipes.get(pipe_index) {
+            Some(pipe) => pipe,
+            None => return,
+        };
+        pipe.close_reader();
+        if pipe.is_read_open() || pipe.is_write_open() {
+            return;
+        }
+        // if the pipe has no more readers or writers, delete the pipe
+        pipes.remove(pipe_index);
+    }
+
+    fn close_writer(pipe_index: usize) {
+        let mut pipes = PIPES.write();
+        let pipe = match pipes.get(pipe_index) {
+            Some(pipe) => pipe,
+            None => return,
+        };
+        pipe.close_writer();
+        if pipe.is_read_open() || pipe.is_write_open() {
+            return;
+        }
+        pipes.remove(pipe_index);
+    }
+
+    pub fn get_open_pipes() -> Vec<usize> {
+        let pipes = PIPES.read();
+        pipes.enumerate().map(|(index, _)| index).collect()
     }
 }
 
@@ -273,6 +349,21 @@ impl KernelDriver for PipeDriver {
         };
         Self::write(pipe_index, buffer)
     }
+
+    fn close(&self, instance: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+        match OPEN_PIPES.read().get(instance as usize) {
+            Some(PipeEnd::Reader(index)) => {
+                Self::close_reader(*index);
+            },
+            Some(PipeEnd::Writer(index)) => {
+                Self::close_writer(*index);
+            },
+            None => return Some(Err(IOError::FileHandleInvalid)),
+        }
+
+        OPEN_PIPES.write().remove(instance as usize);
+        Some(Ok(0))
+    }
 }
 
 pub static PIPE_DRIVER_ID: Once<DriverID> = Once::new();
@@ -293,7 +384,7 @@ mod tests {
     use crate::task::id::TaskID;
     use crate::io::async_io::{AsyncOpID, OPERATION_FLAG_TASK, TASK_OP_WAIT};
     use crate::io::handle::{Handle, PendingHandleOp};
-    use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, read_file_op, write_file_op, transfer_handle};
+    use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, read_file_op, write_file_op, transfer_handle, close_handle};
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::yield_coop;
 
@@ -435,5 +526,14 @@ mod tests {
 
         let op = PendingHandleOp::new(child_handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
         op.wait_for_completion();
+    }
+
+    //#[test_case]
+    fn read_when_write_closed() {
+        let (reader, writer) = create_pipe_handles();
+        close_handle(writer);
+        let mut read_buffer: [u8; 4] = [0; 4];
+        let read_op = read_file_op(reader, &mut read_buffer);
+        assert_eq!(read_op.wait_for_completion(), 0);
     }
 }

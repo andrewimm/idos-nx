@@ -41,6 +41,12 @@ impl NullDev {
         let _found = open_files.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
         Ok(0)
     }
+
+    fn close_impl(&self, instance: u32) -> IOResult {
+        let mut open_files = self.open_files.write();
+        open_files.remove(&instance).ok_or(IOError::FileHandleInvalid)?;
+        Ok(0)
+    }
 }
 
 impl KernelDriver for NullDev {
@@ -50,5 +56,9 @@ impl KernelDriver for NullDev {
 
     fn read(&self, instance: u32, buffer: &mut [u8], _: AsyncIOCallback) -> Option<IOResult> {
         Some(self.read_impl(instance, buffer))
+    }
+
+    fn close(&self, instance: u32, _: AsyncIOCallback) -> Option<IOResult> {
+        Some(self.close_impl(instance))
     }
 }

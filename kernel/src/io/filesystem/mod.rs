@@ -57,161 +57,152 @@ pub fn install_task_dev(name: &str, task: TaskID, sub_driver: u32) -> DriverID {
     DriverID::new(id)
 }
 
-/// Run the open() operation on an installed driver
-pub fn driver_open(driver_id: DriverID, path: Path, io_callback: AsyncIOCallback) -> Option<IOResult> {
+pub fn with_driver<F>(driver_id: DriverID, f: F) -> Option<IOResult>
+    where F: FnOnce(&DriverType) -> Option<IOResult> {
+
     let drivers = INSTALLED_DRIVERS.read();
     let (_, driver) = match drivers.get(&driver_id) {
         Some(d) => d,
-        None => {
-            return Some(Err(IOError::NotFound));
-        },
+        None => return Some(Err(IOError::NotFound)),
     };
-    match driver {
-        DriverType::KernelFilesystem(fs) => {
-            return fs.open(Some(path), io_callback);
-        },
-        DriverType::TaskFilesystem(task) => {
-            async_open(*task, path, io_callback);
-            return None;
-        },
-        DriverType::KernelDevice(dev) => {
-            return dev.open(None, io_callback);
-        },
-        DriverType::TaskDevice(dev, sub) => {
-            let action = DriverIOAction::OpenRaw(*sub);
-            send_async_request(*dev, io_callback, action, None);
-            return None;
-        },
-        _ => panic!("Not implemented"),
-    }
+    f(driver)
 }
 
-fn async_open(task: TaskID, path: Path, io_callback: AsyncIOCallback) {
-    // Unlike other ops that wait for a buffer to be filled, the path string
-    // passed to the original call is never used again. This means the original
-    // memory can easily be dropped by the time the driver tries to consume the
-    // path. In order to ensure a version of the string is still available, we
-    // create a copy that will be dropped when the op completes.
-    let path_boxed = Into::<String>::into(path).into_boxed_str();
-    let path_len = path_boxed.len();
-    // doing this ensures the box is not dropped
-    let path_ptr = Box::into_raw(path_boxed) as *const u8;
-    let (shared_range, action) = if path_len == 0 {
-        // can't share memory for an empty slice, just hardcode it
-        (None, DriverIOAction::Open(0, 0))
-    } else {
-        // TODO: This is not ideal. We're sharing a page of kernel heap with
-        // the driver. That's not safe. We should create a new shared memory
-        // concept that allocates a new frame, copies a string to it, and maps
-        // it to the shared task.
-        let boxed_slice = unsafe {
-            core::slice::from_raw_parts(path_ptr, path_len)
-        };
-        let shared_range = SharedMemoryRange::for_slice::<u8>(boxed_slice);
-        let shared_to_driver = shared_range.share_with_task(task);
-        (
-            Some(shared_range),
-            DriverIOAction::Open(
-                shared_to_driver.get_range_start(),
-                shared_to_driver.range_length,
-            ),
-        )
-    };
+/// Run the open() operation on an installed driver
+pub fn driver_open(driver_id: DriverID, path: Path, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    with_driver(driver_id, |driver| {
+        match driver {
+            DriverType::KernelFilesystem(fs) => {
+                return fs.open(Some(path), io_callback);
+            },
+            DriverType::KernelDevice(dev) => {
+                return dev.open(None, io_callback);
+            },
+            DriverType::TaskDevice(dev, sub) => {
+                let action = DriverIOAction::OpenRaw(*sub);
+                send_async_request(*dev, io_callback, action, None);
+                return None;
+            },
+            DriverType::TaskFilesystem(task) => {
+                // Unlike other ops that wait for a buffer to be filled, the
+                // path string passed to the original call is never used again.
+                // This means the original memory can easily be dropped by the
+                // time the driver tries to consume the path. In order to
+                // ensure a version of the string is still available, we create
+                // a copy that will be dropped when the op completes.
+                let path_boxed = Into::<String>::into(path).into_boxed_str();
+                let path_len = path_boxed.len();
+                // doing this ensures the box is not dropped
+                let path_ptr = Box::into_raw(path_boxed) as *const u8;
+                let (shared_range, action) = if path_len == 0 {
+                    // can't share memory for an empty slice, just hardcode it
+                    (None, DriverIOAction::Open(0, 0))
+                } else {
+                    // TODO: This is not ideal. We're sharing a page of kernel
+                    // heap with the driver. That's not safe. We should create
+                    // a new shared memory concept that allocates a new frame,
+                    // copies a string to it, and maps it to the shared task.
+                    let boxed_slice = unsafe {
+                        core::slice::from_raw_parts(path_ptr, path_len)
+                    };
+                    let shared_range = SharedMemoryRange::for_slice::<u8>(boxed_slice);
+                    let shared_to_driver = shared_range.share_with_task(*task);
+                    (
+                        Some(shared_range),
+                        DriverIOAction::Open(
+                            shared_to_driver.get_range_start(),
+                            shared_to_driver.range_length,
+                        ),
+                    )
+                };
 
-    send_async_request(
-        task,
-        io_callback,
-        action,
-        shared_range,
-    );
+                send_async_request(
+                    *task,
+                    io_callback,
+                    action,
+                    shared_range,
+                );
+                None
+            },
+        }
+    })
+}
+
+pub fn driver_close(id: DriverID, instance: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    with_driver(id, |driver| {
+        match driver {
+            DriverType::KernelFilesystem(d)
+            | DriverType::KernelDevice(d) => d.close(instance, io_callback),
+
+            DriverType::TaskFilesystem(task_id)
+            | DriverType::TaskDevice(task_id, _) => {
+                let action = DriverIOAction::Close(instance);
+                send_async_request(
+                    *task_id,
+                    io_callback,
+                    action,
+                    None,
+                );
+                None
+            },
+        }
+    })
 }
 
 pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
-    let drivers = INSTALLED_DRIVERS.read();
-    let (_, driver) = match drivers.get(&id) {
-        Some(d) => d,
-        None => {
-            return Some(Err(IOError::NotFound));
-        },
-    };
-    match driver {
-        DriverType::KernelFilesystem(fs) => {
-            return fs.read(instance, buffer, io_callback);
-        },
-        DriverType::TaskFilesystem(fs_id) => {
-            async_read(*fs_id, instance, buffer, io_callback);
-            return None;
-        },
-        DriverType::KernelDevice(dev) => {
-            return dev.read(instance, buffer, io_callback);
-        },
-        DriverType::TaskDevice(dev, _) => {
-            async_read(*dev, instance, buffer, io_callback);
-            return None;
-        },
-        _ => panic!("Not implemented"),
-    }
-}
+    with_driver(id, |driver| {
+        match driver {
+            DriverType::KernelFilesystem(d)
+            | DriverType::KernelDevice(d) => d.read(instance, buffer, io_callback),
 
-fn async_read(task: TaskID, instance: u32, buffer: &mut [u8], io_callback: AsyncIOCallback) {
-    let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
-    let shared_to_driver = shared_range.share_with_task(task);
+            DriverType::TaskFilesystem(task_id)
+            | DriverType::TaskDevice(task_id, _) => {
+                let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
+                let shared_to_driver = shared_range.share_with_task(*task_id);
 
-    let action = DriverIOAction::Read(
-        instance,
-        shared_to_driver.get_range_start(),
-        shared_to_driver.range_length,
-    );
+                let action = DriverIOAction::Read(
+                    instance,
+                    shared_to_driver.get_range_start(),
+                    shared_to_driver.range_length,
+                );
 
-    send_async_request(
-        task,
-        io_callback,
-        action,
-        Some(shared_range),
-    );
+                send_async_request(
+                    *task_id,
+                    io_callback,
+                    action,
+                    Some(shared_range),
+                );
+                None
+            },
+        }
+    })
 }
 
 pub fn driver_write(id: DriverID, instance: u32, buffer: &[u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
-    let drivers = INSTALLED_DRIVERS.read();
-    let (_, driver) = match drivers.get(&id) {
-        Some(d) => d,
-        None => {
-            return Some(Err(IOError::NotFound));
-        },
-    };
-    match driver {
-        DriverType::KernelFilesystem(fs) => {
-            return fs.write(instance, buffer, io_callback);
-        },
-        DriverType::TaskFilesystem(fs_id) => {
-            async_write(*fs_id, instance, buffer, io_callback);
-            return None;
-        },
-        DriverType::KernelDevice(dev) => {
-            return dev.write(instance, buffer, io_callback);
-        },
-        DriverType::TaskDevice(dev, _) => {
-            async_write(*dev, instance, buffer, io_callback);
-            return None;
-        },
-        _ => panic!("Not implemented"),
-    }
-}
+    with_driver(id, |driver| {
+        match driver {
+            DriverType::KernelFilesystem(d)
+            | DriverType::KernelDevice(d) => d.write(instance, buffer, io_callback),
 
-fn async_write(task: TaskID, instance: u32, buffer: &[u8], io_callback: AsyncIOCallback) {
-    let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
-    let shared_to_driver = shared_range.share_with_task(task);
+            DriverType::TaskFilesystem(task_id)
+            | DriverType::TaskDevice(task_id, _) => {
+                let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
+                let shared_to_driver = shared_range.share_with_task(*task_id);
 
-    let action = DriverIOAction::Write(
-        instance,
-        shared_to_driver.get_range_start(),
-        shared_to_driver.range_length,
-    );
+                let action = DriverIOAction::Write(
+                    instance,
+                    shared_to_driver.get_range_start(),
+                    shared_to_driver.range_length,
+                );
 
-    send_async_request(
-        task,
-        io_callback,
-        action,
-        Some(shared_range),
-    );
+                send_async_request(
+                    *task_id,
+                    io_callback,
+                    action,
+                    Some(shared_range),
+                );
+                None
+            },
+        }
+    })
 }
