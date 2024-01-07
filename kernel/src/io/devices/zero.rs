@@ -44,6 +44,12 @@ impl ZeroDev {
         }
         Ok(buffer.len() as u32)
     }
+
+    fn close_impl(&self, instance: u32) -> IOResult {
+        let mut open_files = self.open_files.write();
+        open_files.remove(&instance).ok_or(IOError::FileHandleInvalid)?;
+        Ok(0)
+    }
 }
 
 impl KernelDriver for ZeroDev {
@@ -53,5 +59,9 @@ impl KernelDriver for ZeroDev {
 
     fn read(&self, instance: u32, buffer: &mut [u8], _: AsyncIOCallback) -> Option<IOResult> {
         Some(self.read_impl(instance, buffer))
+    }
+
+    fn close(&self, instance: u32, _: AsyncIOCallback) -> Option<IOResult> {
+        Some(self.close_impl(instance))
     }
 }

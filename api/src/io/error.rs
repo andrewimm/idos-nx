@@ -17,6 +17,8 @@ pub enum IOError {
     UnsupportedOperation,
     /// Sent a control command that was not recognized
     UnsupportedCommand,
+    /// Tried to write to a closed pipe / socket / etc
+    WriteToClosedIO,
 
     Unknown = 0xffffffff,
 }

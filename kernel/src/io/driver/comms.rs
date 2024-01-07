@@ -13,6 +13,8 @@ pub enum DriverIOAction {
     /// without using a string path -- this is commonly used by async device
     /// drivers which run multiple instances from a single Task.
     OpenRaw(u32),
+    /// Close(instance)
+    Close(u32),
     /// Read(instance, buffer pointer, buffer length)
     Read(u32, u32, u32),
     /// Write(instance, buffer pointer, buffer length)
@@ -28,6 +30,10 @@ impl DriverIOAction {
             },
             Self::OpenRaw(id) => {
                 let code = create_request_code(request_id, DriverCommand::OpenRaw);
+                Message(code, *id, 0, 0)
+            },
+            Self::Close(id) => {
+                let code = create_request_code(request_id, DriverCommand::Close);
                 Message(code, *id, 0, 0)
             },
             Self::Read(open_instance, buffer_ptr, buffer_len) => {

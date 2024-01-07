@@ -28,6 +28,10 @@ pub trait AsyncDriver {
                 let id_as_path = message.1.to_string();
                 Some(self.open(id_as_path.as_str()))
             },
+            DriverCommand::Close => {
+                let instance = message.1;
+                Some(self.close(instance))
+            },
             DriverCommand::Read => {
                 let instance = message.1;
                 let buffer_ptr = message.2 as *mut u8;
@@ -56,6 +60,8 @@ pub trait AsyncDriver {
     }
 
     fn open(&mut self, path: &str) -> IOResult;
+
+    fn close(&mut self, instance: u32) -> IOResult;
 
     fn read(&mut self, instance: u32, buffer: &mut [u8]) -> IOResult;
 }

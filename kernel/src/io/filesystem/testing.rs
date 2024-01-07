@@ -76,6 +76,10 @@ pub mod sync_fs {
             found.written += buffer.len();
             Some(Ok(buffer.len() as u32))
         }
+
+        fn close(&self, instance: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+            panic!("not implemented");
+        }
     }
 }
 
@@ -129,6 +133,10 @@ pub mod async_fs {
             }
             found.written += buffer.len();
             Ok(buffer.len() as u32)
+        }
+
+        fn close(&mut self, instance: u32) -> IOResult {
+            panic!("not implemented");
         }
     }
 
@@ -202,6 +210,10 @@ pub mod async_dev {
                 found.written += 1;
             }
             Ok(written as u32)
+        }
+
+        fn close(&mut self, instance: u32) -> IOResult {
+            panic!("not implemented");
         }
     }
 
