@@ -17,6 +17,8 @@ pub enum IOError {
     UnsupportedOperation,
     /// Sent a control command that was not recognized
     UnsupportedCommand,
+    /// Attempted to open or bind a handle that is already open
+    AlreadyOpen,
     /// Tried to write to a closed pipe / socket / etc
     WriteToClosedIO,
 
@@ -35,6 +37,8 @@ impl TryFrom<u32> for IOError {
             5 => Ok(Self::OperationFailed),
             6 => Ok(Self::UnsupportedOperation),
             7 => Ok(Self::UnsupportedCommand),
+            8 => Ok(Self::AlreadyOpen),
+            9 => Ok(Self::WriteToClosedIO),
             _ => Ok(Self::Unknown),
         }
     }

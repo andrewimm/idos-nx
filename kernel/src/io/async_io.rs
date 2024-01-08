@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::{collections::{BTreeMap, VecDeque}, sync::Arc};
-use spin::Mutex;
+use spin::{Mutex, RwLock};
 
 use crate::{memory::{address::{PhysicalAddress, VirtualAddress}, virt::scratch::UnmappedPage}, task::{id::TaskID, messaging::MessageQueue}};
 
@@ -15,14 +15,14 @@ pub enum IOType {
 }
 
 impl IOType {
-    pub fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<AsyncOpID, ()> {
-        match self {
-            Self::ChildTask(io) => io.add_op(index, op),
-            Self::MessageQueue(io) => io.add_op(index, op),
-            Self::File(io) => io.add_op(index, op),
-            Self::Interrupt(io) => io.add_op(index, op),
-            _ => panic!("Not implemented"),
-        }
+    pub fn op_request(&self, index: u32, op: AsyncOp) -> Result<AsyncOpID, ()> {
+        let provider: &dyn IOProvider = match self {
+            Self::ChildTask(io) => io,
+            Self::MessageQueue(io) => io,
+            Self::File(io) => io,
+            Self::Interrupt(io) => io,
+        };
+        provider.op_request(index, op)
     }
 
     pub fn set_task(&mut self, task: TaskID) {
@@ -63,6 +63,12 @@ pub const SOCKET_OP_READ: u32 = 2;
 pub const SOCKET_OP_WRITE: u32 = 3;
 
 pub const MESSAGE_OP_READ: u32 = 2;
+
+
+pub const ASYNC_OP_OPEN: u32 = 1;
+pub const ASYNC_OP_READ: u32 = 2;
+pub const ASYNC_OP_WRITE: u32 = 3;
+pub const ASYNC_OP_CLOSE: u32 = 4;
 
 /// All async operations on handles are performed by passing an AsyncOp object
 /// to the kernel. The fields are used to determine which action to take.
@@ -165,48 +171,52 @@ impl OpIdGenerator {
 
 /// Stores a queue of pending Async Ops
 pub struct AsyncOpQueue {
-    inner: VecDeque<(AsyncOpID, AsyncOp)>,
+    id_gen: OpIdGenerator,
+    queue: RwLock<VecDeque<(AsyncOpID, AsyncOp)>>,
 }
 
 impl AsyncOpQueue {
     pub fn new() -> Self {
         Self {
-            inner: VecDeque::new(),
+            id_gen: OpIdGenerator::new(),
+            queue: RwLock::new(VecDeque::new()),
         }
     }
 
     pub fn is_empty(&self) -> bool {
-        self.inner.is_empty()
+        self.queue.read().is_empty()
     }
 
     pub fn len(&self) -> usize {
-        self.inner.len()
+        self.queue.read().len()
     }
 
-    pub fn push(&mut self, id: AsyncOpID, op: AsyncOp) {
-        self.inner.push_back((id, op));
+    pub fn push(&self, op: AsyncOp) -> AsyncOpID {
+        let id = self.id_gen.next_id();
+        self.queue.write().push_back((id, op));
+        id
     }
 
-    pub fn peek(&self) -> Option<&(AsyncOpID, AsyncOp)> {
-        self.inner.get(0)
+    pub fn peek(&self) -> Option<(AsyncOpID, AsyncOp)> {
+        self.queue.read().get(0).cloned()
     }
 
-    pub fn pop(&mut self) -> Option<(AsyncOpID, AsyncOp)> {
-        self.inner.pop_front()
+    pub fn pop(&self) -> Option<(AsyncOpID, AsyncOp)> {
+        self.queue.write().pop_front()
     }
 
-    pub fn find_by_id(&self, seek: AsyncOpID) -> Option<&AsyncOp> {
-        for (id, op) in self.inner.iter() {
+    pub fn find_by_id(&self, seek: AsyncOpID) -> Option<AsyncOp> {
+        for (id, op) in self.queue.read().iter() {
             if *id == seek {
-                return Some(op);
+                return Some(op.clone());
             }
         }
         None
     }
 
-    pub fn remove(&mut self, seek: AsyncOpID) -> Option<AsyncOp> {
-        let index = self.inner.iter().position(|pair| pair.0 == seek)?;
-        self.inner.remove(index).map(|pair| pair.1)
+    pub fn remove(&self, seek: AsyncOpID) -> Option<AsyncOp> {
+        let index = self.queue.read().iter().position(|pair| pair.0 == seek)?;
+        self.queue.write().remove(index).map(|pair| pair.1)
     }
 }
 
@@ -238,12 +248,6 @@ impl AsyncIOTable {
 
     pub fn add_io(&mut self, io_type: IOType) -> u32 {
         self.insert(Arc::new(Mutex::new(io_type)))
-    }
-
-    pub fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<(), ()> {
-        let entry = self.inner.get_mut(&index).ok_or(())?;
-        entry.io_type.lock().add_op(index, op);
-        Ok(())
     }
 
     pub fn get(&self, index: u32) -> Option<&AsyncIOTableEntry> {
