@@ -384,7 +384,7 @@ mod tests {
     use crate::task::id::TaskID;
     use crate::io::async_io::{AsyncOpID, OPERATION_FLAG_TASK, TASK_OP_WAIT};
     use crate::io::handle::{Handle, PendingHandleOp};
-    use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, read_file_op, write_file_op, transfer_handle, close_handle};
+    use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, handle_op_read, handle_op_write, transfer_handle, close_handle};
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::yield_coop;
 
@@ -463,10 +463,10 @@ mod tests {
     #[test_case]
     fn same_task_write_then_read() {
         let (reader, writer) = create_pipe_handles();
-        let write_op = write_file_op(writer, &[1, 3, 5]);
+        let write_op = handle_op_write(writer, &[1, 3, 5]);
         assert_eq!(write_op.wait_for_completion(), 3);
         let mut read_buffer: [u8; 3] = [0; 3];
-        let read_op = read_file_op(reader, &mut read_buffer);
+        let read_op = handle_op_read(reader, &mut read_buffer);
         assert_eq!(read_op.wait_for_completion(), 3);
         assert_eq!(read_buffer, [1, 3, 5]);
     }
@@ -476,9 +476,9 @@ mod tests {
         // want to make sure this doesn't cause a deadlock somewhere
         let (reader, writer) = create_pipe_handles();
         let mut read_buffer: [u8; 3] = [0; 3];
-        let read_op = read_file_op(reader, &mut read_buffer);
+        let read_op = handle_op_read(reader, &mut read_buffer);
         
-        let write_op = write_file_op(writer, &[2, 4, 6]);
+        let write_op = handle_op_write(writer, &[2, 4, 6]);
         assert_eq!(write_op.wait_for_completion(), 3);
         assert_eq!(read_op.wait_for_completion(), 3);
         assert_eq!(read_buffer, [2, 4, 6]);
@@ -487,13 +487,13 @@ mod tests {
     #[test_case]
     fn write_then_read() {
         let (reader, writer) = create_pipe_handles();
-        let write_op = write_file_op(writer, &[12, 8]);
+        let write_op = handle_op_write(writer, &[12, 8]);
         assert_eq!(write_op.wait_for_completion(), 2);
 
         fn child_task_body() -> ! {
             let reader = Handle::new(0);
             let mut read_buffer: [u8; 2] = [0; 2];
-            let read_op = read_file_op(reader, &mut read_buffer);
+            let read_op = handle_op_read(reader, &mut read_buffer);
             assert_eq!(read_op.wait_for_completion(), 2);
             assert_eq!(read_buffer, [12, 8]);
             terminate(1);
@@ -512,7 +512,7 @@ mod tests {
         fn child_task_body() -> ! {
             let reader = Handle::new(0);
             let mut read_buffer: [u8; 2] = [0; 2];
-            let read_op = read_file_op(reader, &mut read_buffer);
+            let read_op = handle_op_read(reader, &mut read_buffer);
             assert_eq!(read_op.wait_for_completion(), 2);
             assert_eq!(read_buffer, [22, 80]);
             terminate(1);
@@ -521,7 +521,7 @@ mod tests {
         let (child_handle, child_id) = create_kernel_task(child_task_body, Some("CHILD"));
         transfer_handle(reader, child_id);
         yield_coop();
-        let write_op = write_file_op(writer, &[22, 80]);
+        let write_op = handle_op_write(writer, &[22, 80]);
         assert_eq!(write_op.wait_for_completion(), 2);
 
         let op = PendingHandleOp::new(child_handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
@@ -533,7 +533,7 @@ mod tests {
         let (reader, writer) = create_pipe_handles();
         close_handle(writer);
         let mut read_buffer: [u8; 4] = [0; 4];
-        let read_op = read_file_op(reader, &mut read_buffer);
+        let read_op = handle_op_read(reader, &mut read_buffer);
         assert_eq!(read_op.wait_for_completion(), 0);
     }
 }

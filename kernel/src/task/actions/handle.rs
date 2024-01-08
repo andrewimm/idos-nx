@@ -171,28 +171,34 @@ pub fn dup_handle(handle: Handle) -> Option<Handle> {
     Some(task.open_handles.insert(io_index))
 }
 
-pub fn open_file_op(handle: Handle, path: &str) -> PendingHandleOp {
-    use crate::io::async_io::{OPERATION_FLAG_FILE, FILE_OP_OPEN};
+pub fn handle_op_open(handle: Handle, path: &str) -> PendingHandleOp {
+    use crate::io::async_io::ASYNC_OP_OPEN;
 
     let path_ptr = path.as_ptr() as u32;
     let path_len = path.len() as u32;
-    PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_OPEN, path_ptr, path_len, 0)
+    PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0)
 }
 
-pub fn read_file_op(handle: Handle, buffer: &mut [u8]) -> PendingHandleOp {
-    use crate::io::async_io::{OPERATION_FLAG_FILE, FILE_OP_READ};
+pub fn handle_op_read(handle: Handle, buffer: &mut [u8]) -> PendingHandleOp {
+    use crate::io::async_io::ASYNC_OP_READ;
 
     let buffer_ptr = buffer.as_ptr() as u32;
     let buffer_len = buffer.len() as u32;
-    PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_READ, buffer_ptr, buffer_len, 0)
+    PendingHandleOp::new(handle, ASYNC_OP_READ, buffer_ptr, buffer_len, 0)
 }
 
-pub fn write_file_op(handle: Handle, buffer: &[u8]) -> PendingHandleOp {
-    use crate::io::async_io::{OPERATION_FLAG_FILE, FILE_OP_WRITE};
+pub fn handle_op_write(handle: Handle, buffer: &[u8]) -> PendingHandleOp {
+    use crate::io::async_io::ASYNC_OP_WRITE;
 
     let buffer_ptr = buffer.as_ptr() as u32;
     let buffer_len = buffer.len() as u32;
-    PendingHandleOp::new(handle, OPERATION_FLAG_FILE | FILE_OP_WRITE, buffer_ptr, buffer_len, 0)
+    PendingHandleOp::new(handle, ASYNC_OP_WRITE, buffer_ptr, buffer_len, 0)
+}
+
+pub fn handle_op_close(handle: Handle) -> PendingHandleOp {
+    use crate::io::async_io::ASYNC_OP_CLOSE;
+
+    PendingHandleOp::new(handle, ASYNC_OP_CLOSE, 0, 0, 0)
 }
 
 #[cfg(test)]
@@ -479,21 +485,21 @@ mod tests {
     #[test_case]
     fn dup_file() {
         let handle = super::create_file_handle();
-        super::open_file_op(handle, "TEST:\\MYFILE.TXT").wait_for_completion();
+        super::handle_op_open(handle, "TEST:\\MYFILE.TXT").wait_for_completion();
         let handle_dup = super::dup_handle(handle).unwrap();
 
         let mut read_buffer: [u8; 3] = [0; 3];
-        super::read_file_op(handle, &mut read_buffer).wait_for_completion();
+        super::handle_op_read(handle, &mut read_buffer).wait_for_completion();
         assert_eq!(read_buffer, [b'A', b'B', b'C']);
         
-        super::read_file_op(handle_dup, &mut read_buffer).wait_for_completion();
+        super::handle_op_read(handle_dup, &mut read_buffer).wait_for_completion();
         // dup handle should point to the same instance
         assert_eq!(read_buffer, [b'D', b'E', b'F']);
 
-        super::close_handle(handle);
+        super::handle_op_close(handle);
         // the io instance should remain open because the dup'd handle still
         // points to it
-        super::read_file_op(handle_dup, &mut read_buffer).wait_for_completion();
+        super::handle_op_read(handle_dup, &mut read_buffer).wait_for_completion();
         assert_eq!(read_buffer, [b'G', b'H', b'I']);
     }
 }
