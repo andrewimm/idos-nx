@@ -7,7 +7,6 @@ use super::IOProvider;
 /// Inner contents of the handle used to read IPC messages.
 pub struct InterruptIOProvider {
     irq: u8,
-    next_id: OpIdGenerator,
     pending_ops: AsyncOpQueue,
 }
 
@@ -15,7 +14,6 @@ impl InterruptIOProvider {
     pub fn new(irq: u8) -> Self {
         Self {
             irq,
-            next_id: OpIdGenerator::new(),
             pending_ops: AsyncOpQueue::new(),
         }
     }
@@ -35,23 +33,31 @@ impl InterruptIOProvider {
 }
 
 impl IOProvider for InterruptIOProvider {
-    fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<AsyncOpID, ()> {
-        let id = self.next_id.next_id();
-        match op.op_code & 0xffff {
-            INTERRUPT_OP_LISTEN => {
-                if is_interrupt_active(self.irq) {
-                    op.complete(1);
-                    return Ok(id);
-                }
-                self.pending_ops.push(id, op);
-                Ok(id)
-            },
-            INTERRUPT_OP_ACK => {
-                acknowledge_interrupt(self.irq);
-                op.complete(1);
-                Ok(id)
-            },
-            _ => Err(()),
+    fn enqueue_op(&self, op: AsyncOp) -> (AsyncOpID, bool) {
+        let id = self.pending_ops.push(op);
+        let should_run = self.pending_ops.len() < 2;
+        (id, should_run)
+    }
+
+    fn peek_op(&self) -> Option<(AsyncOpID, AsyncOp)> {
+        self.pending_ops.peek()
+    }
+
+    fn remove_op(&self, id: AsyncOpID) -> Option<AsyncOp> {
+        self.pending_ops.remove(id)
+    }
+
+    /// `read`ing an irq listens for the interrupt
+    fn read(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+        if is_interrupt_active(self.irq) {
+            return Some(Ok(1));
         }
+        None
+    }
+
+    /// `write` acknowledges the irq, allowing it to be triggered again
+    fn write(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+        acknowledge_interrupt(self.irq);
+        Some(Ok(1))
     }
 }

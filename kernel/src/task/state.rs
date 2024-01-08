@@ -5,6 +5,7 @@ use crate::io::async_io::{AsyncIOTable, IOType, AsyncOpID};
 use crate::io::driver::comms::IOResult;
 use crate::io::handle::{HandleTable, Handle};
 use crate::io::notify::NotifyQueue;
+use crate::io::provider::IOProvider;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
 use crate::time::system::{Timestamp, get_system_time};
@@ -307,11 +308,12 @@ impl Task {
     }
 
     pub fn async_io_complete(&mut self, io_index: u32, op_id: AsyncOpID, return_value: IOResult) {
+        crate::kprintln!("IO COMPLETE");
         let should_notify = match self.async_io_table.get(io_index) {
             Some(async_io) => {
                 match *async_io.io_type.lock() {
-                    IOType::File(ref mut fp) => {
-                        fp.op_completed(io_index, op_id, return_value);
+                    IOType::File(ref fp) => {
+                        fp.complete_op(io_index, op_id, return_value);
                         true
                     },
                     IOType::Interrupt(ref mut ip) => {

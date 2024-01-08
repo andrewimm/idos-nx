@@ -1,9 +1,10 @@
 use idos_api::io::error::IOError;
+use spin::Mutex;
 use crate::{
     io::{
         async_io::{AsyncOp, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ, AsyncOpQueue, OpIdGenerator, AsyncOpID},
         driver::comms::IOResult,
-        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write},
+        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write, driver_close},
     },
     files::path::Path,
     task::{switching::{get_current_task, get_current_id}, id::TaskID},
@@ -12,36 +13,33 @@ use super::IOProvider;
 
 /// Inner contents of a handle that is bound to a file for reading/writing
 pub struct FileIOProvider {
-    next_op_id: OpIdGenerator,
     pending_ops: AsyncOpQueue,
-    driver_id: Option<DriverID>,
     source_id: TaskID,
-    bound_instance: Option<u32>,
+    driver_id: Mutex<Option<DriverID>>,
+    bound_instance: Mutex<Option<u32>>,
 }
 
 impl FileIOProvider {
     pub fn new(source_id: TaskID) -> Self {
         Self {
-            next_op_id: OpIdGenerator::new(),
             pending_ops: AsyncOpQueue::new(),
-            driver_id: None,
             source_id,
-            bound_instance: None,
+            driver_id: Mutex::new(None),
+            bound_instance: Mutex::new(None),
         }
     }
 
     pub fn bound(source_id: TaskID, driver_id: DriverID, bound_instance: u32) -> Self {
         Self {
-            next_op_id: OpIdGenerator::new(),
             pending_ops: AsyncOpQueue::new(),
-            driver_id: Some(driver_id),
             source_id,
-            bound_instance: Some(bound_instance),
+            driver_id: Mutex::new(Some(driver_id)),
+            bound_instance: Mutex::new(Some(bound_instance)),
         }
     }
 
     pub fn is_bound(&self) -> bool {
-        self.bound_instance.is_some()
+        self.bound_instance.lock().is_some()
     }
 
     pub fn set_task(&mut self, source_id: TaskID) {
@@ -49,127 +47,76 @@ impl FileIOProvider {
     }
 
     pub fn close(&mut self) {
-        // TODO: implement this?
-        crate::kprintln!("CLOSE FILE");
-    }
-
-    pub fn op_completed(&mut self, index: u32, id: AsyncOpID, result: IOResult) {
-        let op = match self.pending_ops.remove(id) {
-            Some(op) => op,
-            None => return,
-        };
-        if op.op_code & 0xffff == FILE_OP_OPEN {
-            if let Ok(value) = result {
-                self.bound_instance = Some(value);
-                op.complete(1);
-                if !self.pending_ops.is_empty() {
-                    return self.run_first_op(index);
-                }
-                return;
-            }
-        }
-        op.complete_with_result(result);
-        if !self.pending_ops.is_empty() {
-            return self.run_first_op(index);
-        }
-    }
-
-    pub fn run_first_op(&mut self, index: u32) {
-        let (id, code, arg0, arg1, arg2) = match self.pending_ops.peek() {
-            Some((id, op)) => (*id, op.op_code, op.arg0, op.arg1, op.arg2),
-            None => return,
-        };
-        let op_code = code & 0xffff;
-
-        let completion: Option<IOResult> = if let Some(instance) = self.bound_instance {
-            match op_code {
-                FILE_OP_READ => {
-                    let buffer_ptr = arg0 as *mut u8;
-                    let buffer_len = arg1 as usize;
-                    let buffer = unsafe {
-                        core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
-                    };
-
-                    let driver_id = self.driver_id.unwrap();
-                    if let Some(result) = driver_read(driver_id, instance, buffer, (self.source_id, index, id)) {
-                        Some(result)
-                    } else {
-                        None
-                    }
-                },
-                FILE_OP_WRITE => {
-                    let buffer_ptr = arg0 as *const u8;
-                    let buffer_len = arg1 as usize;
-                    let buffer = unsafe {
-                        core::slice::from_raw_parts(buffer_ptr, buffer_len)
-                    };
-                    let driver_id = self.driver_id.unwrap();
-                    if let Some(result) = driver_write(driver_id, instance, buffer, (self.source_id, index, id)) {
-                        Some(result)
-                    } else {
-                        None
-                    }
-                },
-                FILE_OP_SEEK => panic!("NOT SUPPORTED"),
-                FILE_OP_STAT => panic!("NOT SUPPORTED"),
-                _ => {
-                    Some(Err(IOError::OperationFailed))
-                },
-            }
-        } else if op_code == FILE_OP_OPEN {
-            let path_ptr = arg0 as *const u8;
-            let path_len = arg1 as usize;
-            let try_path_str = unsafe {
-                core::str::from_utf8(core::slice::from_raw_parts(path_ptr, path_len))
-            };
-            match try_path_str {
-                Ok(path_str) => {
-                    crate::kprintln!("Open path \"{}\"", path_str);
-                    match prepare_file_path(path_str) {
-                        Ok((driver_id, path)) => {
-                            self.driver_id = Some(driver_id);
-                            if let Some(result) = driver_open(driver_id, path, (self.source_id, index, id)) {
-                                Some(result)
-                            } else {
-                                None
-                            }
-                        },
-                        Err(_) => {
-                            Some(Err(IOError::NotFound))
-                        },
-                    }
-                },
-                Err(_) => {
-                    Some(Err(IOError::NotFound))
-                },
-            }
-        } else {
-            Some(Err(IOError::OperationFailed))
-        };
-
-        match completion {
-            Some(result) => {
-                return self.op_completed(index, id, result);
-            },
-            None => (),
-        }
+        panic!("");
     }
 }
 
 impl IOProvider for FileIOProvider {
-    fn add_op(&mut self, index: u32, op: AsyncOp) -> Result<AsyncOpID, ()> {
-        if op.op_code & OPERATION_FLAG_FILE == 0 {
-            return Err(());
+    fn enqueue_op(&self, op: AsyncOp) -> (AsyncOpID, bool) {
+        let id = self.pending_ops.push(op);
+        let should_run = self.pending_ops.len() < 2;
+        (id, should_run)
+    }
+
+    fn peek_op(&self) -> Option<(AsyncOpID, AsyncOp)> {
+        self.pending_ops.peek()
+    }
+
+    fn remove_op(&self, id: AsyncOpID) -> Option<AsyncOp> {
+        self.pending_ops.remove(id)
+    }
+
+    fn bind_to(&self, instance: u32) {
+        *self.bound_instance.lock() = Some(instance);
+    }
+
+    fn open(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+        if self.bound_instance.lock().is_some() {
+            return Some(Err(IOError::AlreadyOpen));
         }
+        let path_ptr = op.arg0 as *const u8;
+        let path_len = op.arg1 as usize;
+        let try_path_str = unsafe {
+            core::str::from_utf8(core::slice::from_raw_parts(path_ptr, path_len))
+        };
+        let path_str = match try_path_str {
+            Ok(path) => path,
+            Err(_) => return Some(Err(IOError::NotFound)),
+        };
+        let (driver_id, path) = match prepare_file_path(path_str) {
+            Ok(pair) => pair,
+            Err(_) => return Some(Err(IOError::NotFound)),
+        };
 
-        let id = self.next_op_id.next_id();
-        self.pending_ops.push(id, op);
+        *self.driver_id.lock() = Some(driver_id);
+        driver_open(driver_id, path, (self.source_id, provider_index, id))
+    }
 
-        if self.pending_ops.len() == 1 {
-            self.run_first_op(index);
+    fn read(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+        if let Some(instance) = self.bound_instance.lock().clone() {
+            let buffer_ptr = op.arg0 as *mut u8;
+            let buffer_len = op.arg1 as usize;
+            let buffer = unsafe {
+                core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
+            };
+
+            let driver_id: DriverID = self.driver_id.lock().unwrap();
+            return driver_read(driver_id, instance, buffer, (self.source_id, provider_index, id));
         }
+        Some(Err(IOError::FileHandleInvalid))
+    }
 
-        Ok(id)
+    fn write(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+        if let Some(instance) = self.bound_instance.lock().clone() {
+            let buffer_ptr = op.arg0 as *const u8;
+            let buffer_len = op.arg1 as usize;
+            let buffer = unsafe {
+                core::slice::from_raw_parts(buffer_ptr, buffer_len)
+            };
+            let driver_id: DriverID = self.driver_id.lock().unwrap();
+            return driver_write(driver_id, instance, buffer, (self.source_id, provider_index, id));
+        }
+        Some(Err(IOError::FileHandleInvalid))
     }
 }
 
