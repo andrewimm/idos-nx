@@ -1,7 +1,8 @@
 use core::ops::Deref;
+use core::sync::atomic::Ordering;
 
 use crate::interrupts::pic::add_interrupt_listener;
-use crate::io::async_io::{IOType, AsyncOp, OPERATION_FLAG_MESSAGE};
+use crate::io::async_io::{IOType, AsyncOp, ASYNC_OP_CLOSE, OPERATION_FLAG_MESSAGE};
 use crate::io::handle::{Handle, PendingHandleOp};
 use crate::io::notify::NotifyQueue;
 use crate::io::provider::file::FileIOProvider;
@@ -30,15 +31,34 @@ pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> (Handle, 
 pub fn add_io_op(handle: Handle, op: AsyncOp) -> Result<(), ()> {
     let task_lock = get_current_task();
     let code = op.op_code;
+    if code & 0xfff == ASYNC_OP_CLOSE {
+        let mut task = task_lock.write();
+        let io_index = task.open_handles.get(handle).ok_or(())?.clone();
+        let ref_count = task.async_io_table.get_reference_count(io_index).ok_or(())?;
+        if ref_count > 1 {
+            // if there are multiple open handles, just remove the reference
+            // but don't actually close the provider
+            task.async_io_table.remove_reference(io_index);
+            task.open_handles.remove(handle);
+            op.complete(1);
+            return Ok(());
+        }
+    }
+
     let (io_index, io_type) = {
-        let mut task = task_lock.read();
+        let task = task_lock.read();
         let io_index = task.open_handles.get(handle).ok_or(())?.clone();
         let io = task.async_io_table.get(io_index).ok_or(())?;
         (io_index, io.io_type.clone())
     };
+    let is_message = if let IOType::MessageQueue(_) = *io_type.lock() {
+        true
+    } else {
+        false
+    };
     io_type.lock().op_request(io_index, op)?;
 
-    if code & OPERATION_FLAG_MESSAGE != 0 {
+    if is_message {
         // if it's a messaging op, and it was successfully added, make sure
         // all message queue handles are refreshed
         task_lock.write().handle_incoming_messages();
@@ -91,22 +111,6 @@ pub fn open_interrupt_handle(irq: u8) -> Handle {
     };
     add_interrupt_listener(irq, task_id, io_index);
     handle
-}
-
-pub fn close_handle(handle: Handle) {
-    let task_lock = get_current_task();
-    let mut task = task_lock.write();
-    let io_index = match task.open_handles.remove(handle) {
-        Some(index) => index,
-        None => return,
-    };
-
-    match task.async_io_table.remove_reference(io_index) {
-        Some(io_entry) => {
-            io_entry.lock().close();
-        },
-        None => {},
-    }
 }
 
 pub fn create_notify_queue() -> Handle {

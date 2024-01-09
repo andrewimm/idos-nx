@@ -254,6 +254,11 @@ impl AsyncIOTable {
         self.inner.get(&index)
     }
 
+    pub fn get_reference_count(&self, index: u32) -> Option<u32> {
+        let count = self.inner.get(&index)?.ref_count.load(Ordering::SeqCst);
+        Some(count)
+    }
+
     pub fn add_reference(&self, index: u32) -> Option<u32> {
         let entry = self.inner.get(&index)?;
         let count = entry.ref_count.fetch_add(1, Ordering::SeqCst) + 1;

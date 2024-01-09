@@ -384,7 +384,7 @@ mod tests {
     use crate::task::id::TaskID;
     use crate::io::async_io::{AsyncOpID, OPERATION_FLAG_TASK, TASK_OP_WAIT};
     use crate::io::handle::{Handle, PendingHandleOp};
-    use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, handle_op_read, handle_op_write, transfer_handle, close_handle};
+    use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, handle_op_read, handle_op_write, handle_op_close, transfer_handle};
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::yield_coop;
 
@@ -528,10 +528,10 @@ mod tests {
         op.wait_for_completion();
     }
 
-    //#[test_case]
+    #[test_case]
     fn read_when_write_closed() {
         let (reader, writer) = create_pipe_handles();
-        close_handle(writer);
+        handle_op_close(writer).wait_for_completion();
         let mut read_buffer: [u8; 4] = [0; 4];
         let read_op = handle_op_read(reader, &mut read_buffer);
         assert_eq!(read_op.wait_for_completion(), 0);

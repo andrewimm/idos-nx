@@ -45,10 +45,6 @@ impl FileIOProvider {
     pub fn set_task(&mut self, source_id: TaskID) {
         self.source_id = source_id;
     }
-
-    pub fn close(&mut self) {
-        panic!("");
-    }
 }
 
 impl IOProvider for FileIOProvider {
@@ -115,6 +111,14 @@ impl IOProvider for FileIOProvider {
             };
             let driver_id: DriverID = self.driver_id.lock().unwrap();
             return driver_write(driver_id, instance, buffer, (self.source_id, provider_index, id));
+        }
+        Some(Err(IOError::FileHandleInvalid))
+    }
+
+    fn close(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+        if let Some(instance) = self.bound_instance.lock().clone() {
+            let driver_id: DriverID = self.driver_id.lock().unwrap();
+            return driver_close(driver_id, instance, (self.source_id, provider_index, id));
         }
         Some(Err(IOError::FileHandleInvalid))
     }
