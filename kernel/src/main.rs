@@ -182,69 +182,6 @@ fn init_system() -> ! {
     }
 }
 
-fn task_a_body() -> ! {
-    let mut buf: [u8; 5] = [b'A'; 5];
-    let exec_child = task::actions::lifecycle::create_task();
-    task::actions::lifecycle::attach_executable_to_task(exec_child, "A:\\TEST.BIN");
-    task::actions::lifecycle::wait_for_child(exec_child, None);
-
-    {
-        use net::socket::SocketPort;
-
-        let mac = net::with_active_device(|dev| dev.mac).unwrap();
-        crate::kprintln!("Current MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-        crate::kprintln!("Resolve current IP");
-        let current_ip = net::get_active_device_ip(Some(1000)).expect("DHCP request timed out!");
-        crate::kprintln!("Got IP: {:}", current_ip);
-
-        let socket = net::socket::create_socket(net::socket::SocketProtocol::UDP);
-        net::socket::bind_socket(socket, current_ip, SocketPort::new(80), net::ip::IPV4Address([10, 0, 2, 3]), SocketPort::new(80));
-
-        net::socket::socket_send(socket, &[11, 22, 33, 55]);
-    }
-
-    {
-        crate::kprintln!("Read bytes from KERNEL");
-        let kernel_file = task::actions::io::open_path("C:\\KERNEL.BIN").unwrap();
-        task::actions::io::seek_file(kernel_file, files::cursor::SeekMethod::Absolute(0x11fe));
-        let bytes_read = task::actions::io::read_file(kernel_file, &mut buf).unwrap();
-        crate::kprint!("Read {} bytes: ", bytes_read);
-        for i in 0..bytes_read {
-            crate::kprint!("{:02X} ", buf[i as usize]);
-        }
-        crate::kprintln!("");
-        task::actions::io::close_file(kernel_file);
-    }
-
-    crate::kprint!("\n\nReading from COM1:\n");
-    let com1 = task::actions::io::open_path("DEV:\\COM1").unwrap();
-    let read_len = task::actions::io::read_file(com1, &mut buf).unwrap() as usize;
-    let res = core::str::from_utf8(&buf[..read_len]).unwrap();
-    kprint!("Read {} bytes from COM1. Value was \"{}\"\n", read_len, res);
-    crate::kprint!("Write to COM...\n");
-    task::actions::io::write_file(com1, "HELLO COM\n".as_bytes()).unwrap();
-    crate::kprint!("\n");
-    task::actions::io::close_file(com1).unwrap();
-
-    let b_id = task::actions::lifecycle::create_kernel_task(task_b_body, Some("TASK B"));
-
-    use task::messaging::Message;
-
-    loop {
-        kprint!("TICK\n");
-        task::actions::sleep(1000);
-        task::actions::send_message(b_id, Message(0, 0, 0, 0), 0xffffffff);
-        task::actions::sleep(1000);
-    }
-}
-
-fn task_b_body() -> ! {
-    loop {
-        let _ = task::actions::read_message_blocking(None);
-        kprint!("TOCK\n");
-    }
-}
-
 #[cfg(test)]
 fn run_tests() -> ! {
     test_main();

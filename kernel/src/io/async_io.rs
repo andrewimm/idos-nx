@@ -31,13 +31,6 @@ impl IOType {
             _ => (),
         }
     }
-
-    pub fn close(&mut self) {
-        match self {
-            Self::File(io) => io.close(),
-            _ => (),
-        }
-    }
 }
 
 // Op Codes use the top 16 bits to indicate the handle type they modify
