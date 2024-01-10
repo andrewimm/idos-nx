@@ -52,6 +52,11 @@ pub struct Pipe {
     open_writers: AtomicUsize,
 }
 
+pub enum ReadMode {
+    NonBlocking,
+    Blocking(AsyncIOCallback),
+}
+
 impl Pipe {
     pub fn new() -> Self {
         let mut buffer: Vec<u8> = Vec::with_capacity(BUFFER_SIZE);
@@ -87,7 +92,7 @@ impl Pipe {
     /// If it can be immediately filled, it returns Some number of bytes read,
     /// so that the caller can immediately resolve the file operation
     /// associated with this read.
-    pub fn read(&self, buffer: &mut [u8], callback: AsyncIOCallback) -> Option<usize> {
+    pub fn read(&self, buffer: &mut [u8], read_mode: ReadMode) -> Option<usize> {
         let write_head = self.write_head.load(Ordering::SeqCst);
         let mut write_tail = self.write_tail.load(Ordering::SeqCst);
         let available_data = write_head - write_tail;
@@ -109,16 +114,21 @@ impl Pipe {
             written += 1;
         }
         self.write_tail.store(write_tail, Ordering::SeqCst);
-        self.read_len.store(buffer.len(), Ordering::SeqCst);
-        self.read_progress.store(written, Ordering::SeqCst);
-        let read_ptr = get_current_physical_address(VirtualAddress::new(buffer.as_ptr() as u32)).unwrap().as_u32();
-        self.read_ptr.store(read_ptr, Ordering::SeqCst);
-        
-        if let Some(_) = self.read_callback.write().replace(callback) {
-            panic!("Pipe: mutiple parallel reads should not be possible");
-        }
 
-        None
+        if let ReadMode::Blocking(callback) = read_mode {
+            self.read_len.store(buffer.len(), Ordering::SeqCst);
+            self.read_progress.store(written, Ordering::SeqCst);
+            let read_ptr = get_current_physical_address(VirtualAddress::new(buffer.as_ptr() as u32)).unwrap().as_u32();
+            self.read_ptr.store(read_ptr, Ordering::SeqCst);
+            
+            if let Some(_) = self.read_callback.write().replace(callback) {
+                panic!("Pipe: mutiple parallel reads should not be possible");
+            }
+
+            None
+        } else {
+            Some(written)
+        }
     }
 
     /// Write a buffer of bytes to the pipe, to be read out the other end.
@@ -263,10 +273,11 @@ impl PipeDriver {
             None => return Some(Err(IOError::NotFound)),
         };
         if !pipe.is_write_open() {
-            // if the write end is not open, any read should result in an EOF
-            return Some(Ok(0));
+            // if the write end is not open, flush any remaining contents
+            // and then allow the read to complete without blocking
+            return Some(Ok(pipe.read(buffer, ReadMode::NonBlocking).unwrap() as u32));
         }
-        pipe.read(buffer, io_callback).map(|bytes_read| Ok(bytes_read as u32))
+        pipe.read(buffer, ReadMode::Blocking(io_callback)).map(|bytes_read| Ok(bytes_read as u32))
     }
 
     fn write(pipe_index: usize, buffer: &[u8]) -> Option<IOResult> {
@@ -380,13 +391,14 @@ pub fn get_pipe_drive_id() -> DriverID {
 
 #[cfg(test)]
 mod tests {
-    use super::Pipe;
+    use super::{Pipe, ReadMode};
     use crate::task::id::TaskID;
     use crate::io::async_io::{AsyncOpID, OPERATION_FLAG_TASK, TASK_OP_WAIT};
     use crate::io::handle::{Handle, PendingHandleOp};
     use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, handle_op_read, handle_op_write, handle_op_close, transfer_handle};
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::yield_coop;
+    use idos_api::io::error::IOError;
 
     // pipe tests
 
@@ -396,12 +408,12 @@ mod tests {
         let mut read_buffer: [u8; 3] = [0; 3];
         let write_buffer: [u8; 4] = [0xaa, 0xbb, 0xcc, 0xdd];
         pipe.write(&write_buffer);
-        let mut read_result = pipe.read(&mut read_buffer, (TaskID::new(0), 0, AsyncOpID::new(0)));
+        let mut read_result = pipe.read(&mut read_buffer, ReadMode::Blocking((TaskID::new(0), 0, AsyncOpID::new(0))));
         assert_eq!(read_result, Some(3));
         assert_eq!(read_buffer, [0xaa, 0xbb, 0xcc]);
 
         pipe.write(&write_buffer);
-        read_result = pipe.read(&mut read_buffer, (TaskID::new(0), 0, AsyncOpID::new(0)));
+        read_result = pipe.read(&mut read_buffer, ReadMode::Blocking((TaskID::new(0), 0, AsyncOpID::new(0))));
         assert_eq!(read_result, Some(3));
         assert_eq!(read_buffer, [0xdd, 0xaa, 0xbb]);
     }
@@ -413,7 +425,7 @@ mod tests {
         let write_buffer: [u8; 4] = [0xaa, 0xbb, 0xcc, 0xdd];
 
         let callback = (TaskID::new(0), 1, AsyncOpID::new(2));
-        let mut read_result = pipe.read(&mut read_buffer, callback);
+        let mut read_result = pipe.read(&mut read_buffer, ReadMode::Blocking(callback));
         assert_eq!(read_result, None);
 
         let write_result = pipe.write(&write_buffer);
@@ -430,7 +442,7 @@ mod tests {
         let write_buffer: [u8; 3] = [0xaa, 0xbb, 0xcc];
 
         let callback = (TaskID::new(0), 1, AsyncOpID::new(2));
-        let mut read_result = pipe.read(&mut read_buffer, callback);
+        let mut read_result = pipe.read(&mut read_buffer, ReadMode::Blocking(callback));
         assert_eq!(read_result, None);
 
         let write_result = pipe.write(&write_buffer);
@@ -446,7 +458,7 @@ mod tests {
         let write_buffer: [u8; 2] = [0xaa, 0xbb];
 
         let callback = (TaskID::new(0), 1, AsyncOpID::new(2));
-        let mut read_result = pipe.read(&mut read_buffer, callback);
+        let mut read_result = pipe.read(&mut read_buffer, ReadMode::Blocking(callback));
         assert_eq!(read_result, None);
 
         let mut write_result = pipe.write(&write_buffer);
@@ -531,9 +543,23 @@ mod tests {
     #[test_case]
     fn read_when_write_closed() {
         let (reader, writer) = create_pipe_handles();
+        handle_op_write(writer, &[1, 2, 3, 4]).wait_for_completion();
         handle_op_close(writer).wait_for_completion();
         let mut read_buffer: [u8; 4] = [0; 4];
-        let read_op = handle_op_read(reader, &mut read_buffer);
+        let mut read_op = handle_op_read(reader, &mut read_buffer);
+        assert_eq!(read_op.wait_for_completion(), 4);
+        assert_eq!(read_buffer, [1, 2, 3, 4]);
+        read_op = handle_op_read(reader, &mut read_buffer);
+        // does not block, immediately returns zero length / EOF
         assert_eq!(read_op.wait_for_completion(), 0);
+    }
+
+    #[test_case]
+    fn write_when_read_closed() {
+        let (reader, writer) = create_pipe_handles();
+        handle_op_close(reader).wait_for_completion();
+        let write_buffer: [u8; 3] = [12, 14, 18];
+        let write_op = handle_op_write(writer, &[12, 14, 18]);
+        assert_eq!(write_op.wait_for_completion(), 0x80000000 | IOError::WriteToClosedIO as u32);
     }
 }

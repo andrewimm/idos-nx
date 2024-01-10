@@ -12,17 +12,16 @@ use idos_api::io::error::IOError;
 use crate::hardware::dma::DmaChannelRegisters;
 use crate::io::driver::comms::{decode_command_and_id, DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::filesystem::install_task_dev;
+use crate::io::handle::Handle;
 use crate::task::actions::{yield_coop, send_message};
 use crate::task::switching::get_current_id;
-use crate::task::actions::handle::{open_message_queue, open_interrupt_handle, create_notify_queue, add_handle_to_notify_queue, wait_on_notify};
+use crate::task::actions::handle::{open_message_queue, open_interrupt_handle, create_notify_queue, add_handle_to_notify_queue, wait_on_notify, handle_op_write, handle_op_read, handle_op_close, handle_op_read_struct};
 use crate::task::actions::memory::map_memory;
 use crate::task::messaging::Message;
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::paging::page_on_demand;
 use crate::memory::address::{VirtualAddress, PhysicalAddress};
-use crate::io::async_io::{OPERATION_FLAG_INTERRUPT, INTERRUPT_OP_LISTEN, OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ, INTERRUPT_OP_ACK};
-use crate::io::handle::PendingHandleOp;
 
 use super::controller::{FloppyController, Command, ControllerError, DriveSelect, DriveType};
 use super::geometry::ChsGeometry;
@@ -98,8 +97,6 @@ impl FloppyDeviceDriver {
             self.recalibrate(DriveSelect::Secondary).await?;
         }
         
-        crate::kprintln!("FLOPPY INIT SUCCESSFUL");
-
         Ok(())
     }
 
@@ -368,8 +365,9 @@ pub fn run_driver() -> ! {
         install_task_dev(dev_name.as_str(), task_id, sub_id);
     }
 
-    let mut interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
-    let mut message_read = PendingHandleOp::new(messages, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &mut incoming_message as *mut Message as u32, 0, 0);
+    let mut interrupt_ready: [u8; 1] = [0];
+    let mut interrupt_read = handle_op_read(interrupt, &mut interrupt_ready);
+    let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
 
     let init_request = async {
         match driver_impl.clone().borrow_mut().init().await {
@@ -380,6 +378,9 @@ pub fn run_driver() -> ! {
         }
     };
 
+    handle_op_write(Handle::new(0), &[fd_count as u8]);
+    handle_op_close(Handle::new(0));
+
     // The first async action to run on the floppy controller should be
     // initialization
     let mut active_request: Option<DriverTask> = Some(DriverTask::new(init_request));
@@ -388,13 +389,13 @@ pub fn run_driver() -> ! {
 
     loop {
         if interrupt_read.is_complete() {
-            PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_ACK, 0, 0, 0);
+            handle_op_write(interrupt, &[]);
             interrupt_flag.store(true, Ordering::SeqCst);
-            interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
+            interrupt_read = handle_op_read(interrupt, &mut interrupt_ready);
         } else if let Some(sender) = message_read.get_result() {
             pending_requests.push_back((TaskID::new(sender), incoming_message.clone()));
 
-            message_read = PendingHandleOp::new(messages, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &mut incoming_message as *mut Message as u32, 0, 0);
+            message_read = handle_op_read_struct(messages, &mut incoming_message);
         } else {
             if active_request.is_none() {
                 active_request = pending_requests.pop_front().map(|(sender, message)| {
