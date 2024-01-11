@@ -205,29 +205,28 @@ fn type_file(stdout: Handle, args: &Vec<String>) {
     if args.is_empty() {
         return;
     }
-    /*
     for arg in args {
-        match open_path(arg) {
-            Ok(handle) => {
+        let handle = create_file_handle();
+        match handle_op_open(handle, arg).wait_for_result() {
+            Ok(_) => {
                 loop {
-                    let len = read_file(handle, buffer).unwrap() as usize;
-                    write_file(stdout, &buffer[..len]).unwrap();
+                    let len = handle_op_read(handle, buffer).wait_for_completion() as usize;
+                    handle_op_write(stdout, &buffer[..len]).wait_for_completion();
 
                     if len < buffer.len() {
                         break;
                     }
                 }
-                write_file(stdout, &[b'\n']).unwrap();
-                close_file(handle).unwrap();
+                handle_op_write(stdout, &[b'\n']);
+                handle_op_close(handle);
             },
             Err(_) => {
                 let output = alloc::format!("File not found: \"{}\"\n", arg);
-                write_file(stdout, output.as_bytes()).unwrap();
+                handle_op_write(stdout, output.as_bytes());
                 return;
             },
         }
     }
-    */
 }
 
 /*

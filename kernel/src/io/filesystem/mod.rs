@@ -37,7 +37,22 @@ pub fn get_driver_id_by_name(name: &str) -> Option<DriverID> {
 
 pub fn get_all_drive_names() -> Vec<String> {
     let drivers = INSTALLED_DRIVERS.read();
-    drivers.iter().map(|(_, (name, _))| name.clone()).collect()
+    drivers.iter().filter_map(|(_, (name, driver))| {
+        match driver {
+            DriverType::KernelFilesystem(_) | DriverType::TaskFilesystem(_) => Some(name.clone()),
+            _ => None,
+        }
+    }).collect()
+}
+
+pub fn get_all_dev_names() -> Vec<String> {
+    let drivers = INSTALLED_DRIVERS.read();
+    drivers.iter().filter_map(|(_, (name, driver))| {
+        match driver {
+            DriverType::KernelDevice(_) | DriverType::TaskDevice(_, _) => Some(name.clone()),
+            _ => None,
+        }
+    }).collect()
 }
 
 pub fn install_kernel_fs(name: &str, driver: InstalledDriver) -> DriverID {
