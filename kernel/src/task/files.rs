@@ -3,11 +3,14 @@ use crate::collections::SlotList;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::filesystem::drive::DriveID;
+use crate::io::filesystem::driver::DriverID;
 
 #[derive(Clone)]
 pub struct CurrentDrive {
     pub name: String,
     pub id: DriveID,
+    
+    pub driver_id: DriverID,
 }
 
 impl CurrentDrive {
@@ -15,6 +18,7 @@ impl CurrentDrive {
         Self {
             name: String::new(),
             id: DriveID(0),
+            driver_id: DriverID::new(0),
         }
     }
 }

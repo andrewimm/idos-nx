@@ -1,8 +1,12 @@
 use core::ops::Deref;
 use core::sync::atomic::Ordering;
 
+use alloc::string::ToString;
+use idos_api::io::error::IOError;
 use crate::interrupts::pic::add_interrupt_listener;
 use crate::io::async_io::{IOType, AsyncOp, ASYNC_OP_CLOSE, OPERATION_FLAG_MESSAGE};
+use crate::io::filesystem::driver::DriverID;
+use crate::io::filesystem::get_driver_id_by_name;
 use crate::io::handle::{Handle, PendingHandleOp};
 use crate::io::notify::NotifyQueue;
 use crate::io::provider::file::FileIOProvider;
@@ -211,6 +215,21 @@ pub fn handle_op_close(handle: Handle) -> PendingHandleOp {
     use crate::io::async_io::ASYNC_OP_CLOSE;
 
     PendingHandleOp::new(handle, ASYNC_OP_CLOSE, 0, 0, 0)
+}
+
+
+pub fn set_active_drive(drive_name: &str) -> Result<DriverID, IOError> {
+    let found_id = get_driver_id_by_name(drive_name);
+    match found_id {
+        Some(id) => {
+            let task_lock = get_current_task();
+            let mut task = task_lock.write();
+            task.current_drive.name = drive_name.to_string();
+            task.current_drive.driver_id = id;
+            Ok(id)
+        },
+        _ => Err(IOError::NotFound),
+    }
 }
 
 #[cfg(test)]

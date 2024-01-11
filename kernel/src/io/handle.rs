@@ -1,6 +1,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::boxed::Box;
+use idos_api::io::error::IOError;
 
 use crate::{collections::SlotList, memory::address::VirtualAddress};
 
@@ -121,6 +122,16 @@ impl PendingHandleOp {
                 return *self.return_value;
             }
             crate::task::actions::yield_coop();
+        }
+    }
+
+    pub fn wait_for_result(&self) -> Result<u32, IOError> {
+        let code = self.wait_for_completion();
+        if code & 0x80000000 != 0 {
+            let io_error = IOError::try_from(code & 0x7fffffff).unwrap_or(IOError::Unknown);
+            Err(io_error)
+        } else {
+            Ok(code)
         }
     }
 }
