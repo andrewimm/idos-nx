@@ -3,7 +3,7 @@
 //! The COM driver handles incoming data from the port, as well as data written
 //! by user programs that should be output on the port.
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::{sync::atomic::{AtomicU32, Ordering}, fmt::Write};
 
 use alloc::collections::{BTreeMap, VecDeque};
 use idos_api::io::error::IOError;
@@ -15,7 +15,7 @@ use crate::{
             open_interrupt_handle,
             create_notify_queue,
             add_handle_to_notify_queue,
-            wait_on_notify,
+            wait_on_notify, handle_op_read, handle_op_read_struct, handle_op_write,
         },
         lifecycle::create_kernel_task, send_message,
     }, messaging::Message, id::TaskID},
@@ -37,6 +37,7 @@ pub fn run_driver() -> ! {
     let mut incoming_message = Message(0, 0, 0, 0);
 
     let interrupt = open_interrupt_handle(4);
+    let mut interrupt_ready: [u8; 1] = [0];
 
     // notify queue waits on both the hardware interrupt and messages from the
     // filesystem to the driver. Either of these signals will wake the main
@@ -47,19 +48,19 @@ pub fn run_driver() -> ! {
 
     let mut driver_impl = ComDeviceDriver::new(0x3f8);
 
-    let mut interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
-    let mut message_read = PendingHandleOp::new(messages, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &mut incoming_message as *mut Message as u32, 0, 0);
+    let mut interrupt_read = handle_op_read(interrupt, &mut interrupt_ready);
+    let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
     loop {
         if interrupt_read.is_complete() {
-            PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_ACK, 0, 0, 0);
+            handle_op_write(interrupt, &[1]);
 
             driver_impl.init_read();
 
-            interrupt_read = PendingHandleOp::new(interrupt, OPERATION_FLAG_INTERRUPT | INTERRUPT_OP_LISTEN, 0, 0, 0);
+            interrupt_read = handle_op_read(interrupt, &mut interrupt_ready);
         } else if let Some(sender) = message_read.get_result() {
             driver_impl.handle_request(incoming_message, TaskID::new(sender));
 
-            message_read = PendingHandleOp::new(messages, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &mut incoming_message as *mut Message as u32, 0, 0);
+            message_read = handle_op_read_struct(messages, &mut incoming_message);
         } else {
             wait_on_notify(notify, None);
         }
@@ -127,6 +128,17 @@ impl ComDeviceDriver {
                 if self.read_list.len() == 1 {
                     self.init_read();
                 }
+            },
+            DriverCommand::Write => {
+                let instance = message.1;
+                let buffer_ptr = message.2 as *const u8;
+                let buffer_len = message.3 as usize;
+                for i in 0..buffer_len {
+                    unsafe {
+                        self.serial.send_byte(*buffer_ptr.add(i));
+                    }
+                }
+                self.send_response(sender, request_id, Ok(buffer_len as u32));
             },
             _ => self.send_response(sender, request_id, Err(IOError::UnsupportedOperation)),
         }

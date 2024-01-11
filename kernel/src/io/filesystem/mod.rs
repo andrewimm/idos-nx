@@ -8,6 +8,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
+use alloc::vec::Vec;
 use idos_api::io::error::IOError;
 use spin::RwLock;
 
@@ -32,6 +33,11 @@ pub fn get_driver_id_by_name(name: &str) -> Option<DriverID> {
         }
     }
     None
+}
+
+pub fn get_all_drive_names() -> Vec<String> {
+    let drivers = INSTALLED_DRIVERS.read();
+    drivers.iter().map(|(_, (name, _))| name.clone()).collect()
 }
 
 pub fn install_kernel_fs(name: &str, driver: InstalledDriver) -> DriverID {

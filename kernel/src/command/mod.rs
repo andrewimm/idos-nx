@@ -5,16 +5,18 @@ pub mod parser;
 use alloc::string::String;
 
 use crate::files::path::Path;
+use crate::io::handle::Handle;
+use crate::task::actions::handle::{handle_op_write, handle_op_read, create_file_handle, handle_op_open, transfer_handle};
 use crate::task::actions::lifecycle::create_kernel_task;
-use crate::task::files::FileHandle;
-use crate::task::actions::io::{read_file, write_file, open_path, transfer_handle, get_current_drive_name, set_active_drive, close_file, get_current_dir};
+//use crate::task::actions::io::{read_file, write_file, open_path, transfer_handle, get_current_drive_name, set_active_drive, close_file, get_current_dir};
+use crate::task::actions::io::{get_current_drive_name, get_current_dir, set_active_drive};
 
 use self::lexer::Lexer;
 use self::parser::Parser;
 
 fn command_task() -> ! {
-    let stdin = FileHandle::new(0);
-    let stdout = FileHandle::new(1);
+    let stdin = Handle::new(0);
+    let stdout = Handle::new(1);
 
     set_active_drive("DEV");
 
@@ -31,8 +33,8 @@ fn command_task() -> ! {
         let mut prompt = env.full_path_string();
         prompt.push_str("> ");
 
-        write_file(stdout, prompt.as_bytes()).unwrap();
-        let input_len = read_file(stdin, &mut input_buffer).unwrap() as usize;
+        handle_op_write(stdout, prompt.as_bytes()).wait_for_completion();
+        let input_len = handle_op_read(stdin, &mut input_buffer).wait_for_completion() as usize;
 
         let input_str = unsafe { core::str::from_utf8_unchecked(&input_buffer[..input_len]).trim() };
 
@@ -56,10 +58,13 @@ impl Environment {
 }
 
 pub fn start_command(console: usize) {
-    let path = alloc::format!("DEV:\\CON{}", console + 1);
+    //let path = alloc::format!("DEV:\\CON{}", console + 1);
+    let path = String::from("DEV:\\COM1");
 
-    let stdin = open_path(path.as_str()).unwrap();
-    let stdout = open_path(path.as_str()).unwrap();
+    let stdin = create_file_handle();
+    handle_op_open(stdin, path.as_str()).wait_for_completion();
+    let stdout = create_file_handle();
+    handle_op_open(stdout, path.as_str()).wait_for_completion();
     let task_id = create_kernel_task(command_task, Some("COMMAND"));
     transfer_handle(stdin, task_id);
     transfer_handle(stdout, task_id);

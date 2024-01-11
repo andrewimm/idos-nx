@@ -18,10 +18,8 @@ pub fn set_active_drive(drive_name: &str) -> Result<DriveID, IOError> {
         Ok(id) => {
             let task_lock = get_current_task();
             let mut task = task_lock.write();
-            task.current_drive = CurrentDrive {
-                name: drive_name.to_string(),
-                id,
-            };
+            task.current_drive.name = drive_name.to_string();
+            task.current_drive.id = id;
             Ok(id)
         },
         _ => Err(IOError::NotFound),
