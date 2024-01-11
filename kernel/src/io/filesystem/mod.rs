@@ -1,4 +1,5 @@
 pub mod driver;
+pub mod taskfs;
 #[cfg(test)]
 pub mod testing;
 

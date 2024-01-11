@@ -34,6 +34,9 @@ pub fn init_async_io_system() {
     let zero_dev = self::devices::zero::ZeroDev::new();
     self::filesystem::install_kernel_dev("ZERO", Box::new(zero_dev));
 
+    let task_fs = self::filesystem::taskfs::TaskFileSystem::new();
+    self::filesystem::install_kernel_fs("TASK", Box::new(task_fs));
+
     crate::pipes::driver::install();
 
     create_kernel_task(self::driver::io_task::driver_io_task, Some("DRIVER IO"));
