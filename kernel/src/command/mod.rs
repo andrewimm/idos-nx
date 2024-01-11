@@ -58,8 +58,7 @@ impl Environment {
 }
 
 pub fn start_command(console: usize) {
-    //let path = alloc::format!("DEV:\\CON{}", console + 1);
-    let path = String::from("DEV:\\COM1");
+    let path = alloc::format!("DEV:\\CON{}", console + 1);
 
     let stdin = create_file_handle();
     handle_op_open(stdin, path.as_str()).wait_for_completion();

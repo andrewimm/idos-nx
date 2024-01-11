@@ -17,6 +17,7 @@ use self::manager::ConsoleManager;
 pub mod buffers;
 pub mod console;
 pub mod dev;
+pub mod driver;
 pub mod input;
 pub mod manager;
 
