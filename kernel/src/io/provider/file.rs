@@ -128,7 +128,11 @@ fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), ()> {
     if Path::is_absolute(raw_path) {
         let (drive_name, path_portion) = Path::split_absolute_path(raw_path).ok_or(())?;
         let driver_id = if drive_name == "DEV" {
-            get_driver_id_by_name(&path_portion[1..]).ok_or(())?
+            if path_portion.len() > 1 {
+                get_driver_id_by_name(&path_portion[1..]).ok_or(())?
+            } else {
+                DriverID::new(0)
+            }
         } else {
             get_driver_id_by_name(drive_name).ok_or(())?
         };
