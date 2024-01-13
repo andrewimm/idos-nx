@@ -219,7 +219,11 @@ pub fn handle_op_close(handle: Handle) -> PendingHandleOp {
 
 
 pub fn set_active_drive(drive_name: &str) -> Result<DriverID, IOError> {
-    let found_id = get_driver_id_by_name(drive_name);
+    let found_id = if drive_name.to_ascii_uppercase() == "DEV" {
+        Some(DriverID::new(0))
+    } else {
+        get_driver_id_by_name(drive_name)
+    };
     match found_id {
         Some(id) => {
             let task_lock = get_current_task();

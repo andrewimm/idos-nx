@@ -1,3 +1,4 @@
+pub mod devfs;
 pub mod driver;
 pub mod taskfs;
 #[cfg(test)]
@@ -10,12 +11,13 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use idos_api::io::error::IOError;
-use spin::RwLock;
+use spin::{Once, RwLock};
 
 use crate::files::path::Path;
 use crate::memory::shared::SharedMemoryRange;
 use crate::task::id::TaskID;
 
+use self::devfs::DevFileSystem;
 use self::driver::{DriverID, DriverType, InstalledDriver, AsyncIOCallback};
 
 use super::async_io::{AsyncOp, AsyncOpID};
@@ -24,6 +26,13 @@ use super::driver::io_task::send_async_request;
 
 static INSTALLED_DRIVERS: RwLock<BTreeMap<u32, (String, DriverType)>> = RwLock::new(BTreeMap::new());
 static NEXT_DRIVER_ID: AtomicU32 = AtomicU32::new(1);
+static DEV_FS: Once<DriverType> = Once::new();
+
+pub fn get_dev_fs() -> &'static DriverType {
+    DEV_FS.call_once(|| {
+        DriverType::KernelFilesystem(Box::new(DevFileSystem::new()))
+    })
+}
 
 pub fn get_driver_id_by_name(name: &str) -> Option<DriverID> {
     let drivers = INSTALLED_DRIVERS.read();
@@ -81,6 +90,10 @@ pub fn install_task_dev(name: &str, task: TaskID, sub_driver: u32) -> DriverID {
 
 pub fn with_driver<F>(driver_id: DriverID, f: F) -> Option<IOResult>
     where F: FnOnce(&DriverType) -> Option<IOResult> {
+
+    if driver_id.is_dev() {
+        return f(get_dev_fs());
+    }
 
     let drivers = INSTALLED_DRIVERS.read();
     let (_, driver) = match drivers.get(&driver_id) {

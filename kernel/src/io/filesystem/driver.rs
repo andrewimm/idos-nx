@@ -9,6 +9,10 @@ impl DriverID {
     pub fn new(index: u32) -> Self {
         Self(index)
     }
+
+    pub fn is_dev(&self) -> bool {
+        self.0 == 0
+    }
 }
 
 impl core::ops::Deref for DriverID {
