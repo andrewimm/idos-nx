@@ -128,23 +128,11 @@ fn init_system() -> ! {
         }
 
         task::actions::handle::handle_op_write(con, "Mounting FAT FS...\n".as_bytes());
-        filesystem::drivers::fatfs::mount_fat_fs();
+        //filesystem::drivers::fatfs::mount_fat_fs();
+        io::filesystem::fatfs::mount_fat_fs();
 
         task::actions::handle::handle_op_write(con, "System ready! Welcome to IDOS\n\n".as_bytes());
         console::console_ready();
-
-        {
-            // TODO: clean up this testing code
-            let handle = task::actions::handle::create_file_handle();
-            crate::task::actions::handle::handle_op_open(handle, "DEV:\\FD1").wait_for_completion();
-            let mut buffer: [u8; 5] = [0; 5];
-            let read = crate::task::actions::handle::handle_op_read(handle, &mut buffer).wait_for_completion();
-            crate::kprint!("Read these {} bytes: ", read);
-            for i in 0..buffer.len() {
-                crate::kprint!("{:#X} ", buffer[i]);
-            }
-            crate::kprintln!();
-        }
     }
 
     /*{
