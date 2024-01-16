@@ -1,5 +1,6 @@
 pub mod devfs;
 pub mod driver;
+pub mod fatfs;
 pub mod taskfs;
 #[cfg(test)]
 pub mod testing;
