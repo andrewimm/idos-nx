@@ -22,6 +22,8 @@ pub enum IOError {
     /// Tried to write to a closed pipe / socket / etc
     WriteToClosedIO,
 
+    InvalidArgument,
+
     Unknown = 0xffffffff,
 }
 
@@ -39,6 +41,7 @@ impl TryFrom<u32> for IOError {
             7 => Ok(Self::UnsupportedCommand),
             8 => Ok(Self::AlreadyOpen),
             9 => Ok(Self::WriteToClosedIO),
+            10 => Ok(Self::InvalidArgument),
             _ => Ok(Self::Unknown),
         }
     }

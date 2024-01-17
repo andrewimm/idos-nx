@@ -19,6 +19,10 @@ pub enum DriverIOAction {
     Read(u32, u32, u32),
     /// Write(instance, buffer pointer, buffer length)
     Write(u32, u32, u32),
+    /// Seek(instance, method, offset)
+    Seek(u32, u32, u32),
+    /// Stat(instance, buffer pointer, buffer length)
+    Stat(u32, u32, u32),
 }
 
 impl DriverIOAction {
@@ -42,6 +46,14 @@ impl DriverIOAction {
             },
             Self::Write(open_instance, buffer_ptr, buffer_len) => {
                 let code = create_request_code(request_id, DriverCommand::Write);
+                Message(code, *open_instance, *buffer_ptr, *buffer_len)
+            },
+            Self::Seek(open_instance, method, offset) => {
+                let code = create_request_code(request_id, DriverCommand::Seek);
+                Message(code, *open_instance, *method, *offset)
+            },
+            Self::Stat(open_instance, buffer_ptr, buffer_len) => {
+                let code = create_request_code(request_id, DriverCommand::Stat);
                 Message(code, *open_instance, *buffer_ptr, *buffer_len)
             },
         }
@@ -71,7 +83,7 @@ pub fn decode_command_and_id(code: u32) -> (DriverCommand, u32) {
     let high = code >> 24;
     let id = code & 0x00ffffff;
 
-    let command: DriverCommand = if high >= 1 && high <= 8 /* update this number when new commands are added */ {
+    let command: DriverCommand = if high >= 1 && high <= 7 /* update this number when new commands are added */ {
         unsafe { core::mem::transmute(high) }
     } else {
         DriverCommand::Invalid

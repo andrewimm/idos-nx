@@ -14,7 +14,9 @@ use alloc::vec::Vec;
 use idos_api::io::error::IOError;
 use spin::{Once, RwLock};
 
+use crate::files::cursor::SeekMethod;
 use crate::files::path::Path;
+use crate::files::stat::FileStatus;
 use crate::memory::shared::SharedMemoryRange;
 use crate::task::id::TaskID;
 
@@ -230,6 +232,65 @@ pub fn driver_write(id: DriverID, instance: u32, buffer: &[u8], io_callback: Asy
                     shared_to_driver.get_range_start(),
                     shared_to_driver.range_length,
                 );
+
+                send_async_request(
+                    *task_id,
+                    io_callback,
+                    action,
+                    Some(shared_range),
+                );
+                None
+            },
+        }
+    })
+}
+
+pub fn driver_seek(id: DriverID, instance: u32, method: u32, offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    let seek_method = match SeekMethod::decode(method, offset) {
+        Some(m) => m,
+        None => return Some(Err(IOError::InvalidArgument)),
+    };
+    with_driver(id, |driver| {
+        match driver {
+            DriverType::KernelFilesystem(d)
+            | DriverType::KernelDevice(d) => d.seek(instance, seek_method, io_callback),
+
+            DriverType::TaskFilesystem(task_id)
+            | DriverType::TaskDevice(task_id, _) => {
+                let action = DriverIOAction::Seek(
+                    instance,
+                    method,
+                    offset,
+                );
+
+                send_async_request(
+                    *task_id,
+                    io_callback,
+                    action,
+                    None,
+                );
+                None
+            },
+        }
+    })
+}
+
+pub fn driver_stat(id: DriverID, instance: u32, file_status: &mut FileStatus, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    with_driver(id, |driver| {
+        match driver {
+            DriverType::KernelFilesystem(d)
+            | DriverType::KernelDevice(d) => d.stat(instance, file_status, io_callback),
+
+            DriverType::TaskFilesystem(task_id)
+            | DriverType::TaskDevice(task_id, _) => {
+                let shared_range = SharedMemoryRange::for_struct::<FileStatus>(file_status);
+                let shared_to_driver = shared_range.share_with_task(*task_id);
+
+                let action = DriverIOAction::Stat(
+                    instance,
+                    shared_to_driver.get_range_start(),
+                    shared_to_driver.range_length,
+                ); 
 
                 send_async_request(
                     *task_id,

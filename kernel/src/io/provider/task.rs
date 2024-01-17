@@ -1,5 +1,5 @@
 use crate::task::id::TaskID;
-use crate::io::async_io::{AsyncOp, OPERATION_FLAG_TASK, TASK_OP_WAIT, AsyncOpID, OpIdGenerator, AsyncOpQueue};
+use crate::io::async_io::{AsyncOp, AsyncOpID, OpIdGenerator, AsyncOpQueue};
 use super::IOProvider;
 
 /// Inner contents of the handle generated when a child task is spawned. This
