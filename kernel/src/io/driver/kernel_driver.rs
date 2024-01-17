@@ -1,6 +1,6 @@
 use idos_api::io::error::IOError;
 
-use crate::{files::path::Path, io::filesystem::driver::AsyncIOCallback};
+use crate::{files::{path::Path, cursor::SeekMethod, stat::FileStatus}, io::filesystem::driver::AsyncIOCallback};
 
 use super::comms::IOResult;
 
@@ -19,6 +19,14 @@ pub trait KernelDriver {
     fn read(&self, instance: u32, buffer: &mut [u8], io_callback: AsyncIOCallback) -> Option<IOResult>;
 
     fn write(&self, instance: u32, buffer: &[u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
+        Some(Err(IOError::UnsupportedOperation))
+    }
+
+    fn seek(&self, instance: u32, offset: SeekMethod, io_callback: AsyncIOCallback) -> Option<IOResult> {
+        Some(Err(IOError::UnsupportedOperation))
+    }
+
+    fn stat(&self, instance: u32, file_status: &mut FileStatus, io_callback: AsyncIOCallback) -> Option<IOResult> {
         Some(Err(IOError::UnsupportedOperation))
     }
 }

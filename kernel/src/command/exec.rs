@@ -3,8 +3,10 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::files::stat::FileStatus;
+use crate::io::async_io::FILE_OP_STAT;
 use crate::io::filesystem::get_all_drive_names;
-use crate::io::handle::Handle;
+use crate::io::handle::{Handle, PendingHandleOp};
 use crate::task::actions::handle::{handle_op_write, create_file_handle, handle_op_open, handle_op_read, handle_op_close, set_active_drive};
 use crate::time::date::DateTime;
 use crate::time::system::Timestamp;
@@ -125,21 +127,24 @@ fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
     }
     handle_op_close(dir_handle);
     for entry in entries.iter_mut() {
-        /*
-        match open_path(&entry.name) {
-            Ok(handle) => {
-                match file_stat(handle) {
-                    Ok(stat) => {
-                        entry.size = stat.byte_size;
-                        entry.mod_timestamp = stat.modification_time;
+        let stat_handle = create_file_handle();
+        let mut file_status = FileStatus::new();
+        let file_status_ptr = &mut file_status as *mut FileStatus;
+        match handle_op_open(stat_handle, &entry.name).wait_for_result() {
+            Ok(_) => {
+                let op = PendingHandleOp::new(stat_handle, FILE_OP_STAT, file_status_ptr as u32, core::mem::size_of::<FileStatus>() as u32, 0);
+                match op.wait_for_result() {
+                    Ok(_) => {
+                        entry.size = file_status.byte_size;
+                        entry.mod_timestamp = file_status.modification_time;
                     },
                     Err(_) => (),
                 }
-                close_file(handle);
+                handle_op_close(stat_handle).wait_for_completion();
             },
-            Err(_) => (),
+            Err(_) => {
+            },
         }
-        */
     }
     for entry in entries.iter() {
         let mut row = String::from("");

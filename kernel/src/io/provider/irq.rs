@@ -1,6 +1,6 @@
 //! Provider for hardware interrupts that come from the PIC chip
 
-use crate::io::async_io::{OpIdGenerator, AsyncOpQueue, AsyncOp, AsyncOpID, INTERRUPT_OP_LISTEN, INTERRUPT_OP_ACK};
+use crate::io::async_io::{OpIdGenerator, AsyncOpQueue, AsyncOp, AsyncOpID};
 use crate::interrupts::pic::{is_interrupt_active, acknowledge_interrupt};
 use super::IOProvider;
 

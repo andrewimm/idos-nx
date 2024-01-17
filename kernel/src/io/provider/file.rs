@@ -2,11 +2,11 @@ use idos_api::io::error::IOError;
 use spin::Mutex;
 use crate::{
     io::{
-        async_io::{AsyncOp, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ, AsyncOpQueue, OpIdGenerator, AsyncOpID},
+        async_io::{AsyncOp, AsyncOpQueue, OpIdGenerator, AsyncOpID, FILE_OP_SEEK, FILE_OP_STAT},
         driver::comms::IOResult,
-        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write, driver_close},
+        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write, driver_close, driver_stat},
     },
-    files::path::Path,
+    files::{path::Path, stat::FileStatus},
     task::{switching::{get_current_task, get_current_id}, id::TaskID},
 };
 use super::IOProvider;
@@ -119,6 +119,28 @@ impl IOProvider for FileIOProvider {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let driver_id: DriverID = self.driver_id.lock().unwrap();
             return driver_close(driver_id, instance, (self.source_id, provider_index, id));
+        }
+        Some(Err(IOError::FileHandleInvalid))
+    }
+
+    fn extended_op(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+        if let Some(instance) = self.bound_instance.lock().clone() {
+            match op.op_code & 0xffff {
+                FILE_OP_SEEK => {
+                    panic!("Not supported");
+                },
+                FILE_OP_STAT => {
+                    let status_ptr = op.arg0 as *mut FileStatus;
+                    let status_len = op.arg1 as usize;
+                    if status_len < core::mem::size_of::<FileStatus>() {
+                        return Some(Err(IOError::InvalidArgument));
+                    }
+                    let driver_id: DriverID = self.driver_id.lock().unwrap();
+                    let file_status: &mut FileStatus = unsafe { &mut *status_ptr };
+                    return driver_stat(driver_id, instance, file_status, (self.source_id, provider_index, id))
+                },
+                _ => return Some(Err(IOError::UnsupportedOperation)),
+            }
         }
         Some(Err(IOError::FileHandleInvalid))
     }

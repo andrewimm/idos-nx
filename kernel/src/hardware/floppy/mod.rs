@@ -9,7 +9,7 @@ pub mod driver;
 pub mod geometry;
 
 pub fn install() {
-    let (pipe_read, pipe_write) = crate::task::actions::handle::create_pipe_handles();
+    let (pipe_read, pipe_write) = create_pipe_handles();
     let driver_task = create_kernel_task(driver::run_driver, Some("FDDEV"));
     transfer_handle(pipe_write, driver_task);
 

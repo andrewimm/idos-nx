@@ -23,8 +23,7 @@ use crate::{
         handle::PendingHandleOp,
         async_io::{
             OPERATION_FLAG_INTERRUPT,
-            INTERRUPT_OP_LISTEN,
-            INTERRUPT_OP_ACK, MESSAGE_OP_READ, OPERATION_FLAG_MESSAGE,
+            OPERATION_FLAG_MESSAGE,
         }, driver::comms::{IOResult, decode_command_and_id, DriverCommand, DRIVER_RESPONSE_MAGIC},
     },
 };

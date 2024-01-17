@@ -9,6 +9,7 @@ use alloc::{boxed::Box, task::Wake};
 use alloc::collections::{VecDeque, BTreeMap};
 use idos_api::io::error::IOError;
 
+use crate::files::cursor::SeekMethod;
 use crate::hardware::dma::DmaChannelRegisters;
 use crate::io::driver::comms::{decode_command_and_id, DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::filesystem::install_task_dev;
@@ -264,6 +265,18 @@ impl FloppyDeviceDriver {
         self.open_instances.get_mut(&instance).unwrap().position += bytes_read;
 
         Ok(bytes_read)
+    }
+
+    pub fn seek(&mut self, instance: u32, offset: SeekMethod) -> IOResult {
+        let open_instance = self.open_instances.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
+        let next_position = offset.from_current_position(open_instance.position as usize);
+        open_instance.position = next_position as u32;
+        // TODO: Do we need to check out-of-bounds here?
+        Ok(next_position as u32)
+    }
+
+    pub fn close(&mut self, instance: u32) -> IOResult {
+        self.open_instances.remove(&instance).map(|_| 1).ok_or(IOError::FileHandleInvalid)
     }
 }
 

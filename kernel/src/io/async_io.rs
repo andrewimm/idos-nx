@@ -34,34 +34,20 @@ impl IOType {
 }
 
 // Op Codes use the top 16 bits to indicate the handle type they modify
+// Not in use right now, maybe valuable later?
 pub const OPERATION_FLAG_FILE: u32 = 0x80000000;
 pub const OPERATION_FLAG_TASK: u32 = 0x40000000;
 pub const OPERATION_FLAG_INTERRUPT: u32 = 0x20000000;
 pub const OPERATION_FLAG_MESSAGE: u32 = 0x10000000;
 pub const OPERATION_FLAG_SOCKET: u32 = 0x08000000;
 
-pub const FILE_OP_OPEN: u32 = 1;
-pub const FILE_OP_READ: u32 = 2;
-pub const FILE_OP_WRITE: u32 = 3;
-pub const FILE_OP_SEEK: u32 = 4;
-pub const FILE_OP_STAT: u32 = 5;
-
-pub const TASK_OP_WAIT: u32 = 1;
-
-pub const INTERRUPT_OP_LISTEN: u32 = 1;
-pub const INTERRUPT_OP_ACK: u32 = 2;
-
-pub const SOCKET_OP_BIND: u32 = 1;
-pub const SOCKET_OP_READ: u32 = 2;
-pub const SOCKET_OP_WRITE: u32 = 3;
-
-pub const MESSAGE_OP_READ: u32 = 2;
-
-
 pub const ASYNC_OP_OPEN: u32 = 1;
 pub const ASYNC_OP_READ: u32 = 2;
 pub const ASYNC_OP_WRITE: u32 = 3;
 pub const ASYNC_OP_CLOSE: u32 = 4;
+
+pub const FILE_OP_SEEK: u32 = 5;
+pub const FILE_OP_STAT: u32 = 6;
 
 /// All async operations on handles are performed by passing an AsyncOp object
 /// to the kernel. The fields are used to determine which action to take.

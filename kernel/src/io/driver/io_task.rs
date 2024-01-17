@@ -2,9 +2,9 @@ use alloc::collections::{VecDeque, BTreeMap};
 use idos_api::io::error::IOError;
 use spin::{RwLock, Once, Mutex, MutexGuard};
 
-use crate::{task::{id::TaskID, switching::{get_current_id, get_task}, actions::{handle::{open_message_queue, create_notify_queue, add_handle_to_notify_queue, wait_on_notify}, send_message}, messaging::Message}, memory::shared::SharedMemoryRange, io::{filesystem::driver::AsyncIOCallback, async_io::AsyncOpID}};
+use crate::{task::{id::TaskID, switching::{get_current_id, get_task}, actions::{handle::{open_message_queue, create_notify_queue, add_handle_to_notify_queue, wait_on_notify, handle_op_read_struct}, send_message}, messaging::Message}, memory::shared::SharedMemoryRange, io::{filesystem::driver::AsyncIOCallback, async_io::AsyncOpID}};
 
-use crate::io::{async_io::{OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ}, handle::PendingHandleOp};
+use crate::io::handle::PendingHandleOp;
 
 use super::comms::{DriverIOAction, DRIVER_RESPONSE_MAGIC};
 
@@ -74,12 +74,11 @@ pub fn driver_io_task() -> ! {
     add_handle_to_notify_queue(notify, message_handle);
 
     let mut message = Message(0, 0, 0, 0);
-    let message_ptr = &mut message as *mut Message as u32;
 
     let mut next_request_id: u32 = 1;
 
     loop {
-        let op = PendingHandleOp::new(message_handle, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, message_ptr, 0, 0);
+        let op = handle_op_read_struct(message_handle, &mut message);
         while !op.is_complete() {
             wait_on_notify(notify, None);
         }

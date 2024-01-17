@@ -2,7 +2,9 @@ use alloc::string::{String, ToString};
 use spin::RwLock;
 
 use crate::collections::SlotList;
+use crate::files::cursor::SeekMethod;
 use crate::files::path::Path;
+use crate::files::stat::FileStatus;
 use crate::io::IOError;
 use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
@@ -80,6 +82,17 @@ impl TaskFileSystem {
         open_file.cursor += to_write;
         Ok(to_write as u32)
     }
+
+    fn stat_impl(&self, instance: u32, file_status: &mut FileStatus) -> IOResult {
+        let open_files = self.open_files.read();
+        let open_file = open_files.get(instance as usize).ok_or(IOError::FileHandleInvalid)?;
+        let task_lock = get_task(open_file.task).ok_or(IOError::NotFound)?;
+        let task = task_lock.read();
+        file_status.byte_size = 0;
+        file_status.file_type = 1;
+        file_status.modification_time = task.created_at.as_u32();
+        Ok(1)
+    }
 }
 
 pub struct OpenFile {
@@ -98,6 +111,10 @@ impl KernelDriver for TaskFileSystem {
 
     fn read(&self, instance: u32, buffer: &mut [u8], _io_callback: AsyncIOCallback) -> Option<IOResult> {
         Some(self.read_impl(instance, buffer))
+    }
+
+    fn stat(&self, instance: u32, file_status: &mut FileStatus, io_callback: AsyncIOCallback) -> Option<IOResult> {
+        Some(self.stat_impl(instance, file_status))
     }
 
     fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
