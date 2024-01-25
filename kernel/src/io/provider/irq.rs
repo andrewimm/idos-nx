@@ -18,7 +18,7 @@ impl InterruptIOProvider {
         }
     }
 
-    pub fn interrupt_notify(&mut self) -> bool {
+    pub fn interrupt_notify(&self) -> bool {
         let mut op_completed = false;
         loop {
             if let Some((_id, op)) = self.pending_ops.pop() {

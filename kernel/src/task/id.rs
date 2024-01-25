@@ -1,5 +1,5 @@
 use core::cmp;
-use core::sync::atomic::{AtomicU32, self};
+use core::sync::atomic::{AtomicU32, self, Ordering};
 
 #[derive(Copy, Clone)]
 #[repr(transparent)]
@@ -59,5 +59,21 @@ impl IdGenerator {
     pub fn next(&self) -> TaskID {
         let id = self.0.fetch_add(1, atomic::Ordering::SeqCst);
         TaskID::new(id)
+    }
+}
+
+pub struct AtomicTaskID(AtomicU32);
+
+impl AtomicTaskID {
+    pub fn new(id: TaskID) -> Self {
+        Self(AtomicU32::new(id.into()))
+    }
+
+    pub fn swap(&self, id: TaskID, order: Ordering) -> TaskID {
+        TaskID::new(self.0.swap(id.into(), order))
+    }
+
+    pub fn load(&self, order: Ordering) -> TaskID {
+        TaskID::new(self.0.load(order))
     }
 }

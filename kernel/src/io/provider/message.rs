@@ -13,7 +13,7 @@ impl MessageIOProvider {
         }
     }
 
-    pub fn check_message_queue(&mut self, current_ticks: u32, messages: &mut MessageQueue) {
+    pub fn check_message_queue(&self, current_ticks: u32, messages: &mut MessageQueue) {
         while !self.pending_ops.is_empty() {
             let (first_message, has_more) = messages.read(current_ticks);
             match first_message {
@@ -38,30 +38,6 @@ impl MessageIOProvider {
                 return;
             }
         }
-        /*while !self.pending_ops.is_empty() {
-            let (first_message, has_more) = messages.read(current_ticks);
-            match first_message {
-                Some(packet) => {
-                    let (sender, message) = packet.open();
-                    let (_, op) = self.pending_ops.pop().unwrap();
-                    // arg0 is the address of the Message
-                    // return value is the ID of the sender
-                    let phys_frame_start = op.arg0 & 0xfffff000;
-                    let unmapped_phys = PhysicalAddress::new(phys_frame_start);
-                    let unmapped_for_dir = UnmappedPage::map(unmapped_phys);
-                    let message_offset = op.arg0 & 0xfff;
-                    unsafe {
-                        let ptr = (unmapped_for_dir.virtual_address() + message_offset).as_ptr_mut::<Message>();
-                        core::ptr::write_volatile(ptr, message);
-                    }
-                    op.complete(sender.into())
-                },
-                None => return,
-            }
-            if !has_more {
-                return;
-            }
-        }*/
     }
 }
 

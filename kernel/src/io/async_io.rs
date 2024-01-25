@@ -1,7 +1,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::{collections::{BTreeMap, VecDeque}, sync::Arc};
-use spin::{Mutex, RwLock};
+use spin::RwLock;
 
 use crate::{memory::{address::{PhysicalAddress, VirtualAddress}, virt::scratch::UnmappedPage}, task::{id::TaskID, messaging::MessageQueue}};
 
@@ -25,7 +25,7 @@ impl IOType {
         provider.op_request(index, op)
     }
 
-    pub fn set_task(&mut self, task: TaskID) {
+    pub fn set_task(&self, task: TaskID) {
         match self {
             Self::File(io) => io.set_task(task),
             _ => (),
@@ -215,7 +215,7 @@ impl AsyncIOTable {
         }
     }
 
-    pub fn insert(&mut self, io_type: Arc<Mutex<IOType>>) -> u32 {
+    pub fn insert(&mut self, io_type: Arc<IOType>) -> u32 {
         let entry = AsyncIOTableEntry {
             ref_count: AtomicU32::new(1),
             io_type,
@@ -226,7 +226,7 @@ impl AsyncIOTable {
     }
 
     pub fn add_io(&mut self, io_type: IOType) -> u32 {
-        self.insert(Arc::new(Mutex::new(io_type)))
+        self.insert(Arc::new(io_type))
     }
 
     pub fn get(&self, index: u32) -> Option<&AsyncIOTableEntry> {
@@ -246,7 +246,7 @@ impl AsyncIOTable {
 
     /// If the last reference is removed, the table entry will be removed from
     /// the map as well, and returned
-    pub fn remove_reference(&mut self, index: u32) -> Option<Arc<Mutex<IOType>>> {
+    pub fn remove_reference(&mut self, index: u32) -> Option<Arc<IOType>> {
         let entry = self.inner.get(&index)?;
         let count = entry.ref_count.fetch_sub(1, Ordering::SeqCst);
         if count > 1 {
@@ -257,9 +257,9 @@ impl AsyncIOTable {
 
     /// convenience method to get first (and ideally, only) async io
     /// referencing a specific child task
-    pub fn get_task_io(&mut self, id: TaskID) -> Option<(u32, Arc<Mutex<IOType>>)> {
-        for (io_index, entry) in self.inner.iter_mut() {
-            let matched = match *entry.io_type.lock() {
+    pub fn get_task_io(&self, id: TaskID) -> Option<(u32, Arc<IOType>)> {
+        for (io_index, entry) in self.inner.iter() {
+            let matched = match *entry.io_type {
                 IOType::ChildTask(ref io) => io.matches_task(id),
                 _ => false,
             };
@@ -278,8 +278,8 @@ impl AsyncIOTable {
         let current_ticks = 0;
 
         for (io_index, entry) in self.inner.iter_mut() {
-            match *entry.io_type.lock() {
-                IOType::MessageQueue(ref mut io) => {
+            match *entry.io_type {
+                IOType::MessageQueue(ref io) => {
                     io.check_message_queue(current_ticks, messages);
                     return Some(*io_index);
                 },
@@ -292,5 +292,5 @@ impl AsyncIOTable {
 
 pub struct AsyncIOTableEntry {
     pub ref_count: AtomicU32,
-    pub io_type: Arc<Mutex<IOType>>,
+    pub io_type: Arc<IOType>,
 }

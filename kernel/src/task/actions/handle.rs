@@ -55,12 +55,12 @@ pub fn add_io_op(handle: Handle, op: AsyncOp) -> Result<(), ()> {
         let io = task.async_io_table.get(io_index).ok_or(())?;
         (io_index, io.io_type.clone())
     };
-    let is_message = if let IOType::MessageQueue(_) = *io_type.lock() {
+    let is_message = if let IOType::MessageQueue(_) = *io_type {
         true
     } else {
         false
     };
-    io_type.lock().op_request(io_index, op)?;
+    io_type.op_request(io_index, op)?;
 
     if is_message {
         // if it's a messaging op, and it was successfully added, make sure
@@ -156,7 +156,7 @@ pub fn transfer_handle(handle: Handle, transfer_to: TaskID) -> Option<Handle> {
             Some(io_entry) => {
                 // This was the only reference to this entry
                 // It can be modified and added to the destination task
-                io_entry.lock().set_task(transfer_to);
+                io_entry.set_task(transfer_to);
                 io_entry
             },
             None => {
@@ -239,8 +239,6 @@ pub fn set_active_drive(drive_name: &str) -> Result<DriverID, IOError> {
 #[cfg(test)]
 mod tests {
     use crate::io::handle::PendingHandleOp;
-    use crate::io::async_io::{OPERATION_FLAG_TASK, TASK_OP_WAIT, OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ, OPERATION_FLAG_FILE, FILE_OP_OPEN, FILE_OP_READ};
-
     use crate::io::async_io::{ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE, ASYNC_OP_CLOSE};
 
     #[test_case]

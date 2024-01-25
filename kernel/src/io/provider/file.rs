@@ -1,3 +1,5 @@
+use core::sync::atomic::Ordering;
+
 use idos_api::io::error::IOError;
 use spin::Mutex;
 use crate::{
@@ -7,14 +9,14 @@ use crate::{
         filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write, driver_close, driver_stat},
     },
     files::{path::Path, stat::FileStatus},
-    task::{switching::{get_current_task, get_current_id}, id::TaskID},
+    task::{switching::{get_current_task, get_current_id}, id::{TaskID, AtomicTaskID}},
 };
 use super::IOProvider;
 
 /// Inner contents of a handle that is bound to a file for reading/writing
 pub struct FileIOProvider {
     pending_ops: AsyncOpQueue,
-    source_id: TaskID,
+    source_id: AtomicTaskID,
     driver_id: Mutex<Option<DriverID>>,
     bound_instance: Mutex<Option<u32>>,
 }
@@ -23,7 +25,7 @@ impl FileIOProvider {
     pub fn new(source_id: TaskID) -> Self {
         Self {
             pending_ops: AsyncOpQueue::new(),
-            source_id,
+            source_id: AtomicTaskID::new(source_id),
             driver_id: Mutex::new(None),
             bound_instance: Mutex::new(None),
         }
@@ -32,7 +34,7 @@ impl FileIOProvider {
     pub fn bound(source_id: TaskID, driver_id: DriverID, bound_instance: u32) -> Self {
         Self {
             pending_ops: AsyncOpQueue::new(),
-            source_id,
+            source_id: AtomicTaskID::new(source_id),
             driver_id: Mutex::new(Some(driver_id)),
             bound_instance: Mutex::new(Some(bound_instance)),
         }
@@ -42,8 +44,8 @@ impl FileIOProvider {
         self.bound_instance.lock().is_some()
     }
 
-    pub fn set_task(&mut self, source_id: TaskID) {
-        self.source_id = source_id;
+    pub fn set_task(&self, source_id: TaskID) {
+        self.source_id.swap(source_id, Ordering::SeqCst);
     }
 }
 
@@ -85,7 +87,7 @@ impl IOProvider for FileIOProvider {
         };
 
         *self.driver_id.lock() = Some(driver_id);
-        driver_open(driver_id, path, (self.source_id, provider_index, id))
+        driver_open(driver_id, path, (self.source_id.load(Ordering::SeqCst), provider_index, id))
     }
 
     fn read(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
@@ -97,7 +99,7 @@ impl IOProvider for FileIOProvider {
             };
 
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            return driver_read(driver_id, instance, buffer, (self.source_id, provider_index, id));
+            return driver_read(driver_id, instance, buffer, (self.source_id.load(Ordering::SeqCst), provider_index, id));
         }
         Some(Err(IOError::FileHandleInvalid))
     }
@@ -110,7 +112,7 @@ impl IOProvider for FileIOProvider {
                 core::slice::from_raw_parts(buffer_ptr, buffer_len)
             };
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            return driver_write(driver_id, instance, buffer, (self.source_id, provider_index, id));
+            return driver_write(driver_id, instance, buffer, (self.source_id.load(Ordering::SeqCst), provider_index, id));
         }
         Some(Err(IOError::FileHandleInvalid))
     }
@@ -118,7 +120,7 @@ impl IOProvider for FileIOProvider {
     fn close(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            return driver_close(driver_id, instance, (self.source_id, provider_index, id));
+            return driver_close(driver_id, instance, (self.source_id.load(Ordering::SeqCst), provider_index, id));
         }
         Some(Err(IOError::FileHandleInvalid))
     }
@@ -137,7 +139,7 @@ impl IOProvider for FileIOProvider {
                     }
                     let driver_id: DriverID = self.driver_id.lock().unwrap();
                     let file_status: &mut FileStatus = unsafe { &mut *status_ptr };
-                    return driver_stat(driver_id, instance, file_status, (self.source_id, provider_index, id))
+                    return driver_stat(driver_id, instance, file_status, (self.source_id.load(Ordering::SeqCst), provider_index, id))
                 },
                 _ => return Some(Err(IOError::UnsupportedOperation)),
             }
