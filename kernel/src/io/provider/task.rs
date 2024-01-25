@@ -1,3 +1,5 @@
+use spin::RwLock;
+
 use crate::task::id::TaskID;
 use crate::io::async_io::{AsyncOp, AsyncOpID, OpIdGenerator, AsyncOpQueue};
 use super::IOProvider;
@@ -7,7 +9,7 @@ use super::IOProvider;
 /// exits.
 pub struct TaskIOProvider {
     child_id: TaskID,
-    exit_code: Option<u32>,
+    exit_code: RwLock<Option<u32>>,
 
     pending_ops: AsyncOpQueue,
 }
@@ -16,7 +18,7 @@ impl TaskIOProvider {
     pub fn for_task(id: TaskID) -> Self {
         Self {
             child_id: id,
-            exit_code: None,
+            exit_code: RwLock::new(None),
             pending_ops: AsyncOpQueue::new(),
         }
     }
@@ -25,8 +27,8 @@ impl TaskIOProvider {
         self.child_id == id
     }
 
-    pub fn task_exited(&mut self, code: u32) {
-        self.exit_code = Some(code);
+    pub fn task_exited(&self, code: u32) {
+        self.exit_code.write().replace(code);
         loop {
             match self.pending_ops.pop() {
                 Some((_, op)) => op.complete(code),
@@ -52,7 +54,7 @@ impl IOProvider for TaskIOProvider {
     }
 
     fn read(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
-        if let Some(code) = self.exit_code {
+        if let Some(code) = *self.exit_code.read() {
             return Some(Ok(code));
         }
         None

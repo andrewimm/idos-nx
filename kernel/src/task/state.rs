@@ -263,7 +263,7 @@ impl Task {
     pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
         match self.async_io_table.get_task_io(id) {
             Some((io_index, mutex)) => {
-                let notify = if let IOType::ChildTask(ref mut io) = *mutex.lock() {
+                let notify = if let IOType::ChildTask(ref io) = *mutex {
                     io.task_exited(exit_code);
                     true
                 } else {
@@ -311,12 +311,12 @@ impl Task {
         crate::kprintln!("IO COMPLETE");
         let should_notify = match self.async_io_table.get(io_index) {
             Some(async_io) => {
-                match *async_io.io_type.lock() {
+                match *async_io.io_type {
                     IOType::File(ref fp) => {
                         fp.complete_op(io_index, op_id, return_value);
                         true
                     },
-                    IOType::Interrupt(ref mut ip) => {
+                    IOType::Interrupt(ref ip) => {
                         ip.interrupt_notify();
                         true
                     },
