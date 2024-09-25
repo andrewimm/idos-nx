@@ -1,5 +1,6 @@
 use alloc::string::ToString;
-use crate::task::messaging::Message;
+use idos_api::io::error::IOError;
+use crate::{task::messaging::Message, files::stat::FileStatus};
 use super::comms::{DriverCommand, DRIVER_RESPONSE_MAGIC, IOResult, decode_command_and_id};
 
 /// Trait implemented by all async drivers. It provides a helper method to
@@ -41,6 +42,18 @@ pub trait AsyncDriver {
                 };
                 Some(self.read(instance, buffer))
             },
+            DriverCommand::Stat => {
+                let instance = message.1;
+                let struct_ptr = message.2 as *mut FileStatus;
+                let struct_len = message.3 as usize;
+                if struct_len != core::mem::size_of::<FileStatus>() {
+                    // invalid size?
+                    return None;
+                }
+                let status_struct = unsafe { &mut *struct_ptr };
+
+                Some(self.stat(instance, status_struct))
+            },
             _ => {
                 crate::kprintln!("Async driver: Unknown Request");
                 None
@@ -64,4 +77,8 @@ pub trait AsyncDriver {
     fn close(&mut self, instance: u32) -> IOResult;
 
     fn read(&mut self, instance: u32, buffer: &mut [u8]) -> IOResult;
+
+    fn stat(&mut self, instance: u32, status_struct: &mut FileStatus) -> IOResult {
+        Err(IOError::UnsupportedOperation)
+    }
 }

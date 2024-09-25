@@ -7,6 +7,7 @@ pub mod table;
 
 use idos_api::io::error::IOError;
 
+use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::driver::comms::{decode_command_and_id, DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::handle::Handle;
 use crate::task::actions::handle::{create_pipe_handles, transfer_handle, handle_op_write, handle_op_read, handle_op_read_struct, handle_op_close, create_notify_queue, open_message_queue, add_handle_to_notify_queue, wait_on_notify};
@@ -43,32 +44,22 @@ fn run_driver() -> ! {
 
     let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
 
-    //let mut driver_impl = FatDriver::new(dev_name);
+    let mut driver_impl = FatDriver::new(dev_name);
 
     handle_op_write(response_writer, &[1]).wait_for_completion();
     handle_op_close(response_writer).wait_for_completion();
 
     loop {
         if let Some(sender) = message_read.get_result() {
-            handle_driver_request(TaskID::new(sender), incoming_message);
+            match driver_impl.handle_request(incoming_message) {
+                Some(response) => send_message(TaskID::new(sender), response, 0xffffffff),
+                None => continue,
+            }
 
             message_read = handle_op_read_struct(messages, &mut incoming_message);
         } else {
             wait_on_notify(notify, None);
         }
-    }
-}
-
-fn handle_driver_request(respond_to: TaskID, message: Message) {
-    let (command, request_id) = decode_command_and_id(message.0);
-    match command {
-        DriverCommand::Open => {
-            send_response(respond_to, request_id, Ok(1));
-        },
-        DriverCommand::Read => {
-            send_response(respond_to, request_id, Ok(0));
-        },
-        _ => send_response(respond_to, request_id, Err(IOError::UnsupportedOperation)),
     }
 }
 

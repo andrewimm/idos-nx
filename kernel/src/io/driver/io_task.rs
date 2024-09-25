@@ -126,7 +126,6 @@ pub fn driver_io_task() -> ! {
 
                         // TODO: I don't like locking this when also holding the queue lock
                         PENDING_REQUESTS.lock().insert(request_id, request);
-
                         send_message(driver_id, message, 0xffffffff);
                     },
                     None => break,

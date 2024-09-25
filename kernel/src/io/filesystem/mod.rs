@@ -208,7 +208,7 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: 
                     *task_id,
                     io_callback,
                     action,
-                    Some(shared_range),
+                    Some(shared_to_driver),
                 );
                 None
             },
@@ -237,7 +237,7 @@ pub fn driver_write(id: DriverID, instance: u32, buffer: &[u8], io_callback: Asy
                     *task_id,
                     io_callback,
                     action,
-                    Some(shared_range),
+                    Some(shared_to_driver),
                 );
                 None
             },
@@ -296,7 +296,7 @@ pub fn driver_stat(id: DriverID, instance: u32, file_status: &mut FileStatus, io
                     *task_id,
                     io_callback,
                     action,
-                    Some(shared_range),
+                    Some(shared_to_driver),
                 );
                 None
             },
