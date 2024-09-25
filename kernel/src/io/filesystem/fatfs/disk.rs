@@ -1,9 +1,10 @@
 use alloc::vec::Vec;
 use crate::files::cursor::SeekMethod;
+use crate::io::async_io::FILE_OP_SEEK;
+use crate::io::handle::{Handle, PendingHandleOp};
 use crate::memory::address::VirtualAddress;
-use crate::task::actions::io::{open_path, read_file, seek_file};
+use crate::task::actions::handle::{create_file_handle, handle_op_open, handle_op_read};
 use crate::task::actions::memory::map_memory;
-use crate::task::files::FileHandle;
 use crate::task::memory::MemoryBacking;
 
 /// DiskAccess provides an easy read/write interface to the underlying disk. It
@@ -11,7 +12,7 @@ use crate::task::memory::MemoryBacking;
 /// of the driver can treat the disk as a continuous byte stream, accessing
 /// subsets of bytes at arbitrary offsets.
 pub struct DiskAccess {
-    mount_handle: FileHandle,
+    mount_handle: Handle,
     buffer_location: VirtualAddress,
     buffer_size: usize,
     /// Obviously LRU is *not* the best caching strategy, since you'd also want
@@ -21,7 +22,9 @@ pub struct DiskAccess {
 
 impl DiskAccess {
     pub fn new(mount: &str) -> Self {
-        let mount_handle = open_path(mount).unwrap();
+        let mount_handle = create_file_handle();
+
+        handle_op_open(mount_handle, mount).wait_for_result().unwrap();
 
         let buffer_size = 4096;
 
@@ -101,9 +104,10 @@ impl DiskAccess {
             oldest.0
         };
         let cache_buffer = self.get_buffer_sector(cache_index);
-        let seek_to = lba as usize * 512;
-        seek_file(self.mount_handle, SeekMethod::Absolute(seek_to)).unwrap();
-        read_file(self.mount_handle, cache_buffer).unwrap();
+        let (seek_method, seek_delta) = SeekMethod::Absolute(lba as usize * 512).encode();
+        PendingHandleOp::new(self.mount_handle, FILE_OP_SEEK, seek_method, seek_delta, 0).wait_for_completion();
+
+        handle_op_read(self.mount_handle, cache_buffer).wait_for_result().unwrap();
         cache_index
     }
 

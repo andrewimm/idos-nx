@@ -437,11 +437,13 @@ async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, res
     let (command, request_id) = decode_command_and_id(message.0);
     match command {
         DriverCommand::OpenRaw => {
+            crate::kprintln!("FD: OPEN RAW");
             let sub_driver = message.1;
             let response = driver_ref.borrow_mut().open(sub_driver);
             send_response(respond_to, request_id, response);
         },
         DriverCommand::Read => {
+            crate::kprintln!("FD: Read");
             let instance = message.1;
             let buffer_ptr = message.2 as *mut u8;
             let buffer_len = message.3 as usize;
@@ -449,6 +451,15 @@ async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, res
                 core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
             };
             let result = driver_ref.borrow_mut().read(instance, buffer).await;
+            send_response(respond_to, request_id, result);
+        },
+        DriverCommand::Seek => {
+            crate::kprintln!("FD: Seek");
+            let instance = message.1;
+            let seek_method = message.2;
+            let seek_delta = message.3;
+            let offset = SeekMethod::decode(seek_method, seek_delta).unwrap();
+            let result = driver_ref.borrow_mut().seek(instance, offset);
             send_response(respond_to, request_id, result);
         },
         _ => send_response(respond_to, request_id, Err(IOError::UnsupportedOperation)),

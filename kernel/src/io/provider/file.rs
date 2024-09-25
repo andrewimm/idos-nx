@@ -6,7 +6,7 @@ use crate::{
     io::{
         async_io::{AsyncOp, AsyncOpQueue, OpIdGenerator, AsyncOpID, FILE_OP_SEEK, FILE_OP_STAT},
         driver::comms::IOResult,
-        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write, driver_close, driver_stat},
+        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write, driver_close, driver_stat, driver_seek},
     },
     files::{path::Path, stat::FileStatus},
     task::{switching::{get_current_task, get_current_id}, id::{TaskID, AtomicTaskID}},
@@ -129,7 +129,10 @@ impl IOProvider for FileIOProvider {
         if let Some(instance) = self.bound_instance.lock().clone() {
             match op.op_code & 0xffff {
                 FILE_OP_SEEK => {
-                    panic!("Not supported");
+                    let seek_method = op.arg0;
+                    let seek_delta = op.arg1;
+                    let driver_id: DriverID = self.driver_id.lock().unwrap();
+                    return driver_seek(driver_id, instance, seek_method, seek_delta, (self.source_id.load(Ordering::SeqCst), provider_index, id));
                 },
                 FILE_OP_STAT => {
                     let status_ptr = op.arg0 as *mut FileStatus;
@@ -139,7 +142,7 @@ impl IOProvider for FileIOProvider {
                     }
                     let driver_id: DriverID = self.driver_id.lock().unwrap();
                     let file_status: &mut FileStatus = unsafe { &mut *status_ptr };
-                    return driver_stat(driver_id, instance, file_status, (self.source_id.load(Ordering::SeqCst), provider_index, id))
+                    return driver_stat(driver_id, instance, file_status, (self.source_id.load(Ordering::SeqCst), provider_index, id));
                 },
                 _ => return Some(Err(IOError::UnsupportedOperation)),
             }

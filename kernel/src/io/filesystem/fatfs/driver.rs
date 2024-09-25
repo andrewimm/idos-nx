@@ -4,7 +4,7 @@ use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
 use crate::io::IOError;
 use crate::files::stat::FileStatus;
-use crate::filesystem::drivers::asyncfs::AsyncDriver;
+use crate::io::driver::async_driver::AsyncDriver;
 use super::fs::FatFS;
 use super::dir::{Directory, Entity, File};
 use super::table::AllocationTable;
@@ -51,6 +51,7 @@ impl AsyncDriver for FatDriver {
     }
 
     fn read(&mut self, instance: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
+        crate::kprintln!("FAT: Read");
         let table = self.get_table();
         let handle = self.open_handle_map.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
         let mut fs = self.fs.borrow_mut();
@@ -70,17 +71,15 @@ impl AsyncDriver for FatDriver {
         Ok(written)
     }
 
-    fn write(&mut self, _instance: u32, _buffer: &[u8]) -> Result<u32, IOError> {
-        Err(IOError::OperationFailed)
-    }
-
-    fn close(&mut self, handle: u32) -> Result<(), IOError> {
+    fn close(&mut self, handle: u32) -> Result<u32, IOError> {
         if self.open_handle_map.remove(handle as usize).is_some() {
-            Ok(())
+            Ok(0)
         } else {
             Err(IOError::FileHandleInvalid)
         }
     }
+
+    /*
 
     fn seek(&mut self, instance: u32, offset: SeekMethod) -> Result<u32, IOError> {
         let handle = self.open_handle_map.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
@@ -99,7 +98,9 @@ impl AsyncDriver for FatDriver {
         Ok(new_cursor)
     }
 
-    fn stat(&mut self, instance: u32, status: &mut FileStatus) -> Result<(), IOError> {
+    */
+
+    fn stat(&mut self, instance: u32, status: &mut FileStatus) -> Result<u32, IOError> {
         let handle = self.open_handle_map.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
         match handle.handle_entity {
             Entity::File(f) => {
@@ -109,7 +110,7 @@ impl AsyncDriver for FatDriver {
             },
             _ => panic!("Need to implement stat for other handle types"),
         }
-        Ok(())
+        Ok(0)
     }
 }
 
