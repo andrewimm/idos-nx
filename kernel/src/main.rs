@@ -135,6 +135,17 @@ fn init_system() -> ! {
         console::console_ready();
     }
 
+    {
+        // Loader test
+        use task::messaging::Message;
+        use task::actions::send_message;
+        
+        let loader_id = loader::task::get_loader_id();
+
+        let req = Message(loader_id.into(), 0, 0, 0);
+        send_message(loader_id, req, 0xffffffff);
+    }
+
     /*{
         // TCP test
         use net::socket::SocketPort;
