@@ -5,6 +5,7 @@ pub mod environment;
 pub mod mz;
 pub mod parse;
 pub mod relocation;
+pub mod task;
 
 use crate::files::path::Path;
 use crate::filesystem::get_driver_by_id;
