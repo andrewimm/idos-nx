@@ -142,7 +142,7 @@ fn init_system() -> ! {
         
         let loader_id = loader::task::get_loader_id();
 
-        let req = Message(loader_id.into(), 0, 0, 0);
+        let req = Message::empty();
         send_message(loader_id, req, 0xffffffff);
     }
 

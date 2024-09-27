@@ -4,7 +4,7 @@ use core::sync::atomic::Ordering;
 use alloc::string::ToString;
 use idos_api::io::error::IOError;
 use crate::interrupts::pic::add_interrupt_listener;
-use crate::io::async_io::{IOType, AsyncOp, ASYNC_OP_CLOSE, OPERATION_FLAG_MESSAGE};
+use crate::io::async_io::{IOType, AsyncOp, ASYNC_OP_CLOSE};
 use crate::io::filesystem::driver::DriverID;
 use crate::io::filesystem::get_driver_id_by_name;
 use crate::io::handle::{Handle, PendingHandleOp};
@@ -290,22 +290,19 @@ mod tests {
 
         fn child_task_body() -> ! {
             let msg_handle = super::open_message_queue();
-            let message = Message(0, 0, 0, 0);
+            let message = Message::empty();
 
-            let op = PendingHandleOp::new(msg_handle, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &message as *const Message as u32, 0, 0);
+            let op = PendingHandleOp::new(msg_handle, ASYNC_OP_READ, &message as *const Message as u32, 0, 0);
             let _sender = op.wait_for_completion();
 
-            assert_eq!(message.0, 1);
-            assert_eq!(message.1, 2);
-            assert_eq!(message.2, 3);
-            assert_eq!(message.3, 4);
+            assert_eq!(message.args, [1, 2, 3, 4, 5, 6]);
             terminate(1);
         }
 
         let (handle, child_id) = super::create_kernel_task(child_task_body, Some("CHILD"));
-        send_message(child_id, Message(1, 2, 3, 4), 0xffffffff);
+        send_message(child_id, Message::empty().set_args([1, 2, 3, 4, 5, 6]), 0xffffffff);
 
-        let op = PendingHandleOp::new(handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
+        let op = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
         op.wait_for_completion();
     }
 
@@ -317,22 +314,22 @@ mod tests {
 
         fn child_task_body() -> ! {
             let msg_handle = super::open_message_queue();
-            let message = Message(0, 0, 0, 0);
+            let message = Message::empty();
             crate::task::actions::sleep(100);
-            let op1 = PendingHandleOp::new(msg_handle, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &message as *const Message as u32, 0, 0);
-            let op2 = PendingHandleOp::new(msg_handle, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, &message as *const Message as u32, 0, 0);
+            let op1 = PendingHandleOp::new(msg_handle, ASYNC_OP_READ, &message as *const Message as u32, 0, 0);
+            let op2 = PendingHandleOp::new(msg_handle, ASYNC_OP_READ, &message as *const Message as u32, 0, 0);
             op1.wait_for_completion();
             op2.wait_for_completion();
 
-            assert_eq!(message, Message(5, 5, 5, 5));
+            assert_eq!(message.unique_id, 5);
             terminate(1);
         }
 
         let (handle, child_id) = super::create_kernel_task(child_task_body, Some("CHILD"));
-        send_message(child_id, Message(1, 1, 1, 1), 0xffffffff);
-        send_message(child_id, Message(5, 5, 5, 5), 0xffffffff);
+        send_message(child_id, Message { message_type: 0, unique_id: 1, args: [0; 6] }, 0xffffffff);
+        send_message(child_id, Message { message_type: 0, unique_id: 5, args: [0; 6] }, 0xffffffff);
 
-        let op = PendingHandleOp::new(handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
+        let op = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
         op.wait_for_completion();
     }
 

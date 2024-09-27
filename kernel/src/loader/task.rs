@@ -12,7 +12,7 @@ use crate::task::messaging::Message;
 
 fn loader_resident() -> ! {
     let messages = open_message_queue();
-    let mut incoming_message = Message(0, 0, 0, 0);
+    let mut incoming_message = Message::empty();
     let notify = create_notify_queue();
     add_handle_to_notify_queue(notify, messages);
 

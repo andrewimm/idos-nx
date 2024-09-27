@@ -27,7 +27,7 @@ pub fn install_drivers() {
 
     for (index, (port, irq)) in configs.iter().enumerate() {
         let task = create_kernel_task(run_driver, Some("COMDEV"));
-        send_message(task, Message(*port, 0, 0, 0), 0xffffffff);
+        send_message(task, Message::empty().set_args([*port, 0, 0, 0, 0, 0]), 0xffffffff);
         INSTALLED_DRIVERS[index].write().replace(task);
         install_interrupt_handler(*irq, com_interrupt_handler, None);
         let name = alloc::format!("COM{}", index + 1);
@@ -117,7 +117,7 @@ fn run_driver() -> ! {
     let port_no = match read_message_blocking(None) {
         (Some(packet), _) => {
             let (_, message) = packet.open();
-            message.0 as u16
+            message.args[0] as u16
         },
         (None, _) => {
             terminate(0);

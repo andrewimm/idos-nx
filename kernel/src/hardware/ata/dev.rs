@@ -137,7 +137,7 @@ fn run_driver() -> ! {
     let (driver_no, base_port, control_port) = match read_message_blocking(None) {
         (Some(packet), _) => {
             let (_, message) = packet.open();
-            (message.0, message.1 as u16, message.2 as u16)
+            (message.args[0], message.args[1] as u16, message.args[2] as u16)
         },
         (None, _) => {
             terminate(0);
@@ -194,7 +194,15 @@ pub fn install_drivers() {
         let (pipe_read, pipe_write) = open_pipe().unwrap();
         let task = create_kernel_task(run_driver, Some("ATADEV"));
         transfer_handle(pipe_write, task).unwrap();
-        send_message(task, Message(driver_no, base_port, control_port, 0), 0xffffffff);
+        send_message(
+            task,
+            Message {
+                message_type: 0,
+                unique_id: 0,
+                args: [driver_no, base_port, control_port, 0, 0, 0],
+            },
+            0xffffffff,
+        );
         read_file(pipe_read, &mut [0u8]).unwrap();
         driver_no += 1;
     }

@@ -175,9 +175,13 @@ mod tests {
         let range = SharedMemoryRange::for_slice(&buffer[0..10]);
         let shared = range.share_with_task(child);
 
+        let mut msg = Message::empty();
+        msg.args[0] = shared.get_range_start();
+        msg.args[1] = shared.range_length;
+
         send_message(
             child,
-            Message(shared.get_range_start(), shared.range_length, 0, 0),
+            msg,
             0xffffffff,
         );
 
@@ -192,8 +196,8 @@ mod tests {
         let (message_read, _) = read_message_blocking(None);
         let packet = message_read.unwrap();
         let (_, message) = packet.open();
-        let addr = message.0;
-        let size = message.1 as usize;
+        let addr = message.args[0];
+        let size = message.args[1] as usize;
         let mut buffer = unsafe {
             core::slice::from_raw_parts_mut(addr as *mut u8, size)
         };

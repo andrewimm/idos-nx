@@ -121,15 +121,15 @@ pub fn arbiter_task() -> ! {
 
         if let Some(next_message) = message_read {
             let (sender, message) = next_message.open();
-            if message.0 == ASYNC_RESPONSE_MAGIC {
+            if message.message_type == ASYNC_RESPONSE_MAGIC {
                 // it's a response to a request
                 match pop_pending_request(sender) {
                     Some(request) => {
-                        if message.2 != 0 {
+                        if message.args[1] != 0 {
                             // nonzero error code indicates an Err Result
-                            request.response.lock().replace(Err(message.2));
+                            request.response.lock().replace(Err(message.args[1]));
                         } else {
-                            request.response.lock().replace(Ok(message.1));
+                            request.response.lock().replace(Ok(message.args[0]));
                         }
 
                         //crate::kprint!("  IO complete, resume {:?}\n", request.requestor_id);

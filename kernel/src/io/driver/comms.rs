@@ -29,40 +29,56 @@ impl DriverIOAction {
     pub fn encode_to_message(&self, request_id: u32) -> Message {
         match self {
             Self::Open(path_ptr, path_len) => {
-                let code = create_request_code(request_id, DriverCommand::Open);
-                Message(code, *path_ptr, *path_len, 0)
+                Message {
+                    message_type: DriverCommand::Open as u32,
+                    unique_id: request_id,
+                    args: [*path_ptr, *path_len, 0, 0, 0, 0],
+                }
             },
             Self::OpenRaw(id) => {
-                let code = create_request_code(request_id, DriverCommand::OpenRaw);
-                Message(code, *id, 0, 0)
+                Message {
+                    message_type: DriverCommand::OpenRaw as u32,
+                    unique_id: request_id,
+                    args: [*id, 0, 0, 0, 0, 0],
+                }
             },
             Self::Close(id) => {
-                let code = create_request_code(request_id, DriverCommand::Close);
-                Message(code, *id, 0, 0)
+                Message {
+                    message_type: DriverCommand::Close as u32,
+                    unique_id: request_id,
+                    args: [*id, 0, 0, 0, 0, 0],
+                }
             },
             Self::Read(open_instance, buffer_ptr, buffer_len) => {
-                let code = create_request_code(request_id, DriverCommand::Read);
-                Message(code, *open_instance, *buffer_ptr, *buffer_len)
+                Message {
+                    message_type: DriverCommand::Read as u32,
+                    unique_id: request_id,
+                    args: [*open_instance, 0, *buffer_ptr, *buffer_len, 0, 0],
+                }
             },
             Self::Write(open_instance, buffer_ptr, buffer_len) => {
-                let code = create_request_code(request_id, DriverCommand::Write);
-                Message(code, *open_instance, *buffer_ptr, *buffer_len)
+                Message {
+                    message_type: DriverCommand::Write as u32,
+                    unique_id: request_id,
+                    args: [*open_instance, 0, *buffer_ptr, *buffer_len, 0, 0],
+                }
             },
             Self::Seek(open_instance, method, offset) => {
-                let code = create_request_code(request_id, DriverCommand::Seek);
-                Message(code, *open_instance, *method, *offset)
+                Message {
+                    message_type: DriverCommand::Seek as u32,
+                    unique_id: request_id,
+                    args: [*open_instance, *method, *offset, 0, 0, 0],
+                }
             },
             Self::Stat(open_instance, buffer_ptr, buffer_len) => {
-                let code = create_request_code(request_id, DriverCommand::Stat);
-                Message(code, *open_instance, *buffer_ptr, *buffer_len)
+                Message {
+                    message_type: DriverCommand::Stat as u32,
+                    unique_id: request_id,
+                    args: [*open_instance, *buffer_ptr, *buffer_len, 0, 0, 0],
+                }
             },
         }
     }
-}
-
-fn create_request_code(id: u32, command: DriverCommand) -> u32 {
-    let high = (command as u32) << 24;
-    high | id
 }
 
 #[repr(u32)]
@@ -79,18 +95,16 @@ pub enum DriverCommand {
     Invalid = 0xffffffff,
 }
 
-pub fn decode_command_and_id(code: u32) -> (DriverCommand, u32) {
-    let high = code >> 24;
-    let id = code & 0x00ffffff;
-
-    let command: DriverCommand = if high >= 1 && high <= 7 /* update this number when new commands are added */ {
-        unsafe { core::mem::transmute(high) }
-    } else {
-        DriverCommand::Invalid
-    };
-
-    (command, id)
-
+impl DriverCommand {
+    pub fn from_u32(code: u32) -> DriverCommand {
+        // UPDATE THIS NUMBER when new commands are added
+        //                      V
+        if code >= 1 && code <= 7 {
+            unsafe { core::mem::transmute(code) }
+        } else {
+            DriverCommand::Invalid
+        }
+    }
 }
 
 /// Messages from drivers to the Driver IO system will send this magic u32 in

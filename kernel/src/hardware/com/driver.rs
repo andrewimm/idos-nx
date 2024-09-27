@@ -24,7 +24,7 @@ use crate::{
         async_io::{
             OPERATION_FLAG_INTERRUPT,
             OPERATION_FLAG_MESSAGE,
-        }, driver::comms::{IOResult, decode_command_and_id, DriverCommand, DRIVER_RESPONSE_MAGIC},
+        }, driver::comms::{IOResult, DriverCommand, DRIVER_RESPONSE_MAGIC},
     },
 };
 
@@ -33,7 +33,7 @@ use super::serial::SerialPort;
 /// Main event loop of the COM driver
 pub fn run_driver() -> ! {
     let messages = open_message_queue();
-    let mut incoming_message = Message(0, 0, 0, 0);
+    let mut incoming_message = Message::empty();
 
     let interrupt = open_interrupt_handle(4);
     let mut interrupt_ready: [u8; 1] = [0];
@@ -104,20 +104,19 @@ impl ComDeviceDriver {
     }
 
     pub fn handle_request(&mut self, message: Message, sender: TaskID) {
-        let (command, request_id) = decode_command_and_id(message.0);
-        match command {
+        match DriverCommand::from_u32(message.message_type) {
             DriverCommand::OpenRaw => {
                 let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
                 self.open_instances.insert(instance, OpenFile {});
-                self.send_response(sender, request_id, Ok(instance));
+                self.send_response(sender, message.unique_id, Ok(instance));
             },
             DriverCommand::Read => {
-                let instance = message.1;
-                let buffer_ptr = message.2 as *mut u8;
-                let buffer_len = message.3 as usize;
+                let instance = message.args[0];
+                let buffer_ptr = message.args[1] as *mut u8;
+                let buffer_len = message.args[2] as usize;
                 self.read_list.push_back(
                     PendingRead {
-                        request_id,
+                        request_id: message.unique_id,
                         respond_to: sender,
                         buffer_ptr,
                         buffer_len,
@@ -129,17 +128,17 @@ impl ComDeviceDriver {
                 }
             },
             DriverCommand::Write => {
-                let instance = message.1;
-                let buffer_ptr = message.2 as *const u8;
-                let buffer_len = message.3 as usize;
+                let instance = message.args[0];
+                let buffer_ptr = message.args[1] as *mut u8;
+                let buffer_len = message.args[2] as usize;
                 for i in 0..buffer_len {
                     unsafe {
                         self.serial.send_byte(*buffer_ptr.add(i));
                     }
                 }
-                self.send_response(sender, request_id, Ok(buffer_len as u32));
+                self.send_response(sender, message.unique_id, Ok(buffer_len as u32));
             },
-            _ => self.send_response(sender, request_id, Err(IOError::UnsupportedOperation)),
+            _ => self.send_response(sender, message.unique_id, Err(IOError::UnsupportedOperation)),
         }
     }
 
@@ -147,11 +146,19 @@ impl ComDeviceDriver {
         let message = match result {
             Ok(result) => {
                 let code = result & 0x7fffffff;
-                Message(DRIVER_RESPONSE_MAGIC, request_id, code, 0)
+                Message {
+                    message_type: DRIVER_RESPONSE_MAGIC,
+                    unique_id: request_id,
+                    args: [code, 0, 0, 0, 0, 0],
+                }
             },
             Err(err) => {
                 let code = Into::<u32>::into(err) | 0x80000000;
-                Message(DRIVER_RESPONSE_MAGIC, request_id, code, 0)
+                Message {
+                    message_type: DRIVER_RESPONSE_MAGIC,
+                    unique_id: request_id,
+                    args: [code, 0, 0, 0, 0, 0],
+                }
             },
         };
         send_message(task, message, 0xffffffff);

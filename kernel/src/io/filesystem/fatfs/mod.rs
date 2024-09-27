@@ -8,7 +8,7 @@ pub mod table;
 use idos_api::io::error::IOError;
 
 use crate::io::driver::async_driver::AsyncDriver;
-use crate::io::driver::comms::{decode_command_and_id, DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
+use crate::io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::handle::Handle;
 use crate::task::actions::handle::{create_pipe_handles, transfer_handle, handle_op_write, handle_op_read, handle_op_read_struct, handle_op_close, create_notify_queue, open_message_queue, add_handle_to_notify_queue, wait_on_notify};
 use crate::task::actions::lifecycle::create_kernel_task;
@@ -38,7 +38,7 @@ fn run_driver() -> ! {
     crate::kprint!("Mount FAT FS on {}\n", dev_name);
 
     let messages = open_message_queue();
-    let mut incoming_message = Message(0, 0, 0, 0);
+    let mut incoming_message = Message::empty();
     let notify = create_notify_queue();
     add_handle_to_notify_queue(notify, messages);
 
@@ -67,11 +67,19 @@ fn send_response(task: TaskID, request_id: u32, result: IOResult) {
     let message = match result {
         Ok(result) => {
             let code = result & 0x7fffffff;
-            Message(DRIVER_RESPONSE_MAGIC, request_id, code, 0)
+            Message {
+                message_type: DRIVER_RESPONSE_MAGIC,
+                unique_id: request_id,
+                args: [code, 0, 0, 0, 0, 0],
+            }
         },
         Err(err) => {
             let code = Into::<u32>::into(err) | 0x80000000;
-            Message(DRIVER_RESPONSE_MAGIC, request_id, code, 0)
+            Message {
+                message_type: DRIVER_RESPONSE_MAGIC,
+                unique_id: request_id,
+                args: [code, 0, 0, 0, 0, 0],
+            }
         },
     };
     send_message(task, message, 0xffffffff)

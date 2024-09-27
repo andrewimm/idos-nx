@@ -11,7 +11,7 @@ use idos_api::io::error::IOError;
 
 use crate::files::cursor::SeekMethod;
 use crate::hardware::dma::DmaChannelRegisters;
-use crate::io::driver::comms::{decode_command_and_id, DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
+use crate::io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::task::actions::{yield_coop, send_message};
@@ -350,7 +350,7 @@ pub fn run_driver() -> ! {
 
     // run event loop
     let messages = open_message_queue();
-    let mut incoming_message = Message(0, 0, 0, 0);
+    let mut incoming_message = Message::empty();
     let interrupt = open_interrupt_handle(6);
     let notify = create_notify_queue();
     add_handle_to_notify_queue(notify, messages);
@@ -434,35 +434,33 @@ pub fn run_driver() -> ! {
 }
 
 async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, respond_to: TaskID, message: Message) {
-    let (command, request_id) = decode_command_and_id(message.0);
-    match command {
+    match DriverCommand::from_u32(message.message_type) {
         DriverCommand::OpenRaw => {
-            crate::kprintln!("FD: OPEN RAW");
-            let sub_driver = message.1;
+            let sub_driver = message.args[0];
             let response = driver_ref.borrow_mut().open(sub_driver);
-            send_response(respond_to, request_id, response);
+            send_response(respond_to, message.unique_id, response);
         },
         DriverCommand::Read => {
-            crate::kprintln!("FD: Read");
-            let instance = message.1;
-            let buffer_ptr = message.2 as *mut u8;
-            let buffer_len = message.3 as usize;
+            let instance = message.args[0];
+            let offset = message.args[1];
+            let buffer_ptr = message.args[2] as *mut u8;
+            let buffer_len = message.args[3] as usize;
             let buffer = unsafe {
                 core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
             };
             let result = driver_ref.borrow_mut().read(instance, buffer).await;
-            send_response(respond_to, request_id, result);
+            send_response(respond_to, message.unique_id, result);
         },
         DriverCommand::Seek => {
             crate::kprintln!("FD: Seek");
-            let instance = message.1;
-            let seek_method = message.2;
-            let seek_delta = message.3;
+            let instance = message.args[0];
+            let seek_method = message.args[1];
+            let seek_delta = message.args[2];
             let offset = SeekMethod::decode(seek_method, seek_delta).unwrap();
             let result = driver_ref.borrow_mut().seek(instance, offset);
-            send_response(respond_to, request_id, result);
+            send_response(respond_to, message.unique_id, result);
         },
-        _ => send_response(respond_to, request_id, Err(IOError::UnsupportedOperation)),
+        _ => send_response(respond_to, message.unique_id, Err(IOError::UnsupportedOperation)),
     }
 }
 
@@ -470,11 +468,19 @@ fn send_response(task: TaskID, request_id: u32, result: IOResult) {
     let message = match result {
         Ok(result) => {
             let code = result & 0x7fffffff;
-            Message(DRIVER_RESPONSE_MAGIC, request_id, code, 0)
+            Message {
+                message_type: DRIVER_RESPONSE_MAGIC,
+                unique_id: request_id,
+                args: [code, 0, 0, 0, 0, 0],
+            }
         },
         Err(err) => {
             let code = Into::<u32>::into(err) | 0x80000000;
-            Message(DRIVER_RESPONSE_MAGIC, request_id, code, 0)
+            Message {
+                message_type: DRIVER_RESPONSE_MAGIC,
+                unique_id: request_id,
+                args: [code, 0, 0, 0, 0, 0],
+            }
         },
     };
     send_message(task, message, 0xffffffff);
