@@ -84,11 +84,11 @@ impl KernelDriver for ConsoleDriver {
         Some(Ok(self.open_instances.write().insert(instance) as u32))
     }
 
-    fn read(&self, instance: u32, buffer: &mut [u8], _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn read(&self, instance: u32, buffer: &mut [u8], _offset: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
         Some(self.read_impl(instance, buffer))
     }
 
-    fn write(&self, instance: u32, buffer: &[u8], _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn write(&self, instance: u32, buffer: &[u8], _offset: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
         Some(self.write_impl(instance, buffer))
     }
 

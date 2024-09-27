@@ -23,12 +23,12 @@ fn run_driver() -> ! {
     let response_writer = Handle::new(1);
     
     let mut name_length_buffer: [u8; 1] = [0; 1];
-    handle_op_read(args_reader, &mut name_length_buffer).wait_for_completion();
+    handle_op_read(args_reader, &mut name_length_buffer, 0).wait_for_completion();
     let name_length = name_length_buffer[0] as usize;
 
     let mut dev_name_buffer: [u8; 5 + 8] = [0; 5 + 8];
     &mut dev_name_buffer[0..5].copy_from_slice("DEV:\\".as_bytes());
-    let dev_name_len = 5 + handle_op_read(args_reader, &mut dev_name_buffer[5..(5 + name_length)]).wait_for_completion() as usize;
+    let dev_name_len = 5 + handle_op_read(args_reader, &mut dev_name_buffer[5..(5 + name_length)], 0).wait_for_completion() as usize;
     handle_op_close(args_reader).wait_for_completion();
     
     let dev_name = unsafe {
@@ -101,7 +101,7 @@ pub fn mount_fat_fs() {
 
         handle_op_write(args_writer, &[pair.1.len() as u8]).wait_for_completion();
         handle_op_write(args_writer, pair.1.as_bytes()).wait_for_completion();
-        handle_op_read(response_reader, &mut [0u8]).wait_for_completion();
+        handle_op_read(response_reader, &mut [0u8], 0).wait_for_completion();
 
         install_task_fs(pair.0, task_id);
     }

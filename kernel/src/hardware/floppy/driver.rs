@@ -232,16 +232,18 @@ impl FloppyDeviceDriver {
         };
         let file = OpenFile {
             drive,
-            position: 0,
+            _position: 0,
         };
         let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
         self.open_instances.insert(instance, file);
         Ok(instance)
     }
 
-    pub async fn read(&mut self, instance: u32, buffer: &mut [u8]) -> IOResult {
-        let (drive_select, position) = match self.open_instances.get(&instance) {
-            Some(file) => (file.drive, file.position as usize),
+    pub async fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IOResult {
+        // TODO: constrain the offset to reasonable bounds
+        let position = offset as usize;
+        let drive_select = match self.open_instances.get(&instance) {
+            Some(file) => file.drive,
             None => return Err(IOError::FileHandleInvalid),
         };
 
@@ -262,17 +264,7 @@ impl FloppyDeviceDriver {
 
         let bytes_read = buffer.len() as u32;
 
-        self.open_instances.get_mut(&instance).unwrap().position += bytes_read;
-
         Ok(bytes_read)
-    }
-
-    pub fn seek(&mut self, instance: u32, offset: SeekMethod) -> IOResult {
-        let open_instance = self.open_instances.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
-        let next_position = offset.from_current_position(open_instance.position as usize);
-        open_instance.position = next_position as u32;
-        // TODO: Do we need to check out-of-bounds here?
-        Ok(next_position as u32)
     }
 
     pub fn close(&mut self, instance: u32) -> IOResult {
@@ -287,7 +279,7 @@ struct AttachedDrive {
 
 struct OpenFile {
     drive: DriveSelect,
-    position: u32,
+    _position: u32,
 }
 
 struct InterruptFuture {
@@ -379,7 +371,7 @@ pub fn run_driver() -> ! {
     }
 
     let mut interrupt_ready: [u8; 1] = [0];
-    let mut interrupt_read = handle_op_read(interrupt, &mut interrupt_ready);
+    let mut interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
     let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
 
     let init_request = async {
@@ -404,7 +396,7 @@ pub fn run_driver() -> ! {
         if interrupt_read.is_complete() {
             handle_op_write(interrupt, &[]);
             interrupt_flag.store(true, Ordering::SeqCst);
-            interrupt_read = handle_op_read(interrupt, &mut interrupt_ready);
+            interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
         } else if let Some(sender) = message_read.get_result() {
             pending_requests.push_back((TaskID::new(sender), incoming_message.clone()));
 
@@ -442,22 +434,13 @@ async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, res
         },
         DriverCommand::Read => {
             let instance = message.args[0];
-            let offset = message.args[1];
-            let buffer_ptr = message.args[2] as *mut u8;
-            let buffer_len = message.args[3] as usize;
+            let buffer_ptr = message.args[1] as *mut u8;
+            let buffer_len = message.args[2] as usize;
+            let offset = message.args[3];
             let buffer = unsafe {
                 core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
             };
-            let result = driver_ref.borrow_mut().read(instance, buffer).await;
-            send_response(respond_to, message.unique_id, result);
-        },
-        DriverCommand::Seek => {
-            crate::kprintln!("FD: Seek");
-            let instance = message.args[0];
-            let seek_method = message.args[1];
-            let seek_delta = message.args[2];
-            let offset = SeekMethod::decode(seek_method, seek_delta).unwrap();
-            let result = driver_ref.borrow_mut().seek(instance, offset);
+            let result = driver_ref.borrow_mut().read(instance, buffer, offset).await;
             send_response(respond_to, message.unique_id, result);
         },
         _ => send_response(respond_to, message.unique_id, Err(IOError::UnsupportedOperation)),

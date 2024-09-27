@@ -50,19 +50,17 @@ impl AsyncDriver for FatDriver {
         Ok(index as u32)
     }
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
+    fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> Result<u32, IOError> {
         crate::kprintln!("FAT: Read");
         let table = self.get_table();
         let handle = self.open_handle_map.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
         let mut fs = self.fs.borrow_mut();
         let written = match &mut handle.handle_entity {
             Entity::File(f) => {
-                let cursor = handle.cursor;
-                f.read(buffer, cursor, table, &mut fs.disk)
+                f.read(buffer, offset, table, &mut fs.disk)
             },
             Entity::Dir(d) => {
-                let cursor = handle.cursor;
-                d.read(buffer, cursor, table, &mut fs.disk)
+                d.read(buffer, offset, table, &mut fs.disk)
             },
         };
 

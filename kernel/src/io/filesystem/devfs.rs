@@ -52,16 +52,16 @@ impl DevFileSystem {
         self.root_listings.write().remove(instance as usize).ok_or(IOError::FileHandleInvalid).map(|_| 1)
     }
 
-    pub fn read_listing(&self, instance: u32, buffer: &mut [u8]) -> IOResult {
+    pub fn read_listing(&self, instance: u32, buffer: &mut [u8], offset: usize) -> IOResult {
         let mut listings = self.root_listings.write();
         let listing = listings.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
         let content_bytes = listing.content.as_bytes();
-        let bytes_unread = content_bytes.len() - listing.cursor;
+        let capped_offset = offset.min(content_bytes.len());
+        let bytes_unread = content_bytes.len() - capped_offset;
         let to_write = bytes_unread.min(buffer.len());
-        let copy_start = listing.cursor;
+        let copy_start = capped_offset;
         let copy_end = copy_start + to_write;
         buffer[..to_write].copy_from_slice(&content_bytes[copy_start..copy_end]);
-        listing.cursor += to_write;
         Ok(to_write as u32)
 
     }
@@ -72,8 +72,8 @@ impl KernelDriver for DevFileSystem {
         Some(Ok(self.open_root_listing()))
     }
 
-    fn read(&self, instance: u32, buffer: &mut [u8], _io_callback: AsyncIOCallback) -> Option<IOResult> {
-        Some(self.read_listing(instance, buffer))
+    fn read(&self, instance: u32, buffer: &mut [u8], offset: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+        Some(self.read_listing(instance, buffer, offset as usize))
     }
 
     fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {

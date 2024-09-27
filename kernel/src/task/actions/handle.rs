@@ -187,12 +187,12 @@ pub fn handle_op_open(handle: Handle, path: &str) -> PendingHandleOp {
     PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0)
 }
 
-pub fn handle_op_read(handle: Handle, buffer: &mut [u8]) -> PendingHandleOp {
+pub fn handle_op_read(handle: Handle, buffer: &mut [u8], offset: u32) -> PendingHandleOp {
     use crate::io::async_io::ASYNC_OP_READ;
 
     let buffer_ptr = buffer.as_ptr() as u32;
     let buffer_len = buffer.len() as u32;
-    PendingHandleOp::new(handle, ASYNC_OP_READ, buffer_ptr, buffer_len, 0)
+    PendingHandleOp::new(handle, ASYNC_OP_READ, buffer_ptr, buffer_len, offset)
 }
 
 pub fn handle_op_read_struct<T: Sized>(handle: Handle, struct_ref: &mut T) -> PendingHandleOp {
@@ -519,17 +519,17 @@ mod tests {
         let handle_dup = super::dup_handle(handle).unwrap();
 
         let mut read_buffer: [u8; 3] = [0; 3];
-        super::handle_op_read(handle, &mut read_buffer).wait_for_completion();
+        super::handle_op_read(handle, &mut read_buffer, 0).wait_for_completion();
         assert_eq!(read_buffer, [b'A', b'B', b'C']);
         
-        super::handle_op_read(handle_dup, &mut read_buffer).wait_for_completion();
+        super::handle_op_read(handle_dup, &mut read_buffer, 0).wait_for_completion();
         // dup handle should point to the same instance
         assert_eq!(read_buffer, [b'D', b'E', b'F']);
 
         super::handle_op_close(handle);
         // the io instance should remain open because the dup'd handle still
         // points to it
-        super::handle_op_read(handle_dup, &mut read_buffer).wait_for_completion();
+        super::handle_op_read(handle_dup, &mut read_buffer, 0).wait_for_completion();
         assert_eq!(read_buffer, [b'G', b'H', b'I']);
     }
 }

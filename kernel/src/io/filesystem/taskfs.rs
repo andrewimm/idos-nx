@@ -2,7 +2,6 @@ use alloc::string::{String, ToString};
 use spin::RwLock;
 
 use crate::collections::SlotList;
-use crate::files::cursor::SeekMethod;
 use crate::files::path::Path;
 use crate::files::stat::FileStatus;
 use crate::io::IOError;
@@ -109,7 +108,7 @@ impl KernelDriver for TaskFileSystem {
         }
     }
 
-    fn read(&self, instance: u32, buffer: &mut [u8], _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn read(&self, instance: u32, buffer: &mut [u8], _offset: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
         Some(self.read_impl(instance, buffer))
     }
 

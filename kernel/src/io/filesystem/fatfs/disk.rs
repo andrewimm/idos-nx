@@ -1,6 +1,4 @@
 use alloc::vec::Vec;
-use crate::files::cursor::SeekMethod;
-use crate::io::async_io::FILE_OP_SEEK;
 use crate::io::handle::{Handle, PendingHandleOp};
 use crate::memory::address::VirtualAddress;
 use crate::task::actions::handle::{create_file_handle, handle_op_open, handle_op_read};
@@ -104,10 +102,8 @@ impl DiskAccess {
             oldest.0
         };
         let cache_buffer = self.get_buffer_sector(cache_index);
-        let (seek_method, seek_delta) = SeekMethod::Absolute(lba as usize * 512).encode();
-        PendingHandleOp::new(self.mount_handle, FILE_OP_SEEK, seek_method, seek_delta, 0).wait_for_completion();
 
-        handle_op_read(self.mount_handle, cache_buffer).wait_for_result().unwrap();
+        handle_op_read(self.mount_handle, cache_buffer, lba * 512).wait_for_result().unwrap();
         cache_index
     }
 
