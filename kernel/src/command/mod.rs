@@ -34,7 +34,7 @@ fn command_task() -> ! {
         prompt.push_str("> ");
 
         handle_op_write(stdout, prompt.as_bytes()).wait_for_completion();
-        let input_len = handle_op_read(stdin, &mut input_buffer).wait_for_completion() as usize;
+        let input_len = handle_op_read(stdin, &mut input_buffer, 0).wait_for_completion() as usize;
 
         let input_str = unsafe { core::str::from_utf8_unchecked(&input_buffer[..input_len]).trim() };
 

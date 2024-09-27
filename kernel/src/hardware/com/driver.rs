@@ -47,7 +47,7 @@ pub fn run_driver() -> ! {
 
     let mut driver_impl = ComDeviceDriver::new(0x3f8);
 
-    let mut interrupt_read = handle_op_read(interrupt, &mut interrupt_ready);
+    let mut interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
     let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
     loop {
         if interrupt_read.is_complete() {
@@ -55,7 +55,7 @@ pub fn run_driver() -> ! {
 
             driver_impl.init_read();
 
-            interrupt_read = handle_op_read(interrupt, &mut interrupt_ready);
+            interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
         } else if let Some(sender) = message_read.get_result() {
             driver_impl.handle_request(incoming_message, TaskID::new(sender));
 

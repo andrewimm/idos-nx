@@ -54,7 +54,7 @@ impl KernelDriver for NullDev {
         Some(self.open_impl())
     }
 
-    fn read(&self, instance: u32, buffer: &mut [u8], _: AsyncIOCallback) -> Option<IOResult> {
+    fn read(&self, instance: u32, buffer: &mut [u8], _: u32, _: AsyncIOCallback) -> Option<IOResult> {
         Some(self.read_impl(instance, buffer))
     }
 

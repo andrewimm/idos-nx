@@ -63,7 +63,7 @@ pub mod sync_fs {
             Some(result)
         }
 
-        fn read(&self, instance: u32, buffer: &mut [u8], _: AsyncIOCallback) -> Option<IOResult> {
+        fn read(&self, instance: u32, buffer: &mut [u8], _offset: u32, _: AsyncIOCallback) -> Option<IOResult> {
             let mut open_files = self.open_files.write();
             let found = match open_files.get_mut(&instance) {
                 Some(file) => file,
@@ -124,7 +124,7 @@ pub mod async_fs {
             }
         }
 
-        fn read(&mut self, instance: u32, buffer: &mut [u8]) -> IOResult {
+        fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IOResult {
             let mut open_files = self.open_files.write();
             let found = open_files.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
             for i in 0..buffer.len() {
@@ -197,7 +197,7 @@ pub mod async_dev {
             Ok(instance)
         }
 
-        fn read(&mut self, instance: u32, buffer: &mut [u8]) -> IOResult {
+        fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IOResult {
             let mut open_files = self.open_files.write();
             let found = open_files.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
             let offset = found.written % 4;

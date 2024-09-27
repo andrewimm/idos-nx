@@ -339,7 +339,7 @@ impl KernelDriver for PipeDriver {
         Some(Err(IOError::UnsupportedOperation))
     }
 
-    fn read(&self, instance: u32, buffer: &mut [u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn read(&self, instance: u32, buffer: &mut [u8], _offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
         let pipe_index: usize = {
             match OPEN_PIPES.read().get(instance as usize) {
                 Some(PipeEnd::Reader(index)) => *index,
@@ -350,7 +350,7 @@ impl KernelDriver for PipeDriver {
         Self::begin_read(pipe_index, buffer, io_callback)
     }
 
-    fn write(&self, instance: u32, buffer: &[u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn write(&self, instance: u32, buffer: &[u8], _offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
         let pipe_index: usize = {
             match OPEN_PIPES.read().get(instance as usize) {
                 Some(PipeEnd::Writer(index)) => *index,
@@ -478,7 +478,7 @@ mod tests {
         let write_op = handle_op_write(writer, &[1, 3, 5]);
         assert_eq!(write_op.wait_for_completion(), 3);
         let mut read_buffer: [u8; 3] = [0; 3];
-        let read_op = handle_op_read(reader, &mut read_buffer);
+        let read_op = handle_op_read(reader, &mut read_buffer, 0);
         assert_eq!(read_op.wait_for_completion(), 3);
         assert_eq!(read_buffer, [1, 3, 5]);
     }
@@ -488,7 +488,7 @@ mod tests {
         // want to make sure this doesn't cause a deadlock somewhere
         let (reader, writer) = create_pipe_handles();
         let mut read_buffer: [u8; 3] = [0; 3];
-        let read_op = handle_op_read(reader, &mut read_buffer);
+        let read_op = handle_op_read(reader, &mut read_buffer, 0);
         
         let write_op = handle_op_write(writer, &[2, 4, 6]);
         assert_eq!(write_op.wait_for_completion(), 3);
@@ -505,7 +505,7 @@ mod tests {
         fn child_task_body() -> ! {
             let reader = Handle::new(0);
             let mut read_buffer: [u8; 2] = [0; 2];
-            let read_op = handle_op_read(reader, &mut read_buffer);
+            let read_op = handle_op_read(reader, &mut read_buffer, 0);
             assert_eq!(read_op.wait_for_completion(), 2);
             assert_eq!(read_buffer, [12, 8]);
             terminate(1);
@@ -524,7 +524,7 @@ mod tests {
         fn child_task_body() -> ! {
             let reader = Handle::new(0);
             let mut read_buffer: [u8; 2] = [0; 2];
-            let read_op = handle_op_read(reader, &mut read_buffer);
+            let read_op = handle_op_read(reader, &mut read_buffer, 0);
             assert_eq!(read_op.wait_for_completion(), 2);
             assert_eq!(read_buffer, [22, 80]);
             terminate(1);
@@ -546,10 +546,10 @@ mod tests {
         handle_op_write(writer, &[1, 2, 3, 4]).wait_for_completion();
         handle_op_close(writer).wait_for_completion();
         let mut read_buffer: [u8; 4] = [0; 4];
-        let mut read_op = handle_op_read(reader, &mut read_buffer);
+        let mut read_op = handle_op_read(reader, &mut read_buffer, 0);
         assert_eq!(read_op.wait_for_completion(), 4);
         assert_eq!(read_buffer, [1, 2, 3, 4]);
-        read_op = handle_op_read(reader, &mut read_buffer);
+        read_op = handle_op_read(reader, &mut read_buffer, 0);
         // does not block, immediately returns zero length / EOF
         assert_eq!(read_op.wait_for_completion(), 0);
     }

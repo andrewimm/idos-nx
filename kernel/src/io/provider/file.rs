@@ -4,9 +4,9 @@ use idos_api::io::error::IOError;
 use spin::Mutex;
 use crate::{
     io::{
-        async_io::{AsyncOp, AsyncOpQueue, OpIdGenerator, AsyncOpID, FILE_OP_SEEK, FILE_OP_STAT},
+        async_io::{AsyncOp, AsyncOpQueue, OpIdGenerator, AsyncOpID, FILE_OP_STAT},
         driver::comms::IOResult,
-        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write, driver_close, driver_stat, driver_seek},
+        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write, driver_close, driver_stat},
     },
     files::{path::Path, stat::FileStatus},
     task::{switching::{get_current_task, get_current_id}, id::{TaskID, AtomicTaskID}},
@@ -97,9 +97,9 @@ impl IOProvider for FileIOProvider {
             let buffer = unsafe {
                 core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
             };
-
+            let read_offset = op.arg2;
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            return driver_read(driver_id, instance, buffer, (self.source_id.load(Ordering::SeqCst), provider_index, id));
+            return driver_read(driver_id, instance, buffer, read_offset, (self.source_id.load(Ordering::SeqCst), provider_index, id));
         }
         Some(Err(IOError::FileHandleInvalid))
     }
@@ -111,8 +111,9 @@ impl IOProvider for FileIOProvider {
             let buffer = unsafe {
                 core::slice::from_raw_parts(buffer_ptr, buffer_len)
             };
+            let write_offset = op.arg2;
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            return driver_write(driver_id, instance, buffer, (self.source_id.load(Ordering::SeqCst), provider_index, id));
+            return driver_write(driver_id, instance, buffer, write_offset, (self.source_id.load(Ordering::SeqCst), provider_index, id));
         }
         Some(Err(IOError::FileHandleInvalid))
     }
@@ -128,12 +129,6 @@ impl IOProvider for FileIOProvider {
     fn extended_op(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             match op.op_code & 0xffff {
-                FILE_OP_SEEK => {
-                    let seek_method = op.arg0;
-                    let seek_delta = op.arg1;
-                    let driver_id: DriverID = self.driver_id.lock().unwrap();
-                    return driver_seek(driver_id, instance, seek_method, seek_delta, (self.source_id.load(Ordering::SeqCst), provider_index, id));
-                },
                 FILE_OP_STAT => {
                     let status_ptr = op.arg0 as *mut FileStatus;
                     let status_len = op.arg1 as usize;

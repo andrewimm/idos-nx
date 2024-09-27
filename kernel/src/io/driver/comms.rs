@@ -15,12 +15,10 @@ pub enum DriverIOAction {
     OpenRaw(u32),
     /// Close(instance)
     Close(u32),
-    /// Read(instance, buffer pointer, buffer length)
-    Read(u32, u32, u32),
-    /// Write(instance, buffer pointer, buffer length)
-    Write(u32, u32, u32),
-    /// Seek(instance, method, offset)
-    Seek(u32, u32, u32),
+    /// Read(instance, buffer pointer, buffer length, starting offset)
+    Read(u32, u32, u32, u32),
+    /// Write(instance, buffer pointer, buffer length, starting offset)
+    Write(u32, u32, u32, u32),
     /// Stat(instance, buffer pointer, buffer length)
     Stat(u32, u32, u32),
 }
@@ -49,25 +47,18 @@ impl DriverIOAction {
                     args: [*id, 0, 0, 0, 0, 0],
                 }
             },
-            Self::Read(open_instance, buffer_ptr, buffer_len) => {
+            Self::Read(open_instance, buffer_ptr, buffer_len, offset) => {
                 Message {
                     message_type: DriverCommand::Read as u32,
                     unique_id: request_id,
-                    args: [*open_instance, 0, *buffer_ptr, *buffer_len, 0, 0],
+                    args: [*open_instance, *buffer_ptr, *buffer_len, *offset, 0, 0],
                 }
             },
-            Self::Write(open_instance, buffer_ptr, buffer_len) => {
+            Self::Write(open_instance, buffer_ptr, buffer_len, offset) => {
                 Message {
                     message_type: DriverCommand::Write as u32,
                     unique_id: request_id,
-                    args: [*open_instance, 0, *buffer_ptr, *buffer_len, 0, 0],
-                }
-            },
-            Self::Seek(open_instance, method, offset) => {
-                Message {
-                    message_type: DriverCommand::Seek as u32,
-                    unique_id: request_id,
-                    args: [*open_instance, *method, *offset, 0, 0, 0],
+                    args: [*open_instance, *buffer_ptr, *buffer_len, *offset, 0, 0],
                 }
             },
             Self::Stat(open_instance, buffer_ptr, buffer_len) => {
@@ -88,7 +79,6 @@ pub enum DriverCommand {
     Read,
     Write,
     Close,
-    Seek,
     Stat,
     // Every time a new command is added, modify the method below that decodes the command
 
@@ -99,7 +89,7 @@ impl DriverCommand {
     pub fn from_u32(code: u32) -> DriverCommand {
         // UPDATE THIS NUMBER when new commands are added
         //                      V
-        if code >= 1 && code <= 7 {
+        if code >= 1 && code <= 6 {
             unsafe { core::mem::transmute(code) }
         } else {
             DriverCommand::Invalid

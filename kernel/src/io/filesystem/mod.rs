@@ -14,7 +14,6 @@ use alloc::vec::Vec;
 use idos_api::io::error::IOError;
 use spin::{Once, RwLock};
 
-use crate::files::cursor::SeekMethod;
 use crate::files::path::Path;
 use crate::files::stat::FileStatus;
 use crate::memory::shared::SharedMemoryRange;
@@ -187,11 +186,11 @@ pub fn driver_close(id: DriverID, instance: u32, io_callback: AsyncIOCallback) -
     })
 }
 
-pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
+pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
     with_driver(id, |driver| {
         match driver {
             DriverType::KernelFilesystem(d)
-            | DriverType::KernelDevice(d) => d.read(instance, buffer, io_callback),
+            | DriverType::KernelDevice(d) => d.read(instance, buffer, offset, io_callback),
 
             DriverType::TaskFilesystem(task_id)
             | DriverType::TaskDevice(task_id, _) => {
@@ -202,6 +201,7 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: 
                     instance,
                     shared_to_driver.get_range_start(),
                     shared_to_driver.range_length,
+                    offset,
                 );
 
                 send_async_request(
@@ -216,11 +216,11 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], io_callback: 
     })
 }
 
-pub fn driver_write(id: DriverID, instance: u32, buffer: &[u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
+pub fn driver_write(id: DriverID, instance: u32, buffer: &[u8], offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
     with_driver(id, |driver| {
         match driver {
             DriverType::KernelFilesystem(d)
-            | DriverType::KernelDevice(d) => d.write(instance, buffer, io_callback),
+            | DriverType::KernelDevice(d) => d.write(instance, buffer, offset, io_callback),
 
             DriverType::TaskFilesystem(task_id)
             | DriverType::TaskDevice(task_id, _) => {
@@ -231,35 +231,6 @@ pub fn driver_write(id: DriverID, instance: u32, buffer: &[u8], io_callback: Asy
                     instance,
                     shared_to_driver.get_range_start(),
                     shared_to_driver.range_length,
-                );
-
-                send_async_request(
-                    *task_id,
-                    io_callback,
-                    action,
-                    Some(shared_to_driver),
-                );
-                None
-            },
-        }
-    })
-}
-
-pub fn driver_seek(id: DriverID, instance: u32, method: u32, offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
-    let seek_method = match SeekMethod::decode(method, offset) {
-        Some(m) => m,
-        None => return Some(Err(IOError::InvalidArgument)),
-    };
-    with_driver(id, |driver| {
-        match driver {
-            DriverType::KernelFilesystem(d)
-            | DriverType::KernelDevice(d) => d.seek(instance, seek_method, io_callback),
-
-            DriverType::TaskFilesystem(task_id)
-            | DriverType::TaskDevice(task_id, _) => {
-                let action = DriverIOAction::Seek(
-                    instance,
-                    method,
                     offset,
                 );
 
@@ -267,7 +238,7 @@ pub fn driver_seek(id: DriverID, instance: u32, method: u32, offset: u32, io_cal
                     *task_id,
                     io_callback,
                     action,
-                    None,
+                    Some(shared_to_driver),
                 );
                 None
             },

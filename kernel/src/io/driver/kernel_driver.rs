@@ -16,13 +16,9 @@ pub trait KernelDriver {
 
     fn close(&self, instance: u32, io_callback: AsyncIOCallback) -> Option<IOResult>;
 
-    fn read(&self, instance: u32, buffer: &mut [u8], io_callback: AsyncIOCallback) -> Option<IOResult>;
+    fn read(&self, instance: u32, buffer: &mut [u8], offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult>;
 
-    fn write(&self, instance: u32, buffer: &[u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
-    }
-
-    fn seek(&self, instance: u32, offset: SeekMethod, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn write(&self, instance: u32, buffer: &[u8], offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
         Some(Err(IOError::UnsupportedOperation))
     }
 

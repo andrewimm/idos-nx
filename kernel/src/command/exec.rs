@@ -110,8 +110,10 @@ fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
     let dir_handle = create_file_handle();
     handle_op_open(dir_handle, env.cwd.as_str()).wait_for_completion();
     let mut entries: Vec<DirEntry> = Vec::new();
+    let mut read_offset = 0;
     loop {
-        let bytes_read = handle_op_read(dir_handle, file_read_buffer).wait_for_completion() as usize;
+        let bytes_read = handle_op_read(dir_handle, file_read_buffer, read_offset).wait_for_completion() as usize;
+        read_offset += bytes_read as u32;
         let mut name_start = 0;
         for i in 0..bytes_read {
             if file_read_buffer[i] == 0 {
@@ -214,8 +216,10 @@ fn type_file(stdout: Handle, args: &Vec<String>) {
         let handle = create_file_handle();
         match handle_op_open(handle, arg).wait_for_result() {
             Ok(_) => {
+                let mut read_offset = 0;
                 loop {
-                    let len = handle_op_read(handle, buffer).wait_for_completion() as usize;
+                    let len = handle_op_read(handle, buffer, read_offset).wait_for_completion() as usize;
+                    read_offset += len as u32;
                     handle_op_write(stdout, &buffer[..len]).wait_for_completion();
 
                     if len < buffer.len() {

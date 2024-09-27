@@ -34,13 +34,13 @@ pub trait AsyncDriver {
             },
             DriverCommand::Read => {
                 let instance = message.args[0];
-                let _offset = message.args[1];
-                let buffer_ptr = message.args[2] as *mut u8;
-                let buffer_len = message.args[3] as usize;
+                let buffer_ptr = message.args[1] as *mut u8;
+                let buffer_len = message.args[2] as usize;
+                let offset = message.args[3];
                 let buffer = unsafe {
                     core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
                 };
-                Some(self.read(instance, buffer))
+                Some(self.read(instance, buffer, offset))
             },
             DriverCommand::Stat => {
                 let instance = message.args[0];
@@ -88,7 +88,7 @@ pub trait AsyncDriver {
 
     fn close(&mut self, instance: u32) -> IOResult;
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8]) -> IOResult;
+    fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IOResult;
 
     fn stat(&mut self, instance: u32, status_struct: &mut FileStatus) -> IOResult {
         Err(IOError::UnsupportedOperation)

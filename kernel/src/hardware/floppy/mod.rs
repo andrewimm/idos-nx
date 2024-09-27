@@ -14,6 +14,6 @@ pub fn install() {
     transfer_handle(pipe_write, driver_task);
 
     let mut drive_count: [u8; 1] = [0];
-    handle_op_read(pipe_read, &mut drive_count).wait_for_completion();
+    handle_op_read(pipe_read, &mut drive_count, 0).wait_for_completion();
     crate::kprintln!("Floppy init: found {} drives", drive_count[0]);
 }
