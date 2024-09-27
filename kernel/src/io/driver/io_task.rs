@@ -73,7 +73,7 @@ pub fn driver_io_task() -> ! {
     let message_handle = open_message_queue();
     add_handle_to_notify_queue(notify, message_handle);
 
-    let mut message = Message(0, 0, 0, 0);
+    let mut message = Message::empty();
 
     let mut next_request_id: u32 = 1;
 
@@ -84,12 +84,12 @@ pub fn driver_io_task() -> ! {
         }
         let sender = op.wait_for_completion();
 
-        if message.0 == DRIVER_RESPONSE_MAGIC {
-            let response_to = message.1;
-            let return_value = if message.2 & 0x80000000 == 0 {
-                Ok(message.2 & 0x7fffffff)
+        if message.message_type == DRIVER_RESPONSE_MAGIC {
+            let response_to = message.unique_id;
+            let return_value = if message.args[0] & 0x80000000 == 0 {
+                Ok(message.args[0] & 0x7fffffff)
             } else {
-                let error = IOError::try_from(message.2 & 0x7fffffff).unwrap();
+                let error = IOError::try_from(message.args[0] & 0x7fffffff).unwrap();
                 Err(error)
             };
 

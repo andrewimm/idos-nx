@@ -1,14 +1,32 @@
 use alloc::collections::VecDeque;
 use super::id::TaskID;
 
-/// Interprocess Messages are implemented by passing tuples of u32 values from
-/// one task to another
+/// Interprocess Messages are implemented by passing these structures from one
+/// task to another.
+/// The message is composed of eight 32-bit fields. Canonically, the first two
+/// fields are used to share the message type, as well as uniquely identify it
+/// among other messages, making it easier to pair a responding message.
+/// However all eight of the u32 fields can be used for any application-
+/// specific purpose.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Message(pub u32, pub u32, pub u32, pub u32);
+pub struct Message {
+    pub message_type: u32,
+    pub unique_id: u32,
+    pub args: [u32; 6],
+}
 
 impl Message {
     pub fn empty() -> Self {
-        Message(0, 0, 0, 0)
+        Message {
+            message_type: 0,
+            unique_id: 0,
+            args: [0; 6],
+        }
+    }
+
+    pub fn set_args(mut self, args: [u32; 6]) -> Self {
+        self.args = args;
+        self
     }
 }
 
@@ -105,13 +123,13 @@ mod tests {
         }
         queue.add(
             TaskID::new(10),
-            Message(1, 2, 3, 4),
+            Message::empty().set_args([1, 2, 3, 4, 0, 0]),
             0,
             2000,
         );
         queue.add(
             TaskID::new(14),
-            Message(5, 6, 7, 8),
+            Message::empty().set_args([5, 6, 7, 8, 0, 0]),
             0,
             2000,
         );
@@ -119,7 +137,11 @@ mod tests {
             let (front, remaining) = queue.read(0);
             assert_eq!(front.unwrap(), MessagePacket {
                 from: TaskID::new(10),
-                message: Message(1, 2, 3, 4),
+                message: Message {
+                    message_type: 0,
+                    unique_id: 0,
+                    args: [1, 2, 3, 4, 0, 0],
+                },
             });
             assert!(remaining);
         }
@@ -127,7 +149,11 @@ mod tests {
             let (front, remaining) = queue.read(0);
             assert_eq!(front.unwrap(), MessagePacket {
                 from: TaskID::new(14),
-                message: Message(5, 6, 7, 8),
+                message: Message {
+                    message_type: 0,
+                    unique_id: 0,
+                    args: [5, 6, 7, 8, 0, 0],
+                },
             });
             assert!(!remaining);
         }
@@ -138,13 +164,13 @@ mod tests {
         let mut queue = MessageQueue::new();
         queue.add(
             TaskID::new(10),
-            Message(1, 2, 3, 4),
+            Message::empty().set_args([1, 2, 3, 4, 0, 0]),
             0,
             2000,
         );
         queue.add(
             TaskID::new(12),
-            Message(5, 6, 7, 8),
+            Message::empty().set_args([5, 6, 7, 8, 0, 0]),
             3000,
             5000,
         );
@@ -152,7 +178,11 @@ mod tests {
             let (front, remaining) = queue.read(4000);
             assert_eq!(front.unwrap(), MessagePacket {
                 from: TaskID::new(12),
-                message: Message(5, 6, 7, 8),
+                message: Message {
+                    message_type: 0,
+                    unique_id: 0,
+                    args: [5, 6, 7, 8, 0, 0],
+                },
             });
             assert!(!remaining);
         }

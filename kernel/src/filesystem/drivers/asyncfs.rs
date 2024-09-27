@@ -198,45 +198,77 @@ pub fn encode_request(request: AsyncIO) -> Message {
     match request {
         AsyncIO::Open(path_str_start, path_str_len) => {
             let code = AsyncCommand::Open as u32;
-            Message(code, path_str_start, path_str_len, 0)
+            Message {
+                message_type: code,
+                unique_id: 0,
+                args: [path_str_start, path_str_len, 0, 0, 0, 0],
+            }
         },
         AsyncIO::OpenRaw(id) => {
             let code = AsyncCommand::OpenRaw as u32;
-            Message(code, id, 0, 0)
+            Message {
+                message_type: code,
+                unique_id: 0,
+                args: [id, 0, 0, 0, 0, 0],
+            }
         },
         AsyncIO::Read(open_instance, buffer_start, buffer_len) => {
             let code = AsyncCommand::Read as u32;
-            Message(code, open_instance, buffer_start, buffer_len)
+            Message {
+                message_type: code,
+                unique_id: 0,
+                args: [open_instance, buffer_start, buffer_len, 0, 0, 0],
+            }
         },
         AsyncIO::Write(open_instance, buffer_start, buffer_len) => {
             let code = AsyncCommand::Write as u32;
-            Message(code, open_instance, buffer_start, buffer_len)
+            Message {
+                message_type: code,
+                unique_id: 0,
+                args: [open_instance, buffer_start, buffer_len, 0, 0, 0],
+            }
         },
         AsyncIO::Close(handle) => {
             let code = AsyncCommand::Close as u32;
-            Message(code, handle, 0, 0)
+            Message {
+                message_type: code,
+                unique_id: 0,
+                args: [handle, 0, 0, 0, 0, 0],
+            }
         },
         AsyncIO::Seek(open_instance, method, delta) => {
             let code = AsyncCommand::Seek as u32;
-            Message(code, open_instance, method, delta)
+            Message {
+                message_type: code,
+                unique_id: 0,
+                args: [open_instance, method, delta, 0, 0, 0],
+            }
         },
         AsyncIO::Stat(open_instance, buffer_start, buffer_len) => {
             let code = AsyncCommand::Stat as u32;
-            Message(code, open_instance, buffer_start, buffer_len)
+            Message {
+                message_type: code,
+                unique_id: 0,
+                args: [open_instance, buffer_start, buffer_len, 0, 0, 0],
+            }
         },
         AsyncIO::Dup(open_instance, dup_into) => {
             let code = AsyncCommand::Dup as u32;
-            Message(code, open_instance, dup_into, 0)
+            Message {
+                message_type: code,
+                unique_id: 0,
+                args: [open_instance, dup_into, 0, 0, 0, 0],
+            }
         },
     }
 }
 
 pub trait AsyncDriver {
     fn handle_request(&mut self, message: Message) -> Option<Message> {
-        match AsyncCommand::from(message.0) {
+        match AsyncCommand::from(message.message_type) {
             AsyncCommand::Open => {
-                let path_str_start = message.1 as *const u8;
-                let path_str_len = message.2 as usize;
+                let path_str_start = message.args[0] as *const u8;
+                let path_str_len = message.args[1] as usize;
                 let path = if path_str_len == 0 {
                     ""
                 } else {
@@ -251,16 +283,16 @@ pub trait AsyncDriver {
                 }
             },
             AsyncCommand::OpenRaw => {
-                let id_as_path = message.1.to_string();
+                let id_as_path = message.args[0].to_string();
                 match self.open(id_as_path.as_str()) {
                     Ok(handle) => Some((handle, 0, 0)),
                     Err(err) => Some((0, err as u32, 0)),
                 }
             },
             AsyncCommand::Read => {
-                let open_instance = message.1;
-                let buffer_start = message.2 as *mut u8;
-                let buffer_len = message.3 as usize;
+                let open_instance = message.args[0];
+                let buffer_start = message.args[1] as *mut u8;
+                let buffer_len = message.args[2] as usize;
                 let buffer = unsafe {
                     core::slice::from_raw_parts_mut(buffer_start, buffer_len)
                 };
@@ -270,9 +302,9 @@ pub trait AsyncDriver {
                 }
             },
             AsyncCommand::Write => {
-                let open_instance = message.1;
-                let buffer_start = message.2 as *mut u8;
-                let buffer_len = message.3 as usize;
+                let open_instance = message.args[0];
+                let buffer_start = message.args[1] as *mut u8;
+                let buffer_len = message.args[2] as usize;
                 let buffer = unsafe {
                     core::slice::from_raw_parts(buffer_start, buffer_len)
                 };
@@ -282,16 +314,16 @@ pub trait AsyncDriver {
                 }
             },
             AsyncCommand::Close => {
-                let handle = message.1 as u32;
+                let handle = message.args[0] as u32;
                 match self.close(handle) {
                     Ok(_) => Some((0, 0, 0)),
                     Err(err) => Some((0, err as u32, 0)),
                 }
             },
             AsyncCommand::Seek => {
-                let open_instance = message.1;
-                let method = message.2;
-                let delta = message.3;
+                let open_instance = message.args[0];
+                let method = message.args[1];
+                let delta = message.args[2];
                 let offset = SeekMethod::decode(method, delta).unwrap();
                 match self.seek(open_instance, offset) {
                     Ok(new_position) => Some((new_position, 0, 0)),
@@ -299,8 +331,8 @@ pub trait AsyncDriver {
                 }
             },
             AsyncCommand::Stat => {
-                let open_instance = message.1;
-                let buffer_start = message.2 as *mut FileStatus;
+                let open_instance = message.args[0];
+                let buffer_start = message.args[1] as *mut FileStatus;
                 // assuming the length is the size of a file status
                 // not sure if that's a good idea or not
                 let status = unsafe { &mut *buffer_start };
@@ -310,11 +342,11 @@ pub trait AsyncDriver {
                 }
             },
             AsyncCommand::Dup => {
-                let open_instance = message.1;
-                let dup_into = if message.2 == 0xffffffff {
+                let open_instance = message.args[0];
+                let dup_into = if message.args[1] == 0xffffffff {
                     None
                 } else {
-                    Some(message.2)
+                    Some(message.args[2])
                 };
                 match self.dup(open_instance, dup_into) {
                     Ok(new_handle) => Some((new_handle, 0, 0)),
@@ -325,7 +357,7 @@ pub trait AsyncDriver {
                 crate::kprint!("Async driver: unknown request\n");
                 None
             },
-        }.map(|(a, b, c)| Message(ASYNC_RESPONSE_MAGIC, a, b, c))
+        }.map(|(a, b, c)| Message { message_type: ASYNC_RESPONSE_MAGIC, unique_id: 0, args: [a, b, c, 0, 0, 0] })
     }
 
     fn open(&mut self, path: &str) -> Result<u32, IOError>;

@@ -393,7 +393,7 @@ pub fn get_pipe_drive_id() -> DriverID {
 mod tests {
     use super::{Pipe, ReadMode};
     use crate::task::id::TaskID;
-    use crate::io::async_io::{AsyncOpID, OPERATION_FLAG_TASK, TASK_OP_WAIT};
+    use crate::io::async_io::{AsyncOpID, ASYNC_OP_READ};
     use crate::io::handle::{Handle, PendingHandleOp};
     use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, handle_op_read, handle_op_write, handle_op_close, transfer_handle};
     use crate::task::actions::lifecycle::terminate;
@@ -514,7 +514,7 @@ mod tests {
         let (child_handle, child_id) = create_kernel_task(child_task_body, Some("CHILD"));
         transfer_handle(reader, child_id);
 
-        let op = PendingHandleOp::new(child_handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
+        let op = PendingHandleOp::new(child_handle, ASYNC_OP_READ, 0, 0, 0);
         op.wait_for_completion();
     }
 
@@ -536,7 +536,7 @@ mod tests {
         let write_op = handle_op_write(writer, &[22, 80]);
         assert_eq!(write_op.wait_for_completion(), 2);
 
-        let op = PendingHandleOp::new(child_handle, OPERATION_FLAG_TASK | TASK_OP_WAIT, 0, 0, 0);
+        let op = PendingHandleOp::new(child_handle, ASYNC_OP_READ, 0, 0, 0);
         op.wait_for_completion();
     }
 

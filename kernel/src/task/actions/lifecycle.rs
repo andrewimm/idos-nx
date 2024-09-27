@@ -66,7 +66,7 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
 
     // notify the cleanup task
     let cleanup_task_id = get_cleanup_task_id();
-    send_message(cleanup_task_id, Message(0, 0, 0, 0), 0xffffffff);
+    send_message(cleanup_task_id, Message::empty(), 0xffffffff);
 }
 
 pub fn terminate(exit_code: u32) -> ! {

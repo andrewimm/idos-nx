@@ -38,14 +38,14 @@ mod tests {
     #[test_case]
     fn message_passing() {
         let child_task = super::actions::lifecycle::create_kernel_task(message_passing_inner, Some("CHILD"));
-        super::actions::send_message(child_task, super::messaging::Message(1, 2, 3, 4), 0xffffffff);
+        super::actions::send_message(child_task, super::messaging::Message::empty().set_args([1, 2, 3, 4, 5, 6]), 0xffffffff);
         super::actions::lifecycle::wait_for_child(child_task, None);
     }
 
     fn message_passing_inner() -> ! {
         let (packet, _) = super::actions::read_message_blocking(None);
         let (_, message) = packet.unwrap().open();
-        assert_eq!(message, super::messaging::Message(1, 2, 3, 4));
+        assert_eq!(message, super::messaging::Message::empty().set_args([1, 2, 3, 4, 5, 6]));
         super::actions::lifecycle::terminate(0);
     }
 }

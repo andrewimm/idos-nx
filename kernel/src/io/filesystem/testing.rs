@@ -13,7 +13,7 @@ use crate::task::actions::send_message;
 use crate::task::messaging::Message;
 use crate::task::id::TaskID;
 use crate::io::handle::PendingHandleOp;
-use crate::io::async_io::{OPERATION_FLAG_MESSAGE, MESSAGE_OP_READ};
+use crate::io::async_io::{OPERATION_FLAG_MESSAGE, ASYNC_OP_READ};
 
 pub mod sync_fs {
     use crate::io::filesystem::driver::AsyncIOCallback;
@@ -142,13 +142,13 @@ pub mod async_fs {
 
     pub fn driver_task() -> ! {
         let message_handle = open_message_queue();
-        let mut message = Message(0, 0, 0, 0);
+        let mut message = Message::empty();
         let message_ptr = &mut message as *mut Message as u32;
 
         let mut driver_impl = AsyncTestFS::new();
 
         loop {
-            let op = PendingHandleOp::new(message_handle, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, message_ptr, 0, 0);
+            let op = PendingHandleOp::new(message_handle, ASYNC_OP_READ, message_ptr, 0, 0);
             let sender = op.wait_for_completion();
 
             match driver_impl.handle_request(message) {
@@ -219,13 +219,13 @@ pub mod async_dev {
 
     pub fn driver_task() -> ! {
         let message_handle = open_message_queue();
-        let mut message = Message(0, 0, 0, 0);
+        let mut message = Message::empty();
         let message_ptr = &mut message as *mut Message as u32;
 
         let mut driver_impl = AsyncTestDev::new();
 
         loop {
-            let op = PendingHandleOp::new(message_handle, OPERATION_FLAG_MESSAGE | MESSAGE_OP_READ, message_ptr, 0, 0);
+            let op = PendingHandleOp::new(message_handle, ASYNC_OP_READ, message_ptr, 0, 0);
             let sender = op.wait_for_completion();
 
             match driver_impl.handle_request(message) {
