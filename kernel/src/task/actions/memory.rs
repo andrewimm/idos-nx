@@ -14,6 +14,13 @@ pub fn map_memory_for_task(task_id: TaskID, addr: Option<VirtualAddress>, size: 
     task.memory_mapping.map_memory(addr, size, backing)
 }
 
+pub fn remap_memory_for_task(task_id: TaskID, addr: VirtualAddress, backing: MemoryBacking) -> Result<MemoryBacking, TaskMemoryError> {
+    let task_lock = get_task(task_id).ok_or(TaskMemoryError::NoTask)?;
+    let mut task = task_lock.write();
+    let mapping = task.memory_mapping.get_mut_mapping_containing_address(&addr).ok_or(TaskMemoryError::NotMapped)?;
+    Ok(core::mem::replace(&mut mapping.backed_by, backing))
+}
+
 pub fn unmap_memory_for_task(task_id: TaskID, addr: VirtualAddress, size: u32) -> Result<(), TaskMemoryError> {
     {
         let task_lock = get_task(task_id).ok_or(TaskMemoryError::NoTask)?;

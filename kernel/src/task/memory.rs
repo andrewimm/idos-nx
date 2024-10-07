@@ -358,6 +358,15 @@ impl TaskMemory {
         None
     }
 
+    pub fn get_mut_mapping_containing_address(&mut self, addr: &VirtualAddress) -> Option<&mut MemMappedRegion> {
+        for (_, region) in self.mapped_regions.iter_mut() {
+            if region.contains_address(addr) {
+                return Some(region);
+            }
+        }
+        None
+    }
+
     pub fn get_execution_segment_containing_address(&self, addr: &VirtualAddress) -> Option<&ExecutionSegment> {
         for segment in self.execution_segments.iter() {
             if segment.contains_address(addr) {
@@ -379,7 +388,7 @@ impl TaskMemory {
         true
     }
 
-    fn find_free_mapping_space(&self, size: u32) -> Option<VirtualAddress> {
+    pub fn find_free_mapping_space(&self, size: u32) -> Option<VirtualAddress> {
         // Iterate backwards through the mapped set. If the space between the
         // current region and the previous one is large enough to fit the
         // requested size,
