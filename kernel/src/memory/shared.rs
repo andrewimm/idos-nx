@@ -178,12 +178,14 @@ pub fn share_buffer(task: TaskID, vaddr: VirtualAddress, byte_size: usize) -> Vi
 }
 
 pub fn release_buffer(vaddr: VirtualAddress, byte_size: usize) {
+    let cur_task = get_current_id();
+    crate::kprintln!("SHARE: Release buffer at {:?} for {:?}", vaddr, cur_task);
     for page_start in PageIter::for_vaddr_range(vaddr, byte_size) {
         let frame_start = get_current_physical_address(page_start).expect("Cannot release unmapped memory");
         let count_remaining = SHARED_MEMORY_REFCOUNT.lock().remove_reference(frame_start);
         // TODO: this could just be one unmap call. If there are multiple pages
         // this will make too many unnecessary calls
-        unmap_memory_for_task(get_current_id(), page_start, 0x1000);
+        unmap_memory_for_task(cur_task, page_start, 0x1000);
         if count_remaining == 0 {
             // TODO: release the frame
         }

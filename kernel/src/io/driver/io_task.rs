@@ -2,7 +2,7 @@ use alloc::collections::{VecDeque, BTreeMap};
 use idos_api::io::error::IOError;
 use spin::{RwLock, Once, Mutex, MutexGuard};
 
-use crate::{task::{id::TaskID, switching::{get_current_id, get_task}, actions::{handle::{open_message_queue, create_notify_queue, add_handle_to_notify_queue, wait_on_notify, handle_op_read_struct}, send_message}, messaging::Message}, memory::shared::SharedMemoryRange, io::{filesystem::driver::AsyncIOCallback, async_io::AsyncOpID}};
+use crate::{task::{id::TaskID, switching::{get_current_id, get_task}, actions::{handle::{open_message_queue, create_notify_queue, add_handle_to_notify_queue, wait_on_notify, handle_op_read_struct}, send_message}, messaging::Message}, io::{filesystem::driver::AsyncIOCallback, async_io::AsyncOpID}};
 
 use crate::io::handle::PendingHandleOp;
 
@@ -22,8 +22,6 @@ struct IncomingRequest {
     // the actual action data:
     /// The action to encode and send to the driver
     pub action: DriverIOAction,
-    /// A shared memory range, if needed to share a buffer with the driver
-    pub shared_range: Option<SharedMemoryRange>,
 }
 
 static DRIVER_IO_TASK_ID: RwLock<TaskID> = RwLock::new(TaskID::new(0));
@@ -46,7 +44,6 @@ pub fn send_async_request(
     driver_id: TaskID,
     io_callback: AsyncIOCallback,
     action: DriverIOAction,
-    shared_range: Option<SharedMemoryRange>,
 ) {
     let request = IncomingRequest {
         driver_id,
@@ -54,7 +51,6 @@ pub fn send_async_request(
         source_io: io_callback.1,
         source_op: io_callback.2,
         action,
-        shared_range,
     };
 
     get_incoming_queue().push_back(request);

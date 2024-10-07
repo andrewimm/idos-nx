@@ -16,7 +16,8 @@ use spin::{Once, RwLock};
 
 use crate::files::path::Path;
 use crate::files::stat::FileStatus;
-use crate::memory::shared::{SharedMemoryRange, share_buffer, release_buffer};
+use crate::memory::address::VirtualAddress;
+use crate::memory::shared::{share_buffer, release_buffer};
 use crate::task::actions::memory::map_memory;
 use crate::task::id::TaskID;
 
@@ -118,7 +119,7 @@ pub fn driver_open(driver_id: DriverID, path: Path, io_callback: AsyncIOCallback
             },
             DriverType::TaskDevice(dev, sub) => {
                 let action = DriverIOAction::OpenRaw(*sub);
-                send_async_request(*dev, io_callback, action, None);
+                send_async_request(*dev, io_callback, action);
                 return None;
             },
             DriverType::TaskFilesystem(task) => {
@@ -159,7 +160,6 @@ pub fn driver_open(driver_id: DriverID, path: Path, io_callback: AsyncIOCallback
                     *task,
                     io_callback,
                     action,
-                    None,
                 );
                 None
             },
@@ -180,7 +180,6 @@ pub fn driver_close(id: DriverID, instance: u32, io_callback: AsyncIOCallback) -
                     *task_id,
                     io_callback,
                     action,
-                    None,
                 );
                 None
             },
@@ -196,13 +195,13 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], offset: u32, 
 
             DriverType::TaskFilesystem(task_id)
             | DriverType::TaskDevice(task_id, _) => {
-                let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
-                let shared_to_driver = shared_range.share_with_task(*task_id);
+                let range_start = VirtualAddress::new(buffer.as_ptr() as u32);
+                let shared_vaddr = share_buffer(*task_id, range_start, buffer.len());
 
                 let action = DriverIOAction::Read(
                     instance,
-                    shared_to_driver.get_range_start(),
-                    shared_to_driver.range_length,
+                    shared_vaddr.as_u32(),
+                    buffer.len() as u32,
                     offset,
                 );
 
@@ -210,7 +209,6 @@ pub fn driver_read(id: DriverID, instance: u32, buffer: &mut [u8], offset: u32, 
                     *task_id,
                     io_callback,
                     action,
-                    Some(shared_to_driver),
                 );
                 None
             },
@@ -226,13 +224,13 @@ pub fn driver_write(id: DriverID, instance: u32, buffer: &[u8], offset: u32, io_
 
             DriverType::TaskFilesystem(task_id)
             | DriverType::TaskDevice(task_id, _) => {
-                let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
-                let shared_to_driver = shared_range.share_with_task(*task_id);
+                let range_start = VirtualAddress::new(buffer.as_ptr() as u32);
+                let shared_vaddr = share_buffer(*task_id, range_start, buffer.len());
 
                 let action = DriverIOAction::Write(
                     instance,
-                    shared_to_driver.get_range_start(),
-                    shared_to_driver.range_length,
+                    shared_vaddr.as_u32(),
+                    buffer.len() as u32,
                     offset,
                 );
 
@@ -240,7 +238,6 @@ pub fn driver_write(id: DriverID, instance: u32, buffer: &[u8], offset: u32, io_
                     *task_id,
                     io_callback,
                     action,
-                    Some(shared_to_driver),
                 );
                 None
             },
@@ -256,20 +253,19 @@ pub fn driver_stat(id: DriverID, instance: u32, file_status: &mut FileStatus, io
 
             DriverType::TaskFilesystem(task_id)
             | DriverType::TaskDevice(task_id, _) => {
-                let shared_range = SharedMemoryRange::for_struct::<FileStatus>(file_status);
-                let shared_to_driver = shared_range.share_with_task(*task_id);
+                let range_start = VirtualAddress::new(file_status as *mut FileStatus as u32);
+                let shared_vaddr = share_buffer(*task_id, range_start, core::mem::size_of::<FileStatus>());
 
                 let action = DriverIOAction::Stat(
                     instance,
-                    shared_to_driver.get_range_start(),
-                    shared_to_driver.range_length,
-                ); 
+                    shared_vaddr.as_u32(),
+                    core::mem::size_of::<FileStatus>() as u32,
+                );
 
                 send_async_request(
                     *task_id,
                     io_callback,
                     action,
-                    Some(shared_to_driver),
                 );
                 None
             },
