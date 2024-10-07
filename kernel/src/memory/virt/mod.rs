@@ -30,6 +30,7 @@
 //! 0xc0000000                                                       0xffffffff
 
 pub mod page_entry;
+pub mod page_iter;
 pub mod page_table;
 pub mod scratch;
 
