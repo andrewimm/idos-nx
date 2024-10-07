@@ -16,7 +16,8 @@ use spin::{Once, RwLock};
 
 use crate::files::path::Path;
 use crate::files::stat::FileStatus;
-use crate::memory::shared::SharedMemoryRange;
+use crate::memory::shared::{SharedMemoryRange, share_buffer, release_buffer};
+use crate::task::actions::memory::map_memory;
 use crate::task::id::TaskID;
 
 use self::devfs::DevFileSystem;
@@ -127,29 +128,30 @@ pub fn driver_open(driver_id: DriverID, path: Path, io_callback: AsyncIOCallback
                 // time the driver tries to consume the path. In order to
                 // ensure a version of the string is still available, we create
                 // a copy that will be dropped when the op completes.
-                let path_boxed = Into::<String>::into(path).into_boxed_str();
-                let path_len = path_boxed.len();
-                // doing this ensures the box is not dropped
-                let path_ptr = Box::into_raw(path_boxed) as *const u8;
-                let (shared_range, action) = if path_len == 0 {
+                //
+                // This copy could live in the kernel heap, but that would
+                // require exposing an entire page of kernel heap to the
+                // driver. Tasks can be corrupted by misbehaving drivers, but
+                // the kernel should remain protected. We create a new frame
+                // of memory to contain this string copy, and then share it
+                // with the driver task.
+
+                let path_len = path.as_str().len();
+                let action = if path_len == 0 {
                     // can't share memory for an empty slice, just hardcode it
-                    (None, DriverIOAction::Open(0, 0))
+                    DriverIOAction::Open(0, 0)
                 } else {
-                    // TODO: This is not ideal. We're sharing a page of kernel
-                    // heap with the driver. That's not safe. We should create
-                    // a new shared memory concept that allocates a new frame,
-                    // copies a string to it, and maps it to the shared task.
-                    let boxed_slice = unsafe {
-                        core::slice::from_raw_parts(path_ptr, path_len)
+                    // create a new frame of memory
+                    let page_start = map_memory(None, 0x1000, crate::task::memory::MemoryBacking::Anonymous).unwrap();
+                    let path_slice = unsafe {
+                        core::slice::from_raw_parts_mut(page_start.as_ptr_mut::<u8>(), path_len)
                     };
-                    let shared_range = SharedMemoryRange::for_slice::<u8>(boxed_slice);
-                    let shared_to_driver = shared_range.share_with_task(*task);
-                    (
-                        Some(shared_range),
-                        DriverIOAction::Open(
-                            shared_to_driver.get_range_start(),
-                            shared_to_driver.range_length,
-                        ),
+                    path_slice.copy_from_slice(path.as_str().as_bytes());
+                    let shared_vaddr = share_buffer(*task, page_start, path_len);
+                    release_buffer(page_start, path_len);
+                    DriverIOAction::Open(
+                        shared_vaddr.as_u32(),
+                        path_len as u32,
                     )
                 };
 
@@ -157,7 +159,7 @@ pub fn driver_open(driver_id: DriverID, path: Path, io_callback: AsyncIOCallback
                     *task,
                     io_callback,
                     action,
-                    shared_range,
+                    None,
                 );
                 None
             },
