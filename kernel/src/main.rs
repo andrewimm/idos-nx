@@ -97,7 +97,8 @@ fn init_system() -> ! {
         hardware::ps2::install_drivers();
 
         task::actions::handle::handle_op_write(con, "Installing ATA Drivers...\n".as_bytes());
-        hardware::ata::dev::install_drivers();
+        //hardware::ata::dev::install_drivers();
+        hardware::ata::install();
 
         task::actions::handle::handle_op_write(con, "Installing Floppy Drivers...\n".as_bytes());
         //hardware::floppy::dev::install_drivers();
