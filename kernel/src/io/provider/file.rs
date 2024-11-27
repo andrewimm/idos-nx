@@ -1,17 +1,23 @@
 use core::sync::atomic::Ordering;
 
+use super::IOProvider;
+use crate::{
+    files::{path::Path, stat::FileStatus},
+    io::{
+        async_io::{AsyncOp, AsyncOpID, AsyncOpQueue, OpIdGenerator, FILE_OP_STAT},
+        driver::comms::IOResult,
+        filesystem::{
+            driver::DriverID, driver_close, driver_open, driver_read, driver_stat, driver_write,
+            get_driver_id_by_name,
+        },
+    },
+    task::{
+        id::{AtomicTaskID, TaskID},
+        switching::{get_current_id, get_current_task},
+    },
+};
 use idos_api::io::error::IOError;
 use spin::Mutex;
-use crate::{
-    io::{
-        async_io::{AsyncOp, AsyncOpQueue, OpIdGenerator, AsyncOpID, FILE_OP_STAT},
-        driver::comms::IOResult,
-        filesystem::{get_driver_id_by_name, driver::DriverID, driver_open, driver_read, driver_write, driver_close, driver_stat},
-    },
-    files::{path::Path, stat::FileStatus},
-    task::{switching::{get_current_task, get_current_id}, id::{TaskID, AtomicTaskID}},
-};
-use super::IOProvider;
 
 /// Inner contents of a handle that is bound to a file for reading/writing
 pub struct FileIOProvider {
@@ -74,9 +80,8 @@ impl IOProvider for FileIOProvider {
         }
         let path_ptr = op.arg0 as *const u8;
         let path_len = op.arg1 as usize;
-        let try_path_str = unsafe {
-            core::str::from_utf8(core::slice::from_raw_parts(path_ptr, path_len))
-        };
+        let try_path_str =
+            unsafe { core::str::from_utf8(core::slice::from_raw_parts(path_ptr, path_len)) };
         let path_str = match try_path_str {
             Ok(path) => path,
             Err(_) => return Some(Err(IOError::NotFound)),
@@ -87,19 +92,27 @@ impl IOProvider for FileIOProvider {
         };
 
         *self.driver_id.lock() = Some(driver_id);
-        driver_open(driver_id, path, (self.source_id.load(Ordering::SeqCst), provider_index, id))
+        driver_open(
+            driver_id,
+            path,
+            (self.source_id.load(Ordering::SeqCst), provider_index, id),
+        )
     }
 
     fn read(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let buffer_ptr = op.arg0 as *mut u8;
             let buffer_len = op.arg1 as usize;
-            let buffer = unsafe {
-                core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
-            };
+            let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
             let read_offset = op.arg2;
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            return driver_read(driver_id, instance, buffer, read_offset, (self.source_id.load(Ordering::SeqCst), provider_index, id));
+            return driver_read(
+                driver_id,
+                instance,
+                buffer,
+                read_offset,
+                (self.source_id.load(Ordering::SeqCst), provider_index, id),
+            );
         }
         Some(Err(IOError::FileHandleInvalid))
     }
@@ -108,12 +121,16 @@ impl IOProvider for FileIOProvider {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let buffer_ptr = op.arg0 as *const u8;
             let buffer_len = op.arg1 as usize;
-            let buffer = unsafe {
-                core::slice::from_raw_parts(buffer_ptr, buffer_len)
-            };
+            let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_len) };
             let write_offset = op.arg2;
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            return driver_write(driver_id, instance, buffer, write_offset, (self.source_id.load(Ordering::SeqCst), provider_index, id));
+            return driver_write(
+                driver_id,
+                instance,
+                buffer,
+                write_offset,
+                (self.source_id.load(Ordering::SeqCst), provider_index, id),
+            );
         }
         Some(Err(IOError::FileHandleInvalid))
     }
@@ -121,12 +138,21 @@ impl IOProvider for FileIOProvider {
     fn close(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            return driver_close(driver_id, instance, (self.source_id.load(Ordering::SeqCst), provider_index, id));
+            return driver_close(
+                driver_id,
+                instance,
+                (self.source_id.load(Ordering::SeqCst), provider_index, id),
+            );
         }
         Some(Err(IOError::FileHandleInvalid))
     }
 
-    fn extended_op(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+    fn extended_op(
+        &self,
+        provider_index: u32,
+        id: AsyncOpID,
+        op: AsyncOp,
+    ) -> Option<super::IOResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             match op.op_code & 0xffff {
                 FILE_OP_STAT => {
@@ -137,8 +163,13 @@ impl IOProvider for FileIOProvider {
                     }
                     let driver_id: DriverID = self.driver_id.lock().unwrap();
                     let file_status: &mut FileStatus = unsafe { &mut *status_ptr };
-                    return driver_stat(driver_id, instance, file_status, (self.source_id.load(Ordering::SeqCst), provider_index, id));
-                },
+                    return driver_stat(
+                        driver_id,
+                        instance,
+                        file_status,
+                        (self.source_id.load(Ordering::SeqCst), provider_index, id),
+                    );
+                }
                 _ => return Some(Err(IOError::UnsupportedOperation)),
             }
         }
@@ -161,6 +192,7 @@ fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), ()> {
 
         Ok((driver_id, Path::from_str(path_portion)))
     } else {
+        crate::kprintln!("  >>>> DONT USE RELATIVE PATH! <<<<");
         let (current_drive_id, mut working_dir): (DriverID, Path) = {
             let task_lock = get_current_task();
             let task = task_lock.read();
@@ -170,4 +202,3 @@ fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), ()> {
         Ok((current_drive_id, working_dir))
     }
 }
-

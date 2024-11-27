@@ -1,6 +1,9 @@
 use alloc::{string::String, vec::Vec};
 
-use crate::time::{system::Timestamp, date::{DateTime, Time, Date}};
+use crate::time::{
+    date::{Date, DateTime, Time},
+    system::Timestamp,
+};
 
 use super::{disk::DiskAccess, table::AllocationTable};
 
@@ -77,13 +80,22 @@ impl DirEntry {
     pub fn get_full_name(&self) -> String {
         let mut name = String::new();
         name.push_str(self.get_filename());
-        name.push('.');
-        name.push_str(self.get_ext());
+        if self.ext[0] != 0x20 {
+            name.push('.');
+            name.push_str(self.get_ext());
+        }
         name
     }
 
     pub fn get_ext(&self) -> &str {
-        core::str::from_utf8(&self.ext).unwrap_or("!!!")
+        let mut len = 3;
+        for i in 0..3 {
+            if self.ext[i] == 0x20 {
+                len = i;
+                break;
+            }
+        }
+        core::str::from_utf8(&self.ext[..len]).unwrap_or("!!!")
     }
 
     pub fn get_modification_timestamp(&self) -> Timestamp {
@@ -92,7 +104,8 @@ impl DirEntry {
         DateTime {
             date: mod_date.to_system_date(),
             time: mod_time.to_system_time(),
-        }.to_timestamp()
+        }
+        .to_timestamp()
     }
 
     pub fn is_directory(&self) -> bool {
@@ -288,7 +301,13 @@ impl Directory {
         }
     }
 
-    pub fn read(&mut self, buffer: &mut [u8], offset: u32, table: AllocationTable, disk: &mut DiskAccess) -> u32 {
+    pub fn read(
+        &mut self,
+        buffer: &mut [u8],
+        offset: u32,
+        table: AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> u32 {
         if !self.entries_fetched {
             // the first time the directory IO handle is read, it caches the
             // entries it contains
@@ -300,11 +319,11 @@ impl Directory {
                         self.entries.push(0);
                     }
                     self.entries_fetched = true;
-                },
+                }
                 DirectoryType::Subdir(entry) => {
                     // needs to be implemented
                     return 0;
-                },
+                }
             }
         }
 
@@ -327,9 +346,7 @@ pub struct File {
 
 impl File {
     pub fn from_dir_entry(dir_entry: DirEntry) -> Self {
-        Self {
-            dir_entry,
-        }
+        Self { dir_entry }
     }
 
     pub fn file_name(&self) -> String {
@@ -347,7 +364,13 @@ impl File {
         self.dir_entry.get_modification_timestamp().as_u32()
     }
 
-    pub fn read(&self, buffer: &mut [u8], initial_offset: u32, table: AllocationTable, disk: &mut DiskAccess) -> u32 {
+    pub fn read(
+        &self,
+        buffer: &mut [u8],
+        initial_offset: u32,
+        table: AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> u32 {
         let mut offset = initial_offset;
         let mut bytes_written = 0;
 
@@ -355,7 +378,11 @@ impl File {
             let current_relative_cluster = offset / table.bytes_per_cluster();
             let cluster_offset = offset % table.bytes_per_cluster();
 
-            let current_cluster = match table.get_nth_cluster(self.dir_entry.first_file_cluster as u32, current_relative_cluster, disk) {
+            let current_cluster = match table.get_nth_cluster(
+                self.dir_entry.first_file_cluster as u32,
+                current_relative_cluster,
+                disk,
+            ) {
                 Some(cluster) => cluster,
                 None => return bytes_written as u32,
             };
@@ -366,10 +393,11 @@ impl File {
 
             let bytes_from_disk = bytes_remaining_in_file.min(bytes_remaining_in_cluster) as usize;
             let buffer_end = buffer.len().min(bytes_written + bytes_from_disk);
-            
+
             let read_buffer = &mut buffer[bytes_written..buffer_end];
 
-            let read_size = disk.read_bytes_from_disk(cluster_location + cluster_offset, read_buffer);
+            let read_size =
+                disk.read_bytes_from_disk(cluster_location + cluster_offset, read_buffer);
             bytes_written += read_size as usize;
             offset += read_size;
 
@@ -395,24 +423,18 @@ mod tests {
         &direntry.file_name.copy_from_slice("MYFILE  ".as_bytes());
         &direntry.ext.copy_from_slice("TXT".as_bytes());
 
-        assert!(
-            direntry.matches_name(
-                &[b'M', b'Y', b'F', b'I', b'L', b'E', b' ', b' '],
-                &[b'T', b'X', b'T'],
-            ),
-        );
-        assert!(
-            direntry.matches_name(
-                &[b'M', b'y', b'F', b'i', b'l', b'e', b' ', b' '],
-                &[b't', b'x', b't'],
-            ),
-        );
- 
-        assert!(
-            !direntry.matches_name(
-                &[b'O', b'T', b'H', b'E', b'R', b' ', b' ', b' '],
-                &[b'T', b'X', b'T'],
-            ),
-        );
+        assert!(direntry.matches_name(
+            &[b'M', b'Y', b'F', b'I', b'L', b'E', b' ', b' '],
+            &[b'T', b'X', b'T'],
+        ),);
+        assert!(direntry.matches_name(
+            &[b'M', b'y', b'F', b'i', b'l', b'e', b' ', b' '],
+            &[b't', b'x', b't'],
+        ),);
+
+        assert!(!direntry.matches_name(
+            &[b'O', b'T', b'H', b'E', b'R', b' ', b' ', b' '],
+            &[b'T', b'X', b'T'],
+        ),);
     }
 }

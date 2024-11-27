@@ -1,13 +1,12 @@
-use core::cell::RefCell;
-
+use super::dir::{Directory, Entity, File};
+use super::fs::FatFS;
+use super::table::AllocationTable;
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
-use crate::io::IOError;
-use crate::files::stat::FileStatus;
+use crate::files::stat::{FileStatus, FileType};
 use crate::io::driver::async_driver::AsyncDriver;
-use super::fs::FatFS;
-use super::dir::{Directory, Entity, File};
-use super::table::AllocationTable;
+use crate::io::IOError;
+use core::cell::RefCell;
 
 pub struct FatDriver {
     fs: RefCell<FatFS>,
@@ -40,7 +39,8 @@ impl AsyncDriver for FatDriver {
         let entity = if path.is_empty() {
             Entity::Dir(Directory::from_root_dir(root))
         } else {
-            root.find_entry(path, &mut self.fs.borrow_mut().disk).ok_or(IOError::NotFound)?
+            root.find_entry(path, &mut self.fs.borrow_mut().disk)
+                .ok_or(IOError::NotFound)?
         };
         let open_handle = OpenHandle {
             handle_entity: entity,
@@ -53,19 +53,18 @@ impl AsyncDriver for FatDriver {
     fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> Result<u32, IOError> {
         crate::kprintln!("FAT: Read");
         let table = self.get_table();
-        let handle = self.open_handle_map.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
+        let handle = self
+            .open_handle_map
+            .get_mut(instance as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
         let mut fs = self.fs.borrow_mut();
         let written = match &mut handle.handle_entity {
-            Entity::File(f) => {
-                f.read(buffer, offset, table, &mut fs.disk)
-            },
-            Entity::Dir(d) => {
-                d.read(buffer, offset, table, &mut fs.disk)
-            },
+            Entity::File(f) => f.read(buffer, offset, table, &mut fs.disk),
+            Entity::Dir(d) => d.read(buffer, offset, table, &mut fs.disk),
         };
 
         handle.cursor += written;
-        
+
         Ok(written)
     }
 
@@ -77,38 +76,24 @@ impl AsyncDriver for FatDriver {
         }
     }
 
-    /*
-
-    fn seek(&mut self, instance: u32, offset: SeekMethod) -> Result<u32, IOError> {
-        let handle = self.open_handle_map.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
-        let new_cursor = match handle.handle_entity {
-            Entity::File(f) => {
-                let mut new_cursor = offset.from_current_position(handle.cursor as usize) as u32;
-                if new_cursor > f.byte_size() {
-                    new_cursor = f.byte_size();
-                }
-                new_cursor
-            },
-            _ => return Err(IOError::FileHandleWrongType),
-        };
-        handle.cursor = new_cursor;
-
-        Ok(new_cursor)
-    }
-
-    */
-
     fn stat(&mut self, instance: u32, status: &mut FileStatus) -> Result<u32, IOError> {
-        let handle = self.open_handle_map.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
-        match handle.handle_entity {
+        let handle = self
+            .open_handle_map
+            .get_mut(instance as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
+        match &handle.handle_entity {
             Entity::File(f) => {
                 status.byte_size = f.byte_size();
-                status.file_type = 1;
+                status.file_type = FileType::File as u32;
                 status.modification_time = f.get_modification_time();
-            },
+            }
+            Entity::Dir(d) => {
+                status.byte_size = 0;
+                status.file_type = FileType::Dir as u32;
+                status.modification_time = 0;
+            }
             _ => panic!("Need to implement stat for other handle types"),
         }
         Ok(0)
     }
 }
-

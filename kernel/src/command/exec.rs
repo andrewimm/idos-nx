@@ -7,16 +7,19 @@ use crate::files::stat::FileStatus;
 use crate::io::async_io::FILE_OP_STAT;
 use crate::io::filesystem::get_all_drive_names;
 use crate::io::handle::{Handle, PendingHandleOp};
-use crate::task::actions::handle::{handle_op_write, create_file_handle, handle_op_open, handle_op_read, handle_op_close, set_active_drive};
+use crate::task::actions::handle::{
+    create_file_handle, handle_op_close, handle_op_open, handle_op_read, handle_op_write,
+    set_active_drive,
+};
 use crate::time::date::DateTime;
 use crate::time::system::Timestamp;
 //use crate::{task::{files::FileHandle, actions::{io::{write_file, open_path, read_file, close_file, set_active_drive, get_current_drive_name, get_current_dir, file_stat, dup_handle, transfer_handle}, memory::map_memory}, memory::MemoryBacking}, files::path::Path, filesystem::install_device_driver};
+use crate::files::path::Path;
 use crate::task::actions::io::{get_current_dir, get_current_drive_name};
 use crate::task::actions::memory::map_memory;
 use crate::task::memory::MemoryBacking;
-use crate::files::path::Path;
 
-use super::parser::{CommandTree, CommandComponent};
+use super::parser::{CommandComponent, CommandTree};
 use super::Environment;
 
 static IO_BUFFERS: AtomicU32 = AtomicU32::new(0);
@@ -33,9 +36,7 @@ pub fn get_buffers() -> &'static mut [u8] {
     let ptr = IO_BUFFERS.load(Ordering::SeqCst) as *mut u8;
     let len = 0x1000;
 
-    unsafe {
-        core::slice::from_raw_parts_mut(ptr, len)
-    }
+    unsafe { core::slice::from_raw_parts_mut(ptr, len) }
 }
 
 pub fn exec(stdin: Handle, stdout: Handle, tree: CommandTree, env: &mut Environment) {
@@ -61,13 +62,12 @@ pub fn exec(stdin: Handle, stdout: Handle, tree: CommandTree, env: &mut Environm
                         cd_args.push(String::from(name));
                         cd(stdout, &cd_args, env);
                     } else if try_exec(stdin, stdout, name, args, env) {
-
                     } else {
                         handle_op_write(stdout, "Unknown command!\n".as_bytes());
                     }
-                },
+                }
             }
-        },
+        }
         _ => panic!("unimplemented"),
     }
 }
@@ -79,7 +79,7 @@ fn cd(stdout: Handle, args: &Vec<String>, env: &mut Environment) {
             Ok(_) => crate::kprint!("CHange active drive\n"),
             Err(_) => {
                 handle_op_write(stdout, "No such drive\n".as_bytes());
-            },
+            }
         }
         path
     } else {
@@ -95,12 +95,15 @@ struct DirEntry {
     name: String,
     size: u32,
     mod_timestamp: u32,
+    is_dir: bool,
 }
 
 fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
     let file_read_buffer = get_buffers();
 
-    let mut output = String::from(" Volume in drive is UNKNOWN\n Volume Serial Number is UNKNOWN\n Directory of ");
+    let mut output = String::from(
+        " Volume in drive is UNKNOWN\n Volume Serial Number is UNKNOWN\n Directory of ",
+    );
     output.push_str(&env.drive);
     output.push_str(":\\");
     output.push_str(env.cwd.as_str());
@@ -112,13 +115,19 @@ fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
     let mut entries: Vec<DirEntry> = Vec::new();
     let mut read_offset = 0;
     loop {
-        let bytes_read = handle_op_read(dir_handle, file_read_buffer, read_offset).wait_for_completion() as usize;
+        let bytes_read = handle_op_read(dir_handle, file_read_buffer, read_offset)
+            .wait_for_completion() as usize;
         read_offset += bytes_read as u32;
         let mut name_start = 0;
         for i in 0..bytes_read {
             if file_read_buffer[i] == 0 {
                 let name = String::from_utf8_lossy(&file_read_buffer[name_start..i]);
-                entries.push(DirEntry { name: name.to_string(), size: 0, mod_timestamp: 0 });
+                entries.push(DirEntry {
+                    name: name.to_string(),
+                    size: 0,
+                    mod_timestamp: 0,
+                    is_dir: false,
+                });
                 name_start = i + 1;
             }
         }
@@ -134,18 +143,24 @@ fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
         let file_status_ptr = &mut file_status as *mut FileStatus;
         match handle_op_open(stat_handle, &entry.name).wait_for_result() {
             Ok(_) => {
-                let op = PendingHandleOp::new(stat_handle, FILE_OP_STAT, file_status_ptr as u32, core::mem::size_of::<FileStatus>() as u32, 0);
+                let op = PendingHandleOp::new(
+                    stat_handle,
+                    FILE_OP_STAT,
+                    file_status_ptr as u32,
+                    core::mem::size_of::<FileStatus>() as u32,
+                    0,
+                );
                 match op.wait_for_result() {
                     Ok(_) => {
                         entry.size = file_status.byte_size;
                         entry.mod_timestamp = file_status.modification_time;
-                    },
+                        entry.is_dir = file_status.file_type & 2 != 0;
+                    }
                     Err(_) => (),
                 }
                 handle_op_close(stat_handle).wait_for_completion();
-            },
-            Err(_) => {
-            },
+            }
+            Err(_) => {}
         }
     }
     for entry in entries.iter() {
@@ -154,7 +169,11 @@ fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
         for _ in entry.name.len()..13 {
             row.push(' ');
         }
-        row.push_str(&alloc::format!("{:>9} ", entry.size));
+        if entry.is_dir {
+            row.push_str("<DIR>     ");
+        } else {
+            row.push_str(&alloc::format!("{:>9} ", entry.size));
+        }
         let datetime = DateTime::from_timestamp(Timestamp(entry.mod_timestamp));
         row.push_str(&datetime.date.to_string());
         row.push(' ');
@@ -183,7 +202,13 @@ fn drives(stdout: Handle) {
     handle_op_write(stdout, output.as_bytes());
 }
 
-fn try_exec(stdin: Handle, stdout: Handle, name: &str, args: &Vec<String>, env: &Environment) -> bool {
+fn try_exec(
+    stdin: Handle,
+    stdout: Handle,
+    name: &str,
+    args: &Vec<String>,
+    env: &Environment,
+) -> bool {
     /*
     match open_path(name) {
         Ok(handle) => {
@@ -214,11 +239,18 @@ fn type_file(stdout: Handle, args: &Vec<String>) {
     }
     for arg in args {
         let handle = create_file_handle();
+        crate::kprintln!("TYPE {}", arg);
         match handle_op_open(handle, arg).wait_for_result() {
             Ok(_) => {
                 let mut read_offset = 0;
                 loop {
-                    let len = handle_op_read(handle, buffer, read_offset).wait_for_completion() as usize;
+                    let len = match handle_op_read(handle, buffer, read_offset).wait_for_result() {
+                        Ok(len) => len as usize,
+                        Err(_) => {
+                            handle_op_write(stdout, "Error reading file\n".as_bytes());
+                            return;
+                        }
+                    };
                     read_offset += len as u32;
                     handle_op_write(stdout, &buffer[..len]).wait_for_completion();
 
@@ -228,12 +260,12 @@ fn type_file(stdout: Handle, args: &Vec<String>) {
                 }
                 handle_op_write(stdout, &[b'\n']);
                 handle_op_close(handle);
-            },
+            }
             Err(_) => {
                 let output = alloc::format!("File not found: \"{}\"\n", arg);
                 handle_op_write(stdout, output.as_bytes());
                 return;
-            },
+            }
         }
     }
 }
