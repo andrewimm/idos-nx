@@ -211,6 +211,14 @@ pub fn handle_op_write(handle: Handle, buffer: &[u8]) -> PendingHandleOp {
     PendingHandleOp::new(handle, ASYNC_OP_WRITE, buffer_ptr, buffer_len, 0)
 }
 
+pub fn handle_op_write_struct<T: Sized>(handle: Handle, struct_ref: &T) -> PendingHandleOp {
+    use crate::io::async_io::ASYNC_OP_WRITE;
+
+    let ptr = struct_ref as *const T as u32;
+    let len = core::mem::size_of::<T>() as u32;
+    PendingHandleOp::new(handle, ASYNC_OP_WRITE, ptr, len, 0)
+}
+
 pub fn handle_op_close(handle: Handle) -> PendingHandleOp {
     use crate::io::async_io::ASYNC_OP_CLOSE;
 

@@ -4,7 +4,6 @@ use crate::task::actions::{
 };
 
 pub mod controller;
-pub mod dev;
 pub mod driver;
 pub mod geometry;
 
