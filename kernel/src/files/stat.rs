@@ -1,3 +1,9 @@
+#[repr(u32)]
+pub enum FileType {
+    File = 1,
+    Dir = 2,
+}
+
 pub struct FileStatus {
     /// Size of the file, in bytes
     pub byte_size: u32,
