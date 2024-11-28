@@ -6,10 +6,12 @@ use alloc::string::String;
 
 use crate::files::path::Path;
 use crate::io::handle::Handle;
-use crate::task::actions::handle::{handle_op_write, handle_op_read, create_file_handle, handle_op_open, transfer_handle};
+use crate::task::actions::handle::{
+    create_file_handle, handle_op_open, handle_op_read, handle_op_write, transfer_handle,
+};
 use crate::task::actions::lifecycle::create_kernel_task;
 //use crate::task::actions::io::{read_file, write_file, open_path, transfer_handle, get_current_drive_name, set_active_drive, close_file, get_current_dir};
-use crate::task::actions::io::{get_current_drive_name, get_current_dir, set_active_drive};
+use crate::task::actions::io::{get_current_dir, get_current_drive_name, set_active_drive};
 
 use self::lexer::Lexer;
 use self::parser::Parser;
@@ -18,13 +20,10 @@ fn command_task() -> ! {
     let stdin = Handle::new(0);
     let stdout = Handle::new(1);
 
-    set_active_drive("DEV");
-
     let mut input_buffer: [u8; 256] = [0; 256];
 
     let mut env = Environment {
-        drive: get_current_drive_name(),
-        cwd: get_current_dir(),
+        cwd: Path::from_str("DEV:\\"),
     };
 
     self::exec::init_buffers();
@@ -36,7 +35,8 @@ fn command_task() -> ! {
         handle_op_write(stdout, prompt.as_bytes()).wait_for_completion();
         let input_len = handle_op_read(stdin, &mut input_buffer, 0).wait_for_completion() as usize;
 
-        let input_str = unsafe { core::str::from_utf8_unchecked(&input_buffer[..input_len]).trim() };
+        let input_str =
+            unsafe { core::str::from_utf8_unchecked(&input_buffer[..input_len]).trim() };
 
         let mut lexer = Lexer::new(input_str);
         let mut parser = Parser::new(lexer);
@@ -47,13 +47,12 @@ fn command_task() -> ! {
 }
 
 pub struct Environment {
-    pub drive: String,
     pub cwd: Path,
 }
 
 impl Environment {
     pub fn full_path_string(&self) -> String {
-        alloc::format!("{}:\\{}", self.drive, self.cwd.as_str())
+        Into::<String>::into(self.cwd.clone())
     }
 }
 
