@@ -3,10 +3,10 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use alloc::vec::Vec;
 use spin::RwLock;
 
-use crate::hardware::ps2::{keyboard::KeyAction, keycodes::KeyCode};
 use crate::collections::RingBuffer;
+use crate::hardware::ps2::{keyboard::KeyAction, keycodes::KeyCode};
 use crate::memory::address::PhysicalAddress;
-use crate::task::actions::lifecycle::{wait_for_io, create_kernel_task};
+use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
 use crate::task::actions::memory::map_memory;
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
@@ -16,7 +16,6 @@ use self::manager::ConsoleManager;
 
 pub mod buffers;
 pub mod console;
-pub mod dev;
 pub mod driver;
 pub mod input;
 pub mod manager;
@@ -33,9 +32,7 @@ pub fn register_console_manager(id: TaskID) {
 }
 
 pub fn get_console_manager_id() -> TaskID {
-    TaskID::new(
-        CONSOLE_MANAGER_TASK.load(Ordering::SeqCst)
-    )
+    TaskID::new(CONSOLE_MANAGER_TASK.load(Ordering::SeqCst))
 }
 
 pub fn wake_console_manager() {
@@ -48,10 +45,15 @@ pub fn wake_console_manager() {
 }
 
 pub fn manager_task() -> ! {
-    let text_buffer_base = map_memory(None, 0x1000, MemoryBacking::Direct(PhysicalAddress::new(0xb8000))).unwrap();
+    let text_buffer_base = map_memory(
+        None,
+        0x1000,
+        MemoryBacking::Direct(PhysicalAddress::new(0xb8000)),
+    )
+    .unwrap();
 
     let mut conman = ConsoleManager::new(text_buffer_base);
- 
+
     conman.clear_screen();
     conman.render_top_bar();
 
@@ -84,4 +86,3 @@ pub fn init_console() {
 pub fn console_ready() {
     crate::command::start_command(0);
 }
-
