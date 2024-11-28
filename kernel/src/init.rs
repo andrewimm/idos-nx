@@ -1,13 +1,13 @@
-use core::arch::asm;
 use crate::hardware::{pic::PIC, pit::PIT};
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::heap;
 use crate::memory::physical::init_allocator;
 use crate::memory::physical::range::FrameRange;
 use crate::task::stack::get_kernel_stack_virtual_offset;
+use core::arch::asm;
 
 #[allow(improper_ctypes)]
-extern {
+extern "C" {
     #[link_name = "__kernel_start"]
     static mut label_kernel_start: ();
     #[link_name = "__bss_start"]
@@ -21,7 +21,7 @@ extern {
 /// Zero out the .bss section. Code may assume this area starts as zeroes.
 pub unsafe fn zero_bss() {
     let bss_start = &mut label_bss_start as *mut u8;
-    let bss_length = (&label_bss_end as *const u8 as usize) - (bss_start as usize); 
+    let bss_length = (&label_bss_end as *const u8 as usize) - (bss_start as usize);
     let bss_slice = core::slice::from_raw_parts_mut(bss_start, bss_length);
     for i in 0..bss_slice.len() {
         bss_slice[i] = 0;
@@ -52,7 +52,11 @@ pub unsafe fn init_memory() {
         kernel_end_addr - kernel_start_addr,
     );
     let bios_memmap = PhysicalAddress::new(0x1000);
-    init_allocator(PhysicalAddress::new(kernel_end_addr), bios_memmap, kernel_range);
+    init_allocator(
+        PhysicalAddress::new(kernel_end_addr),
+        bios_memmap,
+        kernel_range,
+    );
     crate::kprint!("KERNEL RANGE: {:?}\n", kernel_range);
 
     let allocator_end = kernel_end_addr + crate::memory::physical::get_allocator_size() as u32;
@@ -60,7 +64,8 @@ pub unsafe fn init_memory() {
     let heap_start = VirtualAddress::new(0xc0000000 + allocator_end);
 
     // activate paging and virtual memory
-    let initial_mapped_range = VirtualAddress::new(kernel_start_addr)..VirtualAddress::new(allocator_end);
+    let initial_mapped_range =
+        VirtualAddress::new(kernel_start_addr)..VirtualAddress::new(allocator_end);
     let initial_pagedir = crate::memory::virt::create_initial_pagedir(initial_mapped_range);
     initial_pagedir.make_active();
     crate::memory::virt::enable_paging();
@@ -90,9 +95,5 @@ pub fn init_hardware() {
 
 /// Populate the DEV: FS with drivers for the devices detected on this PC
 pub fn init_device_drivers() {
-    crate::hardware::com::dev::install_drivers();
-
-    // new driver
     crate::hardware::com::driver::install();
 }
-

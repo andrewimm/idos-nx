@@ -3,6 +3,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
+use crate::files::path::Path;
 use crate::files::stat::FileStatus;
 use crate::io::async_io::FILE_OP_STAT;
 use crate::io::filesystem::get_all_drive_names;
@@ -11,13 +12,10 @@ use crate::task::actions::handle::{
     create_file_handle, handle_op_close, handle_op_open, handle_op_read, handle_op_write,
     set_active_drive,
 };
-use crate::time::date::DateTime;
-use crate::time::system::Timestamp;
-//use crate::{task::{files::FileHandle, actions::{io::{write_file, open_path, read_file, close_file, set_active_drive, get_current_drive_name, get_current_dir, file_stat, dup_handle, transfer_handle}, memory::map_memory}, memory::MemoryBacking}, files::path::Path, filesystem::install_device_driver};
-use crate::files::path::Path;
-use crate::task::actions::io::{get_current_dir, get_current_drive_name};
 use crate::task::actions::memory::map_memory;
 use crate::task::memory::MemoryBacking;
+use crate::time::date::DateTime;
+use crate::time::system::Timestamp;
 
 use super::parser::{CommandComponent, CommandTree};
 use super::Environment;
