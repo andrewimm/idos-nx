@@ -1,50 +1,24 @@
-use alloc::string::{ToString, String};
 use crate::files::cursor::SeekMethod;
-use crate::io::IOError;
 use crate::files::path::Path;
 use crate::files::stat::FileStatus;
 use crate::filesystem::drive::DriveID;
-use crate::filesystem::{get_driver_by_id, get_drive_id_by_name};
+use crate::filesystem::{get_drive_id_by_name, get_driver_by_id};
+use crate::io::IOError;
 use crate::pipes::{create_pipe, get_pipe_drive_id};
-use crate::task::files::{OpenFile, CurrentDrive};
+use crate::task::files::{CurrentDrive, OpenFile};
 use crate::task::id::TaskID;
 use crate::task::switching::{get_current_task, get_task};
+use alloc::string::{String, ToString};
 
 use super::super::files::FileHandle;
-
-pub fn set_active_drive(drive_name: &str) -> Result<DriveID, IOError> {
-    let found_id = get_drive_id_by_name(drive_name);
-    match found_id {
-        Ok(id) => {
-            let task_lock = get_current_task();
-            let mut task = task_lock.write();
-            task.current_drive.name = drive_name.to_string();
-            task.current_drive.id = id;
-            Ok(id)
-        },
-        _ => Err(IOError::NotFound),
-    }
-}
-
-pub fn get_current_drive_name() -> String {
-    let task_lock = get_current_task();
-    let task = task_lock.read();
-    task.current_drive.name.clone()
-}
-
-pub fn get_current_dir() -> Path {
-    let task_lock = get_current_task();
-    let task = task_lock.read();
-    task.working_dir.clone()
-}
-
 /// Do the actual work of opening a file from a filesystem driver, but don't
 /// attach it to the current task yet
 pub fn prepare_open_file(path_string: &str) -> Result<OpenFile, IOError> {
     let (drive_id, path) = if Path::is_absolute(path_string) {
-        let (drive_name, path_portion) = Path::split_absolute_path(path_string).ok_or(IOError::NotFound)?;
+        let (drive_name, path_portion) =
+            Path::split_absolute_path(path_string).ok_or(IOError::NotFound)?;
         let drive_id = get_drive_id_by_name(drive_name).map_err(|_| IOError::NotFound)?;
-       
+
         (drive_id, Path::from_str(path_portion))
     } else {
         let (current_drive_id, mut working_dir) = {
@@ -61,13 +35,11 @@ pub fn prepare_open_file(path_string: &str) -> Result<OpenFile, IOError> {
         .open(path.clone())
         .map_err(|_| IOError::NotFound)?;
 
-    Ok(
-        OpenFile {
-            drive: drive_id,
-            driver_handle,
-            filename: path,
-        }
-    )
+    Ok(OpenFile {
+        drive: drive_id,
+        driver_handle,
+        filename: path,
+    })
 }
 
 /// Open a file at a specified path. If the provided string is not an absolute
@@ -92,20 +64,16 @@ pub fn open_pipe() -> Result<(FileHandle, FileHandle), IOError> {
     let (read_handle_index, write_handle_index) = {
         let task_lock = get_current_task();
         let mut task = task_lock.write();
-        let read = task.open_files.insert(
-            OpenFile {
-                drive: drive_id,
-                driver_handle: read_handle,
-                filename: Path::from_str("READ PIPE"),
-            }
-        );
-        let write = task.open_files.insert(
-            OpenFile {
-                drive: drive_id,
-                driver_handle: write_handle,
-                filename: Path::from_str("WRITE PIPE"),
-            }
-        );
+        let read = task.open_files.insert(OpenFile {
+            drive: drive_id,
+            driver_handle: read_handle,
+            filename: Path::from_str("READ PIPE"),
+        });
+        let write = task.open_files.insert(OpenFile {
+            drive: drive_id,
+            driver_handle: write_handle,
+            filename: Path::from_str("WRITE PIPE"),
+        });
 
         (read, write)
     };
@@ -121,7 +89,9 @@ pub fn transfer_handle(handle: FileHandle, task: TaskID) -> Result<FileHandle, I
     let open_file = {
         let task_lock = get_current_task();
         let mut task = task_lock.write();
-        task.open_files.remove(handle.into()).ok_or(IOError::FileHandleInvalid)?
+        task.open_files
+            .remove(handle.into())
+            .ok_or(IOError::FileHandleInvalid)?
     };
 
     let new_index = {
@@ -132,45 +102,16 @@ pub fn transfer_handle(handle: FileHandle, task: TaskID) -> Result<FileHandle, I
 
     Ok(FileHandle::new(new_index))
 }
-
-pub fn dup_handle(handle: FileHandle) -> Result<FileHandle, IOError> {
-    let task_lock = get_current_task();
-    let mut new_open_file = {
-        let task = task_lock.read();
-        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
-        entry.clone()
-    };
-
-    let new_handle = get_driver_by_id(new_open_file.drive)
-        .map_err(|_| IOError::NotFound)?
-        .dup(new_open_file.driver_handle, None)
-        .map_err(|_| IOError::OperationFailed)?;
-
-    new_open_file.driver_handle = new_handle;
-
-    let open_handle_index = {
-        let task_lock = get_current_task();
-        let mut task = task_lock.write();
-        task.open_files.insert(new_open_file)
-    };
-
-    Ok(FileHandle::new(open_handle_index))
-}
-
-/// Open a directory at a specified path. Similar to opening a file,
-/// non-absolute paths will be opened relative to the task's working directory.
-/// On success, a new File Handle will be opened and returned.
-pub fn open_directory<'path>(_path_string: &'path str) -> Result<FileHandle, IOError> {
-    Err(IOError::NotFound)
-}
-
 /// Read bytes from an open file into a mutable byte buffer. On success, return
 /// the number of bytes read.
 pub fn read_file(handle: FileHandle, buffer: &mut [u8]) -> Result<u32, IOError> {
     let (drive_id, driver_handle) = {
         let task_lock = get_current_task();
         let task = task_lock.read();
-        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        let entry = task
+            .open_files
+            .get(handle.into())
+            .ok_or(IOError::FileHandleInvalid)?;
         (entry.drive, entry.driver_handle)
     };
 
@@ -187,7 +128,10 @@ pub fn write_file(handle: FileHandle, buffer: &[u8]) -> Result<u32, IOError> {
     let (drive_id, driver_handle) = {
         let task_lock = get_current_task();
         let task = task_lock.read();
-        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        let entry = task
+            .open_files
+            .get(handle.into())
+            .ok_or(IOError::FileHandleInvalid)?;
         (entry.drive, entry.driver_handle)
     };
 
@@ -203,40 +147,15 @@ pub fn close_file(handle: FileHandle) -> Result<(), IOError> {
     let (drive_id, driver_handle) = {
         let task_lock = get_current_task();
         let mut task = task_lock.write();
-        let entry = task.open_files.remove(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        let entry = task
+            .open_files
+            .remove(handle.into())
+            .ok_or(IOError::FileHandleInvalid)?;
         (entry.drive, entry.driver_handle)
     };
 
     get_driver_by_id(drive_id)
         .map_err(|_| IOError::NotFound)?
         .close(driver_handle)
-        .map_err(|_| IOError::OperationFailed)
-}
-
-pub fn seek_file(handle: FileHandle, method: SeekMethod) -> Result<u32, IOError> {
-    let (drive_id, driver_handle) = {
-        let task_lock = get_current_task();
-        let task = task_lock.read();
-        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
-        (entry.drive, entry.driver_handle)
-    };
-
-    get_driver_by_id(drive_id)
-        .map_err(|_| IOError::NotFound)?
-        .seek(driver_handle, method)
-        .map_err(|_| IOError::OperationFailed)
-}
-
-pub fn file_stat(handle: FileHandle) -> Result<FileStatus, IOError> {
-    let (drive_id, driver_handle) = {
-        let task_lock = get_current_task();
-        let mut task = task_lock.write();
-        let entry = task.open_files.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
-        (entry.drive, entry.driver_handle)
-    };
-
-    get_driver_by_id(drive_id)
-        .map_err(|_| IOError::NotFound)?
-        .stat(driver_handle)
         .map_err(|_| IOError::OperationFailed)
 }

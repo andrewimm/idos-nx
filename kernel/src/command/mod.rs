@@ -10,8 +10,6 @@ use crate::task::actions::handle::{
     create_file_handle, handle_op_open, handle_op_read, handle_op_write, transfer_handle,
 };
 use crate::task::actions::lifecycle::create_kernel_task;
-//use crate::task::actions::io::{read_file, write_file, open_path, transfer_handle, get_current_drive_name, set_active_drive, close_file, get_current_dir};
-use crate::task::actions::io::{get_current_dir, get_current_drive_name, set_active_drive};
 
 use self::lexer::Lexer;
 use self::parser::Parser;
