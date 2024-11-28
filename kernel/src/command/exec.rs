@@ -55,7 +55,7 @@ pub fn exec(stdin: Handle, stdout: Handle, tree: CommandTree, env: &mut Environm
                 "DIR" => dir(stdout, args, env),
                 "DRIVES" => drives(stdout),
                 //"MKDEV" => install_device(args),
-                "TYPE" => type_file(stdout, args),
+                "TYPE" => type_file(stdout, args, env),
                 _ => {
                     if Path::is_drive(name) {
                         let mut cd_args = Vec::new();
@@ -74,21 +74,11 @@ pub fn exec(stdin: Handle, stdout: Handle, tree: CommandTree, env: &mut Environm
 
 fn cd(stdout: Handle, args: &Vec<String>, env: &mut Environment) {
     let change_to = args.get(0).cloned().unwrap_or(String::from("/"));
-    let path = if let Some((drive, path)) = Path::split_absolute_path(change_to.as_str()) {
-        match set_active_drive(drive) {
-            Ok(_) => crate::kprint!("CHange active drive\n"),
-            Err(_) => {
-                handle_op_write(stdout, "No such drive\n".as_bytes());
-            }
-        }
-        path
+    if Path::is_absolute(change_to.as_str()) || Path::is_drive(change_to.as_str()) {
+        env.cwd = Path::from_str(change_to.as_str());
     } else {
-        change_to.as_str()
-    };
-
-    //set_current_dir(path)
-    env.drive = get_current_drive_name();
-    env.cwd = get_current_dir();
+        crate::kprintln!("NOT ABS {}", change_to);
+    }
 }
 
 struct DirEntry {
@@ -104,8 +94,6 @@ fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
     let mut output = String::from(
         " Volume in drive is UNKNOWN\n Volume Serial Number is UNKNOWN\n Directory of ",
     );
-    output.push_str(&env.drive);
-    output.push_str(":\\");
     output.push_str(env.cwd.as_str());
     output.push_str("\n\n");
     handle_op_write(stdout, output.as_bytes());
@@ -131,7 +119,6 @@ fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
                 name_start = i + 1;
             }
         }
-        //write_file(stdout, &file_read_buffer[..bytes_read]).unwrap();
         if bytes_read < file_read_buffer.len() {
             break;
         }
@@ -141,7 +128,9 @@ fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
         let stat_handle = create_file_handle();
         let mut file_status = FileStatus::new();
         let file_status_ptr = &mut file_status as *mut FileStatus;
-        match handle_op_open(stat_handle, &entry.name).wait_for_result() {
+        let mut file_path = env.cwd.clone();
+        file_path.push(entry.name.as_str());
+        match handle_op_open(stat_handle, file_path.as_str()).wait_for_result() {
             Ok(_) => {
                 let op = PendingHandleOp::new(
                     stat_handle,
@@ -232,7 +221,7 @@ fn try_exec(
     true
 }
 
-fn type_file(stdout: Handle, args: &Vec<String>) {
+fn type_file(stdout: Handle, args: &Vec<String>, env: &Environment) {
     let buffer = get_buffers();
     if args.is_empty() {
         return;
@@ -240,7 +229,14 @@ fn type_file(stdout: Handle, args: &Vec<String>) {
     for arg in args {
         let handle = create_file_handle();
         crate::kprintln!("TYPE {}", arg);
-        match handle_op_open(handle, arg).wait_for_result() {
+        let file_path = if Path::is_absolute(arg.as_str()) {
+            Path::from_str(arg.as_str())
+        } else {
+            let mut path = env.cwd.clone();
+            path.push(arg.as_str());
+            path
+        };
+        match handle_op_open(handle, file_path.as_str()).wait_for_result() {
             Ok(_) => {
                 let mut read_offset = 0;
                 loop {

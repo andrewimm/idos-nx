@@ -10,6 +10,11 @@ pub struct Path {
 impl Path {
     pub fn from_str(s: &str) -> Self {
         let sanitized = s.trim_end_matches('\\').trim_start_matches('\\');
+        if sanitized.ends_with(':') {
+            return Self {
+                inner: String::from(sanitized) + "\\",
+            };
+        }
         Self {
             inner: String::from(sanitized),
         }
@@ -33,7 +38,7 @@ impl Path {
                 'a'..='z' | 'A'..='Z' => continue,
                 ':' => {
                     colon_index = Some(index);
-                },
+                }
                 '\\' => {
                     if let Some(i) = colon_index {
                         return (i + 1) == index && i > 0;
@@ -60,7 +65,7 @@ impl Path {
                         self.inner.push('\\');
                     }
                     self.inner.push_str(element);
-                },
+                }
             }
         }
     }
@@ -92,12 +97,12 @@ impl Path {
                 let mut prefix = core::mem::replace(&mut self.inner, remainder);
                 prefix.pop();
                 prefix
-            },
+            }
             None => {
                 let prefix = self.inner.clone();
                 self.inner.truncate(0);
                 prefix
-            },
+            }
         }
     }
 
@@ -170,25 +175,13 @@ mod tests {
     #[test_case]
     fn pop_front() {
         let mut path = Path::from_str("path\\to\\the\\file.txt");
-        assert_eq!(
-            path.pop_front().as_str(),
-            "path",
-        );
+        assert_eq!(path.pop_front().as_str(), "path",);
         assert_eq!(path.as_str(), "to\\the\\file.txt");
-        assert_eq!(
-            path.pop_front().as_str(),
-            "to",
-        );
+        assert_eq!(path.pop_front().as_str(), "to",);
         assert_eq!(path.as_str(), "the\\file.txt");
-        assert_eq!(
-            path.pop_front().as_str(),
-            "the",
-        );
+        assert_eq!(path.pop_front().as_str(), "the",);
         assert_eq!(path.as_str(), "file.txt");
-        assert_eq!(
-            path.pop_front().as_str(),
-            "file.txt",
-        );
+        assert_eq!(path.pop_front().as_str(), "file.txt",);
         assert_eq!(path.as_str(), "");
     }
 
@@ -214,7 +207,9 @@ mod tests {
     fn get_extension() {
         assert_eq!(Path::get_extension("HELLO.TXT"), Some("TXT"));
         assert_eq!(Path::get_extension("Banana"), None);
-        assert_eq!(Path::get_extension("A:\\PROGS\\BIN\\COUNT.COM"), Some("COM"));
+        assert_eq!(
+            Path::get_extension("A:\\PROGS\\BIN\\COUNT.COM"),
+            Some("COM")
+        );
     }
 }
-
