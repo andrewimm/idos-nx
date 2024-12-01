@@ -36,16 +36,23 @@ pub mod socket;
 pub mod tcp;
 pub mod udp;
 
-use alloc::{vec::Vec, string::String, sync::Arc};
-use core::ops::Deref;
-use core::sync::atomic::{AtomicU32, Ordering};
+use self::{
+    dhcp::start_dhcp_transaction, ethernet::EthernetFrame, ip::IPV4Address, packet::PacketHeader,
+};
 use crate::collections::SlotList;
-use crate::task::actions::io::{open_path, read_file, open_pipe, transfer_handle, write_file, close_file};
+use crate::io::handle::Handle;
+use crate::task::actions::handle::{
+    create_file_handle, create_pipe_handles, handle_op_open, handle_op_read, handle_op_write,
+    transfer_handle,
+};
+use crate::task::actions::io::{close_file, open_path, open_pipe, read_file, write_file};
 use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
 use crate::task::files::FileHandle;
-use crate::task::switching::{get_task, get_current_id};
 use crate::task::id::TaskID;
-use self::{ethernet::EthernetFrame, packet::PacketHeader, ip::IPV4Address, dhcp::start_dhcp_transaction};
+use crate::task::switching::{get_current_id, get_task};
+use alloc::{string::String, sync::Arc, vec::Vec};
+use core::ops::Deref;
+use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
 #[repr(transparent)]
@@ -75,6 +82,7 @@ impl NetDevice {
     }
 
     pub fn send_raw(&self, raw: &[u8]) {
+        panic!("NO");
         let dev = open_path(&self.device_name).unwrap();
         write_file(dev, raw).unwrap();
         close_file(dev).unwrap();
@@ -98,8 +106,9 @@ pub fn register_network_interface(mac: [u8; 6], device_name: &str) -> NetID {
 }
 
 pub fn with_active_device<F, T>(f: F) -> Result<T, ()>
-    where F: Fn(&NetDevice) -> T {
-
+where
+    F: Fn(&NetDevice) -> T,
+{
     let device = ACTIVE_DEVICE.read();
     match device.deref() {
         Some(dev) => Ok(f(dev)),
@@ -108,7 +117,8 @@ pub fn with_active_device<F, T>(f: F) -> Result<T, ()>
 }
 
 pub fn get_net_device_by_mac(mac: [u8; 6]) -> Option<Arc<NetDevice>> {
-    NET_DEVICES.read()
+    NET_DEVICES
+        .read()
         .iter()
         .find(|dev| dev.mac == mac)
         .cloned()
@@ -148,42 +158,46 @@ fn net_stack_task() -> ! {
     let current_id = get_current_id();
     NET_TASK_ID.store(current_id.into(), Ordering::SeqCst);
 
-    let response_writer = FileHandle::new(0);
-    write_file(response_writer, &[1]).unwrap();
+    let response_writer = Handle::new(0);
+    handle_op_write(response_writer, &[1]);
 
     let mut read_buffer = Vec::with_capacity(1024);
     for _ in 0..1024 {
         read_buffer.push(0);
     }
 
-    let eth_dev = open_path("DEV:\\ETH").unwrap();
+    let eth_dev = create_file_handle();
+    handle_op_open(eth_dev, "DEV:\\ETH").wait_for_completion();
 
     loop {
-        PACKETS_RECEIVED.store(0, Ordering::SeqCst);
-        let len = read_file(eth_dev, &mut read_buffer).unwrap() as usize;
+        //PACKETS_RECEIVED.store(0, Ordering::SeqCst);
+        let len = handle_op_read(eth_dev, &mut read_buffer, 0)
+            .wait_for_result()
+            .unwrap() as usize;
         if len > 0 {
-            match EthernetFrame::from_buffer(&read_buffer).map(|frame| (frame.get_ethertype(), frame.src_mac)) {
+            match EthernetFrame::from_buffer(&read_buffer)
+                .map(|frame| (frame.get_ethertype(), frame.src_mac))
+            {
                 Some((self::ethernet::ETHERTYPE_ARP, _)) => {
                     self::arp::handle_arp_announcement(&read_buffer[EthernetFrame::get_size()..]);
-                },
+                }
                 Some((self::ethernet::ETHERTYPE_IP, src_mac)) => {
-                    self::socket::receive_ip_packet(src_mac, &read_buffer[EthernetFrame::get_size()..]);
-                },
+                    self::socket::receive_ip_packet(
+                        src_mac,
+                        &read_buffer[EthernetFrame::get_size()..],
+                    );
+                }
                 _ => (),
             }
-        }
-        let received_while_processing = PACKETS_RECEIVED.swap(0, Ordering::SeqCst);
-        if received_while_processing == 0 {
-            wait_for_io(Some(1000));
         }
     }
 }
 
 pub fn start_net_stack() {
-    let (response_reader, response_writer) = open_pipe().unwrap();
+    let (response_reader, response_writer) = create_pipe_handles();
 
     let driver_task = create_kernel_task(net_stack_task, Some("NET"));
     transfer_handle(response_writer, driver_task).unwrap();
     // wait for a response from the driver indicating initialization
-    read_file(response_reader, &mut [0u8]).unwrap();
+    handle_op_read(response_reader, &mut [0u8], 0).wait_for_completion();
 }
