@@ -2,7 +2,6 @@
 #[repr(u32)]
 pub enum IOError {
     // No enum value should be backed by a value of 0
-
     /// An error occurred within the file system
     FileSystemError = 1,
     /// A File or Directory with the given path does not exist
@@ -21,7 +20,7 @@ pub enum IOError {
     AlreadyOpen,
     /// Tried to write to a closed pipe / socket / etc
     WriteToClosedIO,
-
+    /// Sent an invalid struct or argument to an IO Op
     InvalidArgument,
 
     Unknown = 0xffffffff,

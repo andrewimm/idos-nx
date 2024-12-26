@@ -42,8 +42,8 @@ use self::{
 use crate::collections::SlotList;
 use crate::io::handle::Handle;
 use crate::task::actions::handle::{
-    create_file_handle, create_pipe_handles, handle_op_open, handle_op_read, handle_op_write,
-    transfer_handle,
+    create_file_handle, create_pipe_handles, handle_op_close, handle_op_open, handle_op_read,
+    handle_op_write, transfer_handle,
 };
 use crate::task::actions::io::{close_file, open_path, open_pipe, read_file, write_file};
 use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
@@ -82,10 +82,12 @@ impl NetDevice {
     }
 
     pub fn send_raw(&self, raw: &[u8]) {
-        panic!("NO");
-        let dev = open_path(&self.device_name).unwrap();
-        write_file(dev, raw).unwrap();
-        close_file(dev).unwrap();
+        let dev = create_file_handle();
+        handle_op_open(dev, &self.device_name)
+            .wait_for_result()
+            .unwrap();
+        handle_op_write(dev, raw).wait_for_result().unwrap();
+        handle_op_close(dev).wait_for_result().unwrap();
     }
 }
 

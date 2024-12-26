@@ -1,10 +1,13 @@
 use idos_api::io::error::IOError;
 
-use super::async_io::{AsyncOp, AsyncOpID, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE, ASYNC_OP_CLOSE};
+use super::async_io::{
+    AsyncOp, AsyncOpID, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE,
+};
 
 pub mod file;
 pub mod irq;
 pub mod message;
+pub mod socket;
 pub mod task;
 
 pub type IOResult = Result<u32, IOError>;
@@ -50,7 +53,7 @@ pub trait IOProvider {
         match immediate_result {
             Some(res) => {
                 self.complete_op(provider_index, id, res);
-            },
+            }
             None => (),
         }
     }
@@ -66,7 +69,7 @@ pub trait IOProvider {
                     Ok(instance) => {
                         self.bind_to(instance);
                         op.complete(1);
-                    },
+                    }
                     Err(e) => op.complete_with_result(Err(e)),
                 }
             } else {
