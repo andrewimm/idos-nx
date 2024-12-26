@@ -1,10 +1,12 @@
-use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
-use spin::RwLock;
-use crate::task::actions::io::{open_path, write_file, close_file};
+use crate::task::actions::handle::{
+    create_file_handle, handle_op_close, handle_op_open, handle_op_write,
+};
 use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::id::TaskID;
 use crate::task::switching::{get_current_id, get_task};
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
+use spin::RwLock;
 
 use super::error::NetError;
 use super::ethernet::EthernetFrame;
@@ -40,7 +42,12 @@ impl ARP {
         }
     }
 
-    pub fn response(src_mac: [u8; 6], src_ip: IPV4Address, dest_mac: [u8; 6], dest_ip: IPV4Address) -> Self {
+    pub fn response(
+        src_mac: [u8; 6],
+        src_ip: IPV4Address,
+        dest_mac: [u8; 6],
+        dest_ip: IPV4Address,
+    ) -> Self {
         Self {
             hardware_type: 1u16.to_be(),
             protocol_type: 0x0800u16.to_be(),
@@ -63,7 +70,12 @@ impl ARP {
         if self.opcode != 1u16.to_be() {
             return None;
         }
-        let response = Self::response(mac, ip, self.source_hardware_addr, self.source_protocol_addr);
+        let response = Self::response(
+            mac,
+            ip,
+            self.source_hardware_addr,
+            self.source_protocol_addr,
+        );
         Some(response)
     }
 }
@@ -82,14 +94,15 @@ pub fn add_network_translation(protocol_addr: IPV4Address, hardware_addr: [u8; 6
             if previous_mapping != hardware_addr {
                 // idk, do something?
             }
-        },
+        }
         None => (),
     }
 }
 
 pub fn send_arp_request(lookup_ip: IPV4Address) -> Result<(), NetError> {
-    let (device_mac, device_name, device_ip) = with_active_device(|netdev| (netdev.mac, netdev.device_name.clone(), *netdev.ip.read()))
-        .map_err(|_| NetError::NoNetDevice)?;
+    let (device_mac, device_name, device_ip) =
+        with_active_device(|netdev| (netdev.mac, netdev.device_name.clone(), *netdev.ip.read()))
+            .map_err(|_| NetError::NoNetDevice)?;
 
     let local_ip = device_ip.expect("Needs IP addr");
     let arp = ARP::request(device_mac, local_ip, lookup_ip);
@@ -98,9 +111,16 @@ pub fn send_arp_request(lookup_ip: IPV4Address) -> Result<(), NetError> {
     total_frame.extend_from_slice(eth_header.as_buffer());
     total_frame.extend_from_slice(arp.as_buffer());
 
-    let dev = open_path(&device_name).map_err(|_| NetError::DeviceDriverError)?;
-    write_file(dev, &total_frame).map_err(|_| NetError::DeviceDriverError)?;
-    close_file(dev).map_err(|_| NetError::DeviceDriverError)?;
+    let dev = create_file_handle();
+    handle_op_open(dev, &device_name)
+        .wait_for_result()
+        .map_err(|_| NetError::DeviceDriverError)?;
+    handle_op_write(dev, &total_frame)
+        .wait_for_result()
+        .map_err(|_| NetError::DeviceDriverError)?;
+    handle_op_close(dev)
+        .wait_for_result()
+        .map_err(|_| NetError::DeviceDriverError)?;
     Ok(())
 }
 
@@ -153,4 +173,3 @@ pub fn resolve_mac_from_ip(ip: IPV4Address) -> Result<[u8; 6], NetError> {
         None => Err(NetError::AddressNotResolved),
     }
 }
-

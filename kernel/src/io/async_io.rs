@@ -1,11 +1,23 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::{collections::{BTreeMap, VecDeque}, sync::Arc};
+use alloc::{
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+};
 use spin::RwLock;
 
-use crate::{memory::{address::{PhysicalAddress, VirtualAddress}, virt::scratch::UnmappedPage}, task::{id::TaskID, messaging::MessageQueue}};
+use crate::{
+    memory::{
+        address::{PhysicalAddress, VirtualAddress},
+        virt::scratch::UnmappedPage,
+    },
+    task::{id::TaskID, messaging::MessageQueue},
+};
 
-use super::provider::{task::TaskIOProvider, IOProvider, message::MessageIOProvider, file::FileIOProvider, irq::InterruptIOProvider};
+use super::provider::{
+    file::FileIOProvider, irq::InterruptIOProvider, message::MessageIOProvider,
+    task::TaskIOProvider, IOProvider,
+};
 
 pub enum IOType {
     ChildTask(TaskIOProvider),
@@ -48,6 +60,10 @@ pub const ASYNC_OP_CLOSE: u32 = 4;
 
 pub const FILE_OP_STAT: u32 = 5;
 
+pub const SOCKET_OP_BROADCAST: u32 = 6;
+pub const SOCKET_OP_MULTICAST: u32 = 7;
+pub const SOCKET_OP_ACCEPT: u32 = 8;
+
 /// All async operations on handles are performed by passing an AsyncOp object
 /// to the kernel. The fields are used to determine which action to take.
 #[derive(Clone)]
@@ -65,9 +81,17 @@ pub struct AsyncOp {
 }
 
 impl AsyncOp {
-    pub fn new(op_code: u32, semaphore_addr: VirtualAddress, return_value_addr: VirtualAddress, arg0: u32, arg1: u32, arg2: u32) -> Self {
+    pub fn new(
+        op_code: u32,
+        semaphore_addr: VirtualAddress,
+        return_value_addr: VirtualAddress,
+        arg0: u32,
+        arg1: u32,
+        arg2: u32,
+    ) -> Self {
         let semaphore = crate::task::paging::get_current_physical_address(semaphore_addr).unwrap();
-        let return_value = crate::task::paging::get_current_physical_address(return_value_addr).unwrap();
+        let return_value =
+            crate::task::paging::get_current_physical_address(return_value_addr).unwrap();
 
         Self {
             op_code,
@@ -96,7 +120,8 @@ impl AsyncOp {
         let mut unmapped_for_dir = UnmappedPage::map(unmapped_phys);
         let return_value_offset = self.return_value.as_u32() & 0xfff;
         unsafe {
-            let ptr = (unmapped_for_dir.virtual_address() + return_value_offset).as_ptr_mut::<u32>();
+            let ptr =
+                (unmapped_for_dir.virtual_address() + return_value_offset).as_ptr_mut::<u32>();
             core::ptr::write_volatile(ptr, return_value);
         }
 
@@ -281,7 +306,7 @@ impl AsyncIOTable {
                 IOType::MessageQueue(ref io) => {
                     io.check_message_queue(current_ticks, messages);
                     return Some(*io_index);
-                },
+                }
                 _ => continue,
             }
         }
