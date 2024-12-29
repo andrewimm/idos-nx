@@ -1,8 +1,8 @@
-use alloc::vec::Vec;
 use super::super::checksum::{Checksum, IPChecksumHeader};
-use super::super::ip::{IPHeader, IPProtocolType, IPV4Address};
+use super::super::ip::{IPProtocolType, IPV4Address, IPV4Header};
 use super::super::packet::PacketHeader;
 use super::super::socket::SocketPort;
+use alloc::vec::Vec;
 
 pub const TCP_FLAG_CWR: u8 = 0x80;
 pub const TCP_FLAG_ECE: u8 = 0x40;
@@ -43,7 +43,7 @@ impl TCPHeader {
     pub fn is_syn(&self) -> bool {
         self.flags & TCP_FLAG_SYN != 0
     }
-    
+
     pub fn is_ack(&self) -> bool {
         self.flags & TCP_FLAG_ACK != 0
     }
@@ -56,7 +56,12 @@ impl TCPHeader {
         self.flags & TCP_FLAG_RST != 0
     }
 
-    pub fn compute_checksum(&self, source_ip: IPV4Address, dest_ip: IPV4Address, data: &[u8]) -> u16 {
+    pub fn compute_checksum(
+        &self,
+        source_ip: IPV4Address,
+        dest_ip: IPV4Address,
+        data: &[u8],
+    ) -> u16 {
         let mut data_length = data.len();
         if data_length & 1 != 0 {
             data_length += 1;
@@ -69,7 +74,7 @@ impl TCPHeader {
             udp_length: ((TCPHeader::get_size() + data_length) as u16).to_be(),
         };
         let mut checksum = Checksum::new();
-        for value in checksum_header.as_u16_buffer().iter() {
+        for value in checksum_header.try_as_u16_buffer().unwrap().iter() {
             checksum.add_u16(*value);
         }
 
@@ -85,11 +90,7 @@ impl TCPHeader {
         let mut i = 0;
         while i < data.len() {
             let low = data[i];
-            let high = if i + 1 >= data.len() {
-                0
-            } else {
-                data[i + 1]
-            };
+            let high = if i + 1 >= data.len() { 0 } else { data[i + 1] };
             let value = (low as u16) | ((high as u16) << 8);
             checksum.add_u16(value);
             i += 2;
@@ -111,7 +112,7 @@ pub fn create_tcp_packet(
     flags: u8,
     data: &[u8],
 ) -> Vec<u8> {
-    let total_size = TCPHeader::get_size() + IPHeader::get_size() + data.len();
+    let total_size = TCPHeader::get_size() + IPV4Header::get_size() + data.len();
     let mut packet_vec = Vec::with_capacity(total_size);
     for _ in 0..total_size {
         packet_vec.push(0);
@@ -131,12 +132,14 @@ pub fn create_tcp_packet(
     tcp_header.checksum = tcp_header.compute_checksum(source_ip, dest_ip, data);
     let data_start = total_size - data.len();
     packet_buffer[data_start..].copy_from_slice(data);
-    let tcp_start = tcp_header.copy_to_buffer(&mut packet_buffer[..data_start]);
+    let tcp_start = tcp_header.copy_to_u8_buffer(&mut packet_buffer[..data_start]);
     let tcp_size = (TCPHeader::get_size() + data.len()) as u16;
-    let ip_header = IPHeader::new_tcp(source_ip, dest_ip, tcp_size, 127);
-    let ip_start = ip_header.copy_to_buffer(&mut packet_buffer[..tcp_start]);
-    assert_eq!(ip_start, 0, "Should not have extra space in the packet buffer");
+    let ip_header = IPV4Header::new_tcp(source_ip, dest_ip, tcp_size, 127);
+    let ip_start = ip_header.copy_to_u8_buffer(&mut packet_buffer[..tcp_start]);
+    assert_eq!(
+        ip_start, 0,
+        "Should not have extra space in the packet buffer"
+    );
 
     packet_vec
 }
-

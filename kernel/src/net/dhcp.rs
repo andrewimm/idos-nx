@@ -1,13 +1,14 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::{vec::Vec, collections::BTreeMap};
-use spin::{RwLock, Once};
-use crate::task::id::TaskID;
 use crate::net::socket::socket_broadcast;
+use crate::task::id::TaskID;
+use alloc::{collections::BTreeMap, vec::Vec};
+use spin::{Once, RwLock};
 
-use super::ip::IPV4Address;
+use super::ethernet::HardwareAddress;
 use super::get_net_device_by_mac;
-use super::socket::{SocketHandle, create_socket, SocketProtocol, bind_socket, SocketPort};
+use super::ip::IPV4Address;
+use super::socket::{bind_socket, create_socket, SocketHandle, SocketPort, SocketProtocol};
 
 #[repr(C, packed)]
 pub struct DhcpPacket {
@@ -35,13 +36,11 @@ impl DhcpPacket {
     pub fn as_buffer(&self) -> &[u8] {
         let ptr = self as *const Self as *const u8;
         let size = core::mem::size_of::<Self>();
-        unsafe {
-            core::slice::from_raw_parts(ptr, size)
-        }
+        unsafe { core::slice::from_raw_parts(ptr, size) }
     }
 }
 
-pub fn discover_packet(mac: [u8; 6], xid: u32) -> Vec<u8> {
+pub fn discover_packet(mac: HardwareAddress, xid: u32) -> Vec<u8> {
     let mut packet = DhcpPacket {
         op: 1,
         htype: 1,
@@ -63,16 +62,9 @@ pub fn discover_packet(mac: [u8; 6], xid: u32) -> Vec<u8> {
         file: [0; 128],
     };
 
-    for i in 0..6 {
-        packet.chaddr[i] = mac[i];
-    }
+    packet.chaddr[0..6].copy_from_slice(&*mac);
 
-    let options: &[u8] = &[
-        0x63, 0x82, 0x53, 0x63,
-        0x35, 0x01, 0x01,
-
-        0xff,
-    ];
+    let options: &[u8] = &[0x63, 0x82, 0x53, 0x63, 0x35, 0x01, 0x01, 0xff];
 
     let packet_size = core::mem::size_of::<DhcpPacket>();
     let total_len = packet_size + options.len();
@@ -88,7 +80,12 @@ pub fn discover_packet(mac: [u8; 6], xid: u32) -> Vec<u8> {
     packet_data
 }
 
-pub fn request_packet(mac: [u8; 6], server_ip: IPV4Address, requested_ip: IPV4Address, xid: u32) -> Vec<u8> {
+pub fn request_packet(
+    mac: HardwareAddress,
+    server_ip: IPV4Address,
+    requested_ip: IPV4Address,
+    xid: u32,
+) -> Vec<u8> {
     let mut packet = DhcpPacket {
         op: 1,
         htype: 1,
@@ -110,20 +107,32 @@ pub fn request_packet(mac: [u8; 6], server_ip: IPV4Address, requested_ip: IPV4Ad
         file: [0; 128],
     };
 
-    for i in 0..6 {
-        packet.chaddr[i] = mac[i];
-    }
+    packet.chaddr[0..6].copy_from_slice(&*mac);
 
     let options: &[u8] = &[
         // magic cookie
-        0x63, 0x82, 0x53, 0x63,
+        0x63,
+        0x82,
+        0x53,
+        0x63,
         // DHCP request
-        0x35, 0x01, 0x03,
+        0x35,
+        0x01,
+        0x03,
         // requested IP
-        0x32, 0x04, requested_ip[0], requested_ip[1], requested_ip[2], requested_ip[3],
+        0x32,
+        0x04,
+        requested_ip[0],
+        requested_ip[1],
+        requested_ip[2],
+        requested_ip[3],
         // server IP
-        0x36, 0x04, server_ip[0], server_ip[1], server_ip[2], server_ip[3],
-
+        0x36,
+        0x04,
+        server_ip[0],
+        server_ip[1],
+        server_ip[2],
+        server_ip[3],
         0xff,
     ];
 
@@ -151,9 +160,9 @@ pub fn get_transaction_id() -> u32 {
 static CURRENT_TRANSACTIONS: RwLock<BTreeMap<u32, Transaction>> = RwLock::new(BTreeMap::new());
 
 struct Transaction {
-    mac: [u8; 6],
+    mac: HardwareAddress,
     state: TransactionState,
-    blocked_task: TaskID
+    blocked_task: TaskID,
 }
 
 enum TransactionState {
@@ -172,12 +181,13 @@ fn get_dhcp_socket() -> SocketHandle {
             SocketPort::new(68),
             IPV4Address([255, 255, 255, 255]),
             SocketPort::new(67),
-        ).unwrap();
+        )
+        .unwrap();
         socket
     })
 }
 
-pub fn start_dhcp_transaction(blocked_task: TaskID, mac: [u8; 6]) {
+pub fn start_dhcp_transaction(blocked_task: TaskID, mac: HardwareAddress) {
     crate::kprintln!("Start DHCP transaction");
     let xid = get_transaction_id();
     let transaction = Transaction {
@@ -197,9 +207,7 @@ pub fn handle_incoming_packet(data: &[u8]) {
     if data.len() < packet_size {
         return;
     }
-    let packet = unsafe {
-        &*(data.as_ptr() as *const DhcpPacket)
-    };
+    let packet = unsafe { &*(data.as_ptr() as *const DhcpPacket) };
     let options = &data[packet_size..];
 
     let mut subnet_mask: IPV4Address = IPV4Address([0, 0, 0, 0]);
@@ -232,7 +240,7 @@ pub fn handle_incoming_packet(data: &[u8]) {
                 subnet_mask[3] = options[options_cursor + 3];
 
                 options_cursor += len;
-            },
+            }
             // router(s)
             0x03 => {
                 let len = options[options_cursor] as usize;
@@ -246,7 +254,7 @@ pub fn handle_incoming_packet(data: &[u8]) {
                 // ignore the other routers
 
                 options_cursor += len;
-            },
+            }
             // dns servers
             0x06 => {
                 let len = options[options_cursor] as usize;
@@ -263,20 +271,19 @@ pub fn handle_incoming_packet(data: &[u8]) {
                     dns_servers.push(ip);
                     options_cursor += 4;
                 }
-            },
+            }
             // lease time
             0x33 => {
                 let len = options[options_cursor] as usize;
                 options_cursor += 1;
 
-                lease_time =
-                    ((options[options_cursor + 0] as u32) << 24) |
-                    ((options[options_cursor + 1] as u32) << 16) |
-                    ((options[options_cursor + 2] as u32) << 8) |
-                    (options[options_cursor + 3] as u32);
+                lease_time = ((options[options_cursor + 0] as u32) << 24)
+                    | ((options[options_cursor + 1] as u32) << 16)
+                    | ((options[options_cursor + 2] as u32) << 8)
+                    | (options[options_cursor + 3] as u32);
 
                 options_cursor += len;
-            },
+            }
             // dhcp packet type
             0x35 => {
                 let len = options[options_cursor] as usize;
@@ -285,7 +292,7 @@ pub fn handle_incoming_packet(data: &[u8]) {
                 packet_type = options[options_cursor];
 
                 options_cursor += len;
-            },
+            }
             // dhcp server
             0x36 => {
                 let len = options[options_cursor] as usize;
@@ -297,18 +304,18 @@ pub fn handle_incoming_packet(data: &[u8]) {
                 dhcp_server[3] = options[options_cursor + 3];
 
                 options_cursor += len;
-            },
+            }
             // end of options
             0xff => {
                 options_cursor = options.len();
-            },
+            }
             // unknown option
             _ => {
                 // all options besides 0 and 0xff have a length field following
                 // the tag
                 let len = options[options_cursor] as usize;
                 options_cursor += len + 1;
-            },
+            }
         }
     }
 
@@ -320,18 +327,18 @@ pub fn handle_incoming_packet(data: &[u8]) {
                 Some(t) => {
                     t.state = TransactionState::Request;
                     t.mac
-                },
+                }
                 None => {
                     return;
                 }
             };
             let request = request_packet(mac, packet.siaddr, packet.yiaddr, xid);
             socket_broadcast(get_dhcp_socket(), &request).unwrap();
-        },
+        }
         // decline
         4 => {
             CURRENT_TRANSACTIONS.write().remove(&xid);
-        },
+        }
         // ack
         5 => {
             let mac = match CURRENT_TRANSACTIONS.write().remove(&xid) {
@@ -342,10 +349,10 @@ pub fn handle_incoming_packet(data: &[u8]) {
                 Some(netdev) => {
                     netdev.ip.write().replace(packet.yiaddr);
                     crate::kprintln!("Net device now has IP {:}", packet.yiaddr);
-                },
+                }
                 None => (),
             }
-        },
+        }
 
         _ => (),
     }

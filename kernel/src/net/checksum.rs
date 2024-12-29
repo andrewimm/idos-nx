@@ -6,8 +6,9 @@
 //! u16 fields. When everything has been added, call `.compute()` to return the
 //! 16-bit checksum number.
 
-use super::ip::IPV4Address;
+use super::{ip::IPV4Address, packet::PacketHeader};
 
+/// Represents a running computation of a network header checksum
 pub struct Checksum(u32);
 
 impl Checksum {
@@ -15,10 +16,12 @@ impl Checksum {
         Self(0)
     }
 
+    /// Add another 16-bit field to the checksum total
     pub fn add_u16(&mut self, value: u16) {
         self.0 += value as u32;
     }
 
+    /// Compute the final checksum value
     pub fn compute(&self) -> u16 {
         let mut running_sum = self.0;
         let carry = running_sum >> 16;
@@ -44,10 +47,4 @@ pub struct IPChecksumHeader {
     pub udp_length: u16,
 }
 
-impl IPChecksumHeader {
-    pub fn as_u16_buffer(&self) -> &[u16] {
-        let ptr = self as *const Self as *const u16;
-        let size = core::mem::size_of::<Self>() / 2;
-        unsafe { core::slice::from_raw_parts(ptr, size) }
-    }
-}
+impl PacketHeader for IPChecksumHeader {}
