@@ -36,8 +36,10 @@ pub mod socket;
 pub mod tcp;
 pub mod udp;
 
+use self::ethernet::HardwareAddress;
 use self::{
-    dhcp::start_dhcp_transaction, ethernet::EthernetFrame, ip::IPV4Address, packet::PacketHeader,
+    dhcp::start_dhcp_transaction, ethernet::EthernetFrameHeader, ip::IPV4Address,
+    packet::PacketHeader,
 };
 use crate::collections::SlotList;
 use crate::io::handle::Handle;
@@ -67,13 +69,13 @@ impl core::ops::Deref for NetID {
 }
 
 pub struct NetDevice {
-    pub mac: [u8; 6],
+    pub mac: HardwareAddress,
     pub device_name: String,
     pub ip: RwLock<Option<self::ip::IPV4Address>>,
 }
 
 impl NetDevice {
-    pub fn new(mac: [u8; 6], device_name: String) -> Self {
+    pub fn new(mac: HardwareAddress, device_name: String) -> Self {
         Self {
             mac,
             device_name,
@@ -96,7 +98,10 @@ static NET_DEVICES: RwLock<SlotList<Arc<NetDevice>>> = RwLock::new(SlotList::new
 static ACTIVE_DEVICE: RwLock<Option<Arc<NetDevice>>> = RwLock::new(None);
 
 pub fn register_network_interface(mac: [u8; 6], device_name: &str) -> NetID {
-    let device = Arc::new(NetDevice::new(mac, String::from(device_name)));
+    let device = Arc::new(NetDevice::new(
+        HardwareAddress(mac),
+        String::from(device_name),
+    ));
     let index = NET_DEVICES.write().insert(device.clone()) as u32;
 
     let mut active = ACTIVE_DEVICE.write();
@@ -118,7 +123,7 @@ where
     }
 }
 
-pub fn get_net_device_by_mac(mac: [u8; 6]) -> Option<Arc<NetDevice>> {
+pub fn get_net_device_by_mac(mac: HardwareAddress) -> Option<Arc<NetDevice>> {
     NET_DEVICES
         .read()
         .iter()
@@ -177,16 +182,18 @@ fn net_stack_task() -> ! {
             .wait_for_result()
             .unwrap() as usize;
         if len > 0 {
-            match EthernetFrame::from_buffer(&read_buffer)
+            match EthernetFrameHeader::try_from_u8_buffer(&read_buffer)
                 .map(|frame| (frame.get_ethertype(), frame.src_mac))
             {
                 Some((self::ethernet::ETHERTYPE_ARP, _)) => {
-                    self::arp::handle_arp_announcement(&read_buffer[EthernetFrame::get_size()..]);
+                    self::arp::handle_arp_announcement(
+                        &read_buffer[EthernetFrameHeader::get_size()..],
+                    );
                 }
                 Some((self::ethernet::ETHERTYPE_IP, src_mac)) => {
                     self::socket::receive_ip_packet(
                         src_mac,
-                        &read_buffer[EthernetFrame::get_size()..],
+                        &read_buffer[EthernetFrameHeader::get_size()..],
                     );
                 }
                 _ => (),

@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use super::checksum::{Checksum, IPChecksumHeader};
-use super::ip::{IPV4Address, IPHeader, IPProtocolType};
+use super::ip::{IPProtocolType, IPV4Address, IPV4Header};
 use super::packet::PacketHeader;
 
 #[repr(C, packed)]
@@ -27,7 +27,12 @@ impl UDPHeader {
         }
     }
 
-    pub fn compute_checksum(&self, source_ip: IPV4Address, dest_ip: IPV4Address, data: &[u8]) -> u16 {
+    pub fn compute_checksum(
+        &self,
+        source_ip: IPV4Address,
+        dest_ip: IPV4Address,
+        data: &[u8],
+    ) -> u16 {
         let mut data_length = data.len();
         if data_length & 1 != 0 {
             data_length += 1;
@@ -40,7 +45,7 @@ impl UDPHeader {
             udp_length: ((UDPHeader::get_size() + data_length) as u16).to_be(),
         };
         let mut checksum = Checksum::new();
-        for value in checksum_header.as_u16_buffer().iter() {
+        for value in checksum_header.try_as_u16_buffer().unwrap().iter() {
             checksum.add_u16(*value);
         }
 
@@ -51,11 +56,7 @@ impl UDPHeader {
         let mut i = 0;
         while i < data.len() {
             let low = data[i];
-            let high = if i + 1 >= data.len() {
-                0
-            } else {
-                data[i + 1]
-            };
+            let high = if i + 1 >= data.len() { 0 } else { data[i + 1] };
             let value = (low as u16) | ((high as u16) << 8);
             checksum.add_u16(value);
             i += 2;
@@ -65,8 +66,14 @@ impl UDPHeader {
     }
 }
 
-pub fn create_datagram(source_ip: IPV4Address, source_port: u16, dest_ip: IPV4Address, dest_port: u16, data: &[u8]) -> Vec<u8> {
-    let total_size = data.len() + UDPHeader::get_size() + IPHeader::get_size();
+pub fn create_datagram(
+    source_ip: IPV4Address,
+    source_port: u16,
+    dest_ip: IPV4Address,
+    dest_port: u16,
+    data: &[u8],
+) -> Vec<u8> {
+    let total_size = data.len() + UDPHeader::get_size() + IPV4Header::get_size();
     let mut datagram_vec = Vec::with_capacity(total_size);
     for _ in 0..total_size {
         datagram_vec.push(0);
@@ -81,14 +88,17 @@ pub fn create_datagram(source_ip: IPV4Address, source_port: u16, dest_ip: IPV4Ad
     let checksum = udp_header.compute_checksum(source_ip, dest_ip, data);
     udp_header.checksum = checksum;
     let udp_header_space = &mut datagram_buffer[..data_start];
-    let udp_start = udp_header.copy_to_buffer(udp_header_space);
+    let udp_start = udp_header.copy_to_u8_buffer(udp_header_space);
     let udp_size = (UDPHeader::get_size() + data.len()) as u16;
     // copy IP header
-    let ip_header = IPHeader::new_udp(source_ip, dest_ip, udp_size, 127);
+    let ip_header = IPV4Header::new_udp(source_ip, dest_ip, udp_size, 127);
     let ip_header_space = &mut datagram_buffer[..udp_start];
-    let ip_start = ip_header.copy_to_buffer(ip_header_space);
+    let ip_start = ip_header.copy_to_u8_buffer(ip_header_space);
 
-    assert_eq!(ip_start, 0, "Should not have extra space in the datagram buffer");
+    assert_eq!(
+        ip_start, 0,
+        "Should not have extra space in the datagram buffer"
+    );
 
     datagram_vec
 }

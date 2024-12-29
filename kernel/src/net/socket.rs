@@ -10,8 +10,8 @@ use crate::task::actions::handle::{
 
 use super::arp::{add_network_translation, resolve_mac_from_ip};
 use super::error::NetError;
-use super::ethernet::EthernetFrame;
-use super::ip::{IPHeader, IPProtocolType, IPV4Address};
+use super::ethernet::{EthernetFrameHeader, HardwareAddress};
+use super::ip::{IPProtocolType, IPV4Address, IPV4Header};
 use super::packet::PacketHeader;
 use super::tcp::connection::{
     action_for_tcp_packet, add_tcp_connection_lookup, get_tcp_connection_socket,
@@ -183,18 +183,18 @@ pub fn get_ephemeral_port() -> Option<SocketPort> {
     None
 }
 
-pub fn receive_ip_packet(source_mac: [u8; 6], raw: &[u8]) {
-    let ip_header = match IPHeader::from_buffer(raw) {
+pub fn receive_ip_packet(source_mac: HardwareAddress, raw: &[u8]) {
+    let ip_header = match IPV4Header::try_from_u8_buffer(raw) {
         Some(header) => header,
         None => return,
     };
     let total_length = ip_header.total_length.to_be() as usize;
-    let remainder = &raw[IPHeader::get_size()..total_length];
+    let remainder = &raw[IPV4Header::get_size()..total_length];
     add_network_translation(ip_header.source, source_mac);
-    if ip_header.protocol == IPProtocolType::TCP as u8 {
+    if ip_header.protocol == IPProtocolType::TCP {
         handle_incoming_tcp(ip_header.source, ip_header.dest, remainder);
-    } else if ip_header.protocol == IPProtocolType::UDP as u8 {
-        let udp_header = match UDPHeader::from_buffer(remainder) {
+    } else if ip_header.protocol == IPProtocolType::UDP {
+        let udp_header = match UDPHeader::try_from_u8_buffer(remainder) {
             Some(header) => header,
             None => return,
         };
@@ -254,14 +254,14 @@ pub fn bind_socket(
     Ok(())
 }
 
-fn socket_send_inner(dest_mac: [u8; 6], packet: Vec<u8>) -> Result<(), NetError> {
+fn socket_send_inner(dest_mac: HardwareAddress, packet: Vec<u8>) -> Result<(), NetError> {
     let (source_mac, device_name) =
         with_active_device(|netdev| (netdev.mac, netdev.device_name.clone()))
             .map_err(|_| NetError::NoNetDevice)?;
 
-    let mut total_frame = Vec::with_capacity(EthernetFrame::get_size() + packet.len());
-    let eth_header = EthernetFrame::new_ipv4(source_mac, dest_mac);
-    total_frame.extend_from_slice(eth_header.as_buffer());
+    let mut total_frame = Vec::with_capacity(EthernetFrameHeader::get_size() + packet.len());
+    let eth_header = EthernetFrameHeader::new_ipv4(source_mac, dest_mac);
+    total_frame.extend_from_slice(eth_header.as_u8_buffer());
     total_frame.extend(packet);
 
     let dev = create_file_handle();
@@ -282,7 +282,7 @@ pub fn socket_broadcast(socket: SocketHandle, payload: &[u8]) -> Result<(), NetE
         Some(sock) => sock.create_packet(payload),
         None => return Err(NetError::InvalidSocket),
     };
-    let dest_mac: [u8; 6] = [0xff, 0xff, 0xff, 0xff, 0xff, 0xff];
+    let dest_mac: HardwareAddress = HardwareAddress::broadcast();
 
     socket_send_inner(dest_mac, packet)
 }
@@ -307,7 +307,7 @@ pub fn handle_incoming_tcp(
     local_ip: IPV4Address,
     packet: &[u8],
 ) -> Result<(), NetError> {
-    let tcp_header = TCPHeader::from_buffer(packet).ok_or(NetError::IncompletePacket)?;
+    let tcp_header = TCPHeader::try_from_u8_buffer(packet).ok_or(NetError::IncompletePacket)?;
     // first, check if the local port is listening to incoming traffic
     let listener_handle =
         get_socket_on_port(tcp_header.get_destination_port()).ok_or(NetError::PortNotOpen)?;
