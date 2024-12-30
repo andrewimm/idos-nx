@@ -4,7 +4,7 @@
 //! system -- this is one of the main improvements over legacy DOS, where
 //! everything runs in a shared memory space. However, there are times where
 //! you do want to share memory between tasks. To allow this, the kernel
-//! provides mechanisms for one program to deliberately modify the memory of 
+//! provides mechanisms for one program to deliberately modify the memory of
 //! other programs.
 //!
 //! With shared memory, the kernel can grant one task access to memory that
@@ -18,16 +18,18 @@
 //! the other task. The receiving task must be trusted to not mess with
 //! anything outside of that explicitly shared range.
 
-use spin::{RwLock, Mutex};
+use spin::{Mutex, RwLock};
 
+use super::address::{PhysicalAddress, VirtualAddress};
+use super::virt::page_iter::PageIter;
 use crate::collections::RefCountMap;
-use crate::task::actions::memory::{map_memory_for_task, unmap_memory_for_task, remap_memory_for_task};
+use crate::task::actions::memory::{
+    map_memory_for_task, remap_memory_for_task, unmap_memory_for_task,
+};
 use crate::task::id::TaskID;
 use crate::task::memory::{MemoryBacking, TaskMemoryError};
 use crate::task::paging::get_current_physical_address;
 use crate::task::switching::{get_current_id, get_current_task, get_task};
-use super::address::{PhysicalAddress, VirtualAddress};
-use super::virt::page_iter::PageIter;
 
 pub struct SharedMemoryRange {
     pub unmap_on_drop: bool,
@@ -46,7 +48,8 @@ impl SharedMemoryRange {
         let start = slice.as_ptr() as u32;
 
         let mapped_to = VirtualAddress::new(start).prev_page_barrier();
-        let physical_frame = get_current_physical_address(mapped_to).expect("Cannot share unpaged memory!");
+        let physical_frame =
+            get_current_physical_address(mapped_to).expect("Cannot share unpaged memory!");
         let range_offset = start - mapped_to.as_u32();
         let range_length = (slice.len() * core::mem::size_of::<T>()) as u32;
 
@@ -66,7 +69,8 @@ impl SharedMemoryRange {
         let start = s as *const T as u32;
 
         let mapped_to = VirtualAddress::new(start).prev_page_barrier();
-        let physical_frame = get_current_physical_address(mapped_to).expect("Cannot share unpaged memory!");
+        let physical_frame =
+            get_current_physical_address(mapped_to).expect("Cannot share unpaged memory!");
         let range_offset = start - mapped_to.as_u32();
         let range_length = core::mem::size_of::<T>() as u32;
 
@@ -86,7 +90,8 @@ impl SharedMemoryRange {
     pub fn share_with_task(&self, id: TaskID) -> Self {
         let current_is_kernel = !get_current_task().read().has_executable();
         let dest_is_kernel = !get_task(id).unwrap().read().has_executable();
-        if self.mapped_to >= VirtualAddress::new(0xc0000000) && current_is_kernel && dest_is_kernel {
+        if self.mapped_to >= VirtualAddress::new(0xc0000000) && current_is_kernel && dest_is_kernel
+        {
             // two tasks sharing memory in the kernel space
             // Since all kernel memory is shared, there's no need to remap this
             Self {
@@ -95,12 +100,20 @@ impl SharedMemoryRange {
                 mapped_to: self.mapped_to,
                 physical_frame: self.physical_frame,
                 range_offset: self.range_offset,
-                range_length: self.range_length,    
+                range_length: self.range_length,
             }
         } else {
-            let mapped_to = map_memory_for_task(id, None, 4096, MemoryBacking::Direct(self.physical_frame)).unwrap();
+            let mapped_to =
+                map_memory_for_task(id, None, 4096, MemoryBacking::Direct(self.physical_frame))
+                    .unwrap();
 
-            crate::kprint!("SHARING to {:?}. {:?} / {:?} -> {:?}\n", id, self.mapped_to, mapped_to, self.physical_frame);
+            crate::kprint!(
+                "SHARING to {:?}. {:?} / {:?} -> {:?}\n",
+                id,
+                self.mapped_to,
+                mapped_to,
+                self.physical_frame
+            );
 
             Self {
                 unmap_on_drop: true,
@@ -138,12 +151,18 @@ impl Drop for SharedMemoryRange {
         if !self.unmap_on_drop {
             return;
         }
-        crate::kprint!("SHARE: Unmap {:?} for {:?}, no longer in use\n", self.mapped_to, self.owner);
+        crate::kprint!(
+            "SHARE: Unmap {:?} for {:?}, no longer in use\n",
+            self.mapped_to,
+            self.owner
+        );
 
         match unmap_memory_for_task(self.owner, self.mapped_to, 4096) {
-            Err(TaskMemoryError::NoTask) => crate::kprint!("Task already dropped, no need to unmap\n"),
+            Err(TaskMemoryError::NoTask) => {
+                crate::kprint!("Task already dropped, no need to unmap\n")
+            }
             Err(e) => panic!("{:?}", e),
-            Ok(_) => ()
+            Ok(_) => (),
         }
     }
 }
@@ -160,17 +179,33 @@ pub fn share_buffer(task: TaskID, vaddr: VirtualAddress, byte_size: usize) -> Vi
 
     let mapping_start = {
         let task_lock = get_task(task).expect("Task does not exist");
-        let available_space = task_lock.write().memory_mapping.find_free_mapping_space(total_pages * 0x1000).expect("Could not find contiguous space in task");
+        let available_space = task_lock
+            .write()
+            .memory_mapping
+            .find_free_mapping_space(total_pages * 0x1000)
+            .expect("Could not find contiguous space in task");
         available_space
     };
     let mut offset = 0;
     for page_start in PageIter::for_vaddr_range(vaddr, byte_size) {
-        let frame_start = get_current_physical_address(page_start).expect("Cannot share unmapped memory");
+        let frame_start =
+            get_current_physical_address(page_start).expect("Cannot share unmapped memory");
         SHARED_MEMORY_REFCOUNT.lock().add_reference(frame_start);
 
         let mapped_offset = mapping_start + offset;
-        map_memory_for_task(task, Some(mapped_offset), 0x1000, MemoryBacking::Direct(frame_start)).unwrap();
-        crate::kprintln!("SHARE: Map {:?} to {:?} for {:?}", mapped_offset, frame_start, task);
+        map_memory_for_task(
+            task,
+            Some(mapped_offset),
+            0x1000,
+            MemoryBacking::Direct(frame_start),
+        )
+        .unwrap();
+        crate::kprintln!(
+            "SHARE: Map {:?} to {:?} for {:?}",
+            mapped_offset,
+            frame_start,
+            task
+        );
         offset += 0x1000;
     }
     let mapping_offset = vaddr.as_u32() & 0xfff;
@@ -181,11 +216,12 @@ pub fn release_buffer(vaddr: VirtualAddress, byte_size: usize) {
     let cur_task = get_current_id();
     crate::kprintln!("SHARE: Release buffer at {:?} for {:?}", vaddr, cur_task);
     for page_start in PageIter::for_vaddr_range(vaddr, byte_size) {
-        let frame_start = get_current_physical_address(page_start).expect("Cannot release unmapped memory");
+        let frame_start =
+            get_current_physical_address(page_start).expect("Cannot release unmapped memory");
         let count_remaining = SHARED_MEMORY_REFCOUNT.lock().remove_reference(frame_start);
         // TODO: this could just be one unmap call. If there are multiple pages
         // this will make too many unnecessary calls
-        unmap_memory_for_task(cur_task, page_start, 0x1000);
+        unmap_memory_for_task(cur_task, page_start, 0x1000).unwrap();
         if count_remaining == 0 {
             // TODO: release the frame
         }
@@ -194,19 +230,19 @@ pub fn release_buffer(vaddr: VirtualAddress, byte_size: usize) {
 
 #[cfg(test)]
 mod tests {
+    use super::{share_buffer, SharedMemoryRange};
     use crate::task::{
         actions::{
-            memory::map_memory,
             lifecycle::{create_kernel_task, terminate, wait_for_child},
+            memory::map_memory,
             read_message_blocking, send_message,
         },
-        memory::MemoryBacking, messaging::Message,
+        memory::MemoryBacking,
+        messaging::Message,
     };
-    use super::{SharedMemoryRange, share_buffer};
 
     #[test_case]
-    fn sharing_within_kernel() {
-    }
+    fn sharing_within_kernel() {}
 
     #[test_case]
     fn sharing_outside_kernel() {
@@ -217,9 +253,7 @@ mod tests {
             let (_, message) = packet.open();
             let addr = message.args[0];
             let size = message.args[1] as usize;
-            let mut buffer = unsafe {
-                core::slice::from_raw_parts_mut(addr as *mut u8, size)
-            };
+            let mut buffer = unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, size) };
             for i in 0..10 {
                 buffer[i] = i as u8;
                 buffer[i + 0x200] = i as u8;
@@ -233,9 +267,8 @@ mod tests {
         // create a buffer that extends across all three pages
         //       [ buffer........ ]
         // [ PAGE 0 ][ PAGE 1 ][ PAGE 2 ]
-        let mut buffer = unsafe {
-            core::slice::from_raw_parts_mut((addr.as_u32() + 0xf00) as *mut u8, 0x1200)
-        };
+        let mut buffer =
+            unsafe { core::slice::from_raw_parts_mut((addr.as_u32() + 0xf00) as *mut u8, 0x1200) };
         for i in 0..0x1200 {
             buffer[i] = 0;
         }
@@ -258,4 +291,3 @@ mod tests {
         }
     }
 }
-

@@ -4,17 +4,17 @@
 //! becomes a pending connection - a request for connection that can be
 //! accept()-ed by the local client.
 
-use alloc::collections::{BTreeMap, VecDeque};
-use crate::time::system::{Timestamp, get_system_time};
-use spin::RwLock;
 use super::super::ip::IPV4Address;
 use super::super::socket::SocketPort;
+use crate::time::system::{get_system_time, Timestamp};
+use alloc::collections::{BTreeMap, VecDeque};
+use spin::RwLock;
 
 /// Stores the information necessary to initiate a TCP connection, pulling the
 /// relevant data from the initial SYN request
 #[derive(Copy, Clone)]
 pub struct PendingConnection {
-    established: Timestamp,
+    pub established: Timestamp,
     pub seq_received: u32,
 
     pub remote_ip: IPV4Address,
@@ -25,11 +25,18 @@ pub struct PendingConnection {
 
 /// All pending request are stored in this global map, keyed by the local port
 /// that they attempted to connect to.
-static PENDING_CONNECTIONS: RwLock<BTreeMap<SocketPort, VecDeque<PendingConnection>>> = RwLock::new(BTreeMap::new());
+static PENDING_CONNECTIONS: RwLock<BTreeMap<SocketPort, VecDeque<PendingConnection>>> =
+    RwLock::new(BTreeMap::new());
 
 /// Convert data from a TCP SYN packet into a pending connection, and add it to
 /// the queue.
-pub fn add_pending_connection(remote_ip: IPV4Address, remote_port: SocketPort, local_ip: IPV4Address, local_port: SocketPort, seq_received: u32) {
+pub fn add_pending_connection(
+    remote_ip: IPV4Address,
+    remote_port: SocketPort,
+    local_ip: IPV4Address,
+    local_port: SocketPort,
+    seq_received: u32,
+) {
     let established = get_system_time().to_timestamp();
 
     let pending = PendingConnection {
@@ -52,7 +59,10 @@ pub fn add_pending_connection(remote_ip: IPV4Address, remote_port: SocketPort, l
 
 /// Pull the earliest pending connection request for a given port. This is the
 /// first step for the socket accept() action
-pub fn accept_pending_connection(port: SocketPort, timeout: Option<u32>) -> Option<PendingConnection> {
+pub fn accept_pending_connection(
+    port: SocketPort,
+    timeout: Option<u32>,
+) -> Option<PendingConnection> {
     let mut connections = PENDING_CONNECTIONS.write();
     let list = connections.get_mut(&port)?;
     list.pop_front()

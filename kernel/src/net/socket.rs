@@ -192,7 +192,7 @@ pub fn receive_ip_packet(source_mac: HardwareAddress, raw: &[u8]) {
     let remainder = &raw[IPV4Header::get_size()..total_length];
     add_network_translation(ip_header.source, source_mac);
     if ip_header.protocol == IPProtocolType::TCP {
-        handle_incoming_tcp(ip_header.source, ip_header.dest, remainder);
+        handle_incoming_tcp(ip_header.source, ip_header.dest, remainder).unwrap();
     } else if ip_header.protocol == IPProtocolType::UDP {
         let udp_header = match UDPHeader::try_from_u8_buffer(remainder) {
             Some(header) => header,
@@ -322,7 +322,6 @@ pub fn handle_incoming_tcp(
     }
     // check if a connection to that remote endpoint is already established
     let conn_handle = match get_tcp_connection_socket(
-        local_ip,
         tcp_header.get_destination_port(),
         remote_ip,
         tcp_header.get_source_port(),
@@ -360,10 +359,9 @@ pub fn handle_incoming_tcp(
             TCPAction::Close => {
                 sockets.remove(&conn_handle);
                 remove_tcp_connection_lookup(
+                    tcp_header.get_destination_port(),
                     remote_ip,
                     tcp_header.get_source_port(),
-                    local_ip,
-                    tcp_header.get_destination_port(),
                 );
                 None
             }
@@ -445,7 +443,6 @@ pub fn socket_accept(handle: SocketHandle) -> Option<SocketHandle> {
     new_socket.set_tcp_connection(connection);
     let handle = insert_socket(new_socket);
     add_tcp_connection_lookup(
-        pending.local_ip,
         pending.local_port,
         pending.remote_ip,
         pending.remote_port,
@@ -463,7 +460,7 @@ pub fn socket_accept(handle: SocketHandle) -> Option<SocketHandle> {
         &[],
     );
     let dest_mac = resolve_mac_from_ip(pending.remote_ip).ok()?;
-    socket_send_inner(dest_mac, packet);
+    socket_send_inner(dest_mac, packet).unwrap();
 
     loop {
         match OPEN_SOCKETS.read().get(&handle) {

@@ -1,12 +1,12 @@
 use core::cell::RefCell;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, Ordering, AtomicU32};
-use core::task::{Context, Waker, Poll};
-use core::{pin::Pin, future::Future};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::task::{Context, Poll, Waker};
+use core::{future::Future, pin::Pin};
 
+use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::{boxed::Box, task::Wake};
-use alloc::collections::{VecDeque, BTreeMap};
 use idos_api::io::error::IOError;
 
 use crate::files::cursor::SeekMethod;
@@ -14,17 +14,21 @@ use crate::hardware::dma::DmaChannelRegisters;
 use crate::io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
-use crate::task::actions::{yield_coop, send_message};
-use crate::task::switching::get_current_id;
-use crate::task::actions::handle::{open_message_queue, open_interrupt_handle, create_notify_queue, add_handle_to_notify_queue, wait_on_notify, handle_op_write, handle_op_read, handle_op_close, handle_op_read_struct};
+use crate::memory::address::{PhysicalAddress, VirtualAddress};
+use crate::task::actions::handle::{
+    add_handle_to_notify_queue, create_notify_queue, handle_op_close, handle_op_read,
+    handle_op_read_struct, handle_op_write, open_interrupt_handle, open_message_queue,
+    wait_on_notify,
+};
 use crate::task::actions::memory::map_memory;
-use crate::task::messaging::Message;
+use crate::task::actions::{send_message, yield_coop};
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
+use crate::task::messaging::Message;
 use crate::task::paging::page_on_demand;
-use crate::memory::address::{VirtualAddress, PhysicalAddress};
+use crate::task::switching::get_current_id;
 
-use super::controller::{FloppyController, Command, ControllerError, DriveSelect, DriveType};
+use super::controller::{Command, ControllerError, DriveSelect, DriveType, FloppyController};
 use super::geometry::ChsGeometry;
 
 pub struct FloppyDeviceDriver {
@@ -32,12 +36,11 @@ pub struct FloppyDeviceDriver {
     dma_vaddr: VirtualAddress,
     dma_paddr: PhysicalAddress,
     interrupt_received: Arc<AtomicBool>,
-    attached: [Option<AttachedDrive>; 2],
+    attached: [DriveType; 2],
     selected_drive: Option<DriveSelect>,
 
     next_instance: AtomicU32,
     open_instances: BTreeMap<u32, OpenFile>,
-
 }
 
 impl FloppyDeviceDriver {
@@ -50,7 +53,7 @@ impl FloppyDeviceDriver {
             dma_vaddr,
             dma_paddr,
             interrupt_received: interrupt_flag,
-            attached: [None, None],
+            attached: [DriveType::None, DriveType::None],
             selected_drive: None,
 
             next_instance: AtomicU32::new(1),
@@ -59,11 +62,7 @@ impl FloppyDeviceDriver {
     }
 
     pub fn set_device(&mut self, index: usize, drive_type: DriveType) {
-        self.attached[index] = Some(
-            AttachedDrive {
-                drive_type,
-            }
-        );
+        self.attached[index] = drive_type;
     }
 
     pub async fn init(&mut self) -> Result<(), ControllerError> {
@@ -89,15 +88,20 @@ impl FloppyDeviceDriver {
         self.reset().await?;
 
         // enable motors, recalibrate
-        if !self.attached[0].is_none() {
-            self.controller.ensure_motor_on(DriveSelect::Primary);
-            self.recalibrate(DriveSelect::Primary).await?;
+        match self.attached[0] {
+            DriveType::None => (),
+            _ => {
+                self.controller.ensure_motor_on(DriveSelect::Primary);
+                self.recalibrate(DriveSelect::Primary).await?;
+            }
         }
-        if !self.attached[1].is_none() {
-            self.controller.ensure_motor_on(DriveSelect::Secondary);
-            self.recalibrate(DriveSelect::Secondary).await?;
+        match self.attached[1] {
+            DriveType::None => (),
+            _ => {
+                self.controller.ensure_motor_on(DriveSelect::Secondary);
+                self.recalibrate(DriveSelect::Secondary).await?;
+            }
         }
-        
         Ok(())
     }
 
@@ -127,7 +131,8 @@ impl FloppyDeviceDriver {
         // TODO: Set the data rate correctly for the drive type
         self.controller.ccr_write(0);
         // SRT=8, HUT=0, HLT=5, NDMA=0
-        self.controller.send_command(Command::Specify, &[8 << 4, 5 << 1])?;
+        self.controller
+            .send_command(Command::Specify, &[8 << 4, 5 << 1])?;
 
         Ok(())
     }
@@ -141,9 +146,7 @@ impl FloppyDeviceDriver {
             DriveSelect::Primary => 0,
             DriveSelect::Secondary => 1,
         };
-        self.controller.dor_write(
-            (dor & 0xfc) | flag
-        );
+        self.controller.dor_write((dor & 0xfc) | flag);
         self.selected_drive = Some(drive);
     }
 
@@ -172,7 +175,12 @@ impl FloppyDeviceDriver {
         self.controller.send_command(command, params)
     }
 
-    async fn dma(&self, command: Command, drive_number: u8, chs: ChsGeometry) -> Result<(), ControllerError> {
+    async fn dma(
+        &self,
+        command: Command,
+        drive_number: u8,
+        chs: ChsGeometry,
+    ) -> Result<(), ControllerError> {
         self.send_command(
             command,
             &[
@@ -181,11 +189,12 @@ impl FloppyDeviceDriver {
                 chs.head as u8,
                 chs.sector as u8,
                 2,
-                18, // Last sector on track
+                18,   // Last sector on track
                 0x1b, // GAP1 default size
                 0xff,
             ],
-        ).await?;
+        )
+        .await?;
 
         self.wait_for_interrupt().await;
         let mut response = [0, 0, 0, 0, 0, 0, 0];
@@ -195,7 +204,11 @@ impl FloppyDeviceDriver {
         Ok(())
     }
 
-    async fn dma_read(&mut self, drive: DriveSelect, chs: ChsGeometry) -> Result<(), ControllerError> {
+    async fn dma_read(
+        &mut self,
+        drive: DriveSelect,
+        chs: ChsGeometry,
+    ) -> Result<(), ControllerError> {
         self.select_drive(drive).await;
         let drive_number = match drive {
             DriveSelect::Primary => 0,
@@ -220,7 +233,7 @@ impl FloppyDeviceDriver {
     }
 
     // Async IO methods:
-    
+
     pub fn open(&mut self, sub_driver: u32) -> IOResult {
         match self.attached.get(sub_driver as usize) {
             None => return Err(IOError::NotFound),
@@ -230,10 +243,7 @@ impl FloppyDeviceDriver {
             1 => DriveSelect::Secondary,
             _ => DriveSelect::Primary,
         };
-        let file = OpenFile {
-            drive,
-            _position: 0,
-        };
+        let file = OpenFile { drive };
         let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
         self.open_instances.insert(instance, file);
         Ok(instance)
@@ -254,7 +264,9 @@ impl FloppyDeviceDriver {
 
         self.dma_prepare(sector_count, 0x56);
         let chs = ChsGeometry::from_lba(first_sector);
-        self.dma_read(drive_select, chs).await.map_err(|_| IOError::FileSystemError)?;
+        self.dma_read(drive_select, chs)
+            .await
+            .map_err(|_| IOError::FileSystemError)?;
 
         let dma_buffer = self.get_dma_buffer();
 
@@ -268,18 +280,15 @@ impl FloppyDeviceDriver {
     }
 
     pub fn close(&mut self, instance: u32) -> IOResult {
-        self.open_instances.remove(&instance).map(|_| 1).ok_or(IOError::FileHandleInvalid)
+        self.open_instances
+            .remove(&instance)
+            .map(|_| 1)
+            .ok_or(IOError::FileHandleInvalid)
     }
-}
-
-struct AttachedDrive {
-    /// Size and type of the disk in the drive
-    drive_type: DriveType,
 }
 
 struct OpenFile {
     drive: DriveSelect,
-    _position: u32,
 }
 
 struct InterruptFuture {
@@ -313,11 +322,9 @@ impl NoOpWaker {
 }
 
 impl Wake for NoOpWaker {
-    fn wake(self: Arc<Self>) {
-    }
+    fn wake(self: Arc<Self>) {}
 
-    fn wake_by_ref(self: &Arc<Self>) {
-    }
+    fn wake_by_ref(self: &Arc<Self>) {}
 }
 
 struct DriverTask<'task> {
@@ -351,7 +358,9 @@ pub fn run_driver() -> ! {
     let interrupt_flag: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     // I know this event loop won't create multiple mutable references, but the
     // borrow checker doesn't...
-    let driver_impl = Arc::new(RefCell::new(FloppyDeviceDriver::new(interrupt_flag.clone())));
+    let driver_impl = Arc::new(RefCell::new(FloppyDeviceDriver::new(
+        interrupt_flag.clone(),
+    )));
 
     // detect drives
     let mut fd_count = 0;
@@ -379,7 +388,7 @@ pub fn run_driver() -> ! {
             Ok(_) => (),
             Err(_) => {
                 crate::kprintln!("=!=! Failed to init floppy controller");
-            },
+            }
         }
     };
 
@@ -404,9 +413,7 @@ pub fn run_driver() -> ! {
         } else {
             if active_request.is_none() {
                 active_request = pending_requests.pop_front().map(|(sender, message)| {
-                    DriverTask::new(
-                        handle_driver_request(driver_impl.clone(), sender, message)
-                    )
+                    DriverTask::new(handle_driver_request(driver_impl.clone(), sender, message))
                 });
             }
 
@@ -416,8 +423,8 @@ pub fn run_driver() -> ! {
                 match req.poll(&mut cx) {
                     Poll::Ready(_) => {
                         active_request = None;
-                    },
-                    Poll::Pending => {},
+                    }
+                    Poll::Pending => {}
                 }
             }
             wait_on_notify(notify, None);
@@ -425,25 +432,31 @@ pub fn run_driver() -> ! {
     }
 }
 
-async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, respond_to: TaskID, message: Message) {
+async fn handle_driver_request(
+    driver_ref: Arc<RefCell<FloppyDeviceDriver>>,
+    respond_to: TaskID,
+    message: Message,
+) {
     match DriverCommand::from_u32(message.message_type) {
         DriverCommand::OpenRaw => {
             let sub_driver = message.args[0];
             let response = driver_ref.borrow_mut().open(sub_driver);
             send_response(respond_to, message.unique_id, response);
-        },
+        }
         DriverCommand::Read => {
             let instance = message.args[0];
             let buffer_ptr = message.args[1] as *mut u8;
             let buffer_len = message.args[2] as usize;
             let offset = message.args[3];
-            let buffer = unsafe {
-                core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
-            };
+            let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
             let result = driver_ref.borrow_mut().read(instance, buffer, offset).await;
             send_response(respond_to, message.unique_id, result);
-        },
-        _ => send_response(respond_to, message.unique_id, Err(IOError::UnsupportedOperation)),
+        }
+        _ => send_response(
+            respond_to,
+            message.unique_id,
+            Err(IOError::UnsupportedOperation),
+        ),
     }
 }
 
@@ -456,7 +469,7 @@ fn send_response(task: TaskID, request_id: u32, result: IOResult) {
                 unique_id: request_id,
                 args: [code, 0, 0, 0, 0, 0],
             }
-        },
+        }
         Err(err) => {
             let code = Into::<u32>::into(err) | 0x80000000;
             Message {
@@ -464,7 +477,7 @@ fn send_response(task: TaskID, request_id: u32, result: IOResult) {
                 unique_id: request_id,
                 args: [code, 0, 0, 0, 0, 0],
             }
-        },
+        }
     };
     send_message(task, message, 0xffffffff);
 }

@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicUsize, Ordering, AtomicU32};
+use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -6,11 +6,11 @@ use idos_api::io::error::IOError;
 use spin::{Once, RwLock};
 
 use crate::collections::SlotList;
-use crate::io::filesystem::driver::DriverID;
-use crate::io::driver::kernel_driver::KernelDriver;
 use crate::files::path::Path;
-use crate::io::filesystem::driver::AsyncIOCallback;
 use crate::io::driver::comms::IOResult;
+use crate::io::driver::kernel_driver::KernelDriver;
+use crate::io::filesystem::driver::AsyncIOCallback;
+use crate::io::filesystem::driver::DriverID;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::virt::scratch::UnmappedPage;
 use crate::task::paging::get_current_physical_address;
@@ -118,9 +118,12 @@ impl Pipe {
         if let ReadMode::Blocking(callback) = read_mode {
             self.read_len.store(buffer.len(), Ordering::SeqCst);
             self.read_progress.store(written, Ordering::SeqCst);
-            let read_ptr = get_current_physical_address(VirtualAddress::new(buffer.as_ptr() as u32)).unwrap().as_u32();
+            let read_ptr =
+                get_current_physical_address(VirtualAddress::new(buffer.as_ptr() as u32))
+                    .unwrap()
+                    .as_u32();
             self.read_ptr.store(read_ptr, Ordering::SeqCst);
-            
+
             if let Some(_) = self.read_callback.write().replace(callback) {
                 panic!("Pipe: mutiple parallel reads should not be possible");
             }
@@ -159,7 +162,7 @@ impl Pipe {
         let callback = if read_len > 0 {
             // write directly to the read buffer, rather than the pipe
             let read_ptr = self.read_ptr.load(Ordering::SeqCst);
-            
+
             // TODO: implement some kind of shared buffer reference that
             // contains between 1 and 2 physical frames
             let buffer_page = UnmappedPage::map(PhysicalAddress::new(read_ptr & 0xfffff000));
@@ -168,7 +171,10 @@ impl Pipe {
             }
 
             let read_buffer = unsafe {
-                let ptr = buffer_page.virtual_address().as_ptr_mut::<u8>().add((read_ptr as usize) & 0xfff);
+                let ptr = buffer_page
+                    .virtual_address()
+                    .as_ptr_mut::<u8>()
+                    .add((read_ptr as usize) & 0xfff);
                 core::slice::from_raw_parts_mut(ptr, read_len)
             };
 
@@ -262,11 +268,14 @@ pub fn create_pipe() -> (u32, u32) {
     )
 }
 
-struct PipeDriver {
-}
+struct PipeDriver {}
 
 impl PipeDriver {
-    fn begin_read(pipe_index: usize, buffer: &mut [u8], io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn begin_read(
+        pipe_index: usize,
+        buffer: &mut [u8],
+        io_callback: AsyncIOCallback,
+    ) -> Option<IOResult> {
         let pipes = PIPES.read();
         let pipe = match pipes.get(pipe_index) {
             Some(pipe) => pipe,
@@ -277,7 +286,8 @@ impl PipeDriver {
             // and then allow the read to complete without blocking
             return Some(Ok(pipe.read(buffer, ReadMode::NonBlocking).unwrap() as u32));
         }
-        pipe.read(buffer, ReadMode::Blocking(io_callback)).map(|bytes_read| Ok(bytes_read as u32))
+        pipe.read(buffer, ReadMode::Blocking(io_callback))
+            .map(|bytes_read| Ok(bytes_read as u32))
     }
 
     fn write(pipe_index: usize, buffer: &[u8]) -> Option<IOResult> {
@@ -296,7 +306,9 @@ impl PipeDriver {
                 Some(lock) => lock,
                 None => return Some(Ok(written as u32)),
             };
-            task_lock.write().async_io_complete(io_index, op_id, Ok(read as u32));
+            task_lock
+                .write()
+                .async_io_complete(io_index, op_id, Ok(read as u32));
         }
         Some(Ok(written as u32))
     }
@@ -328,10 +340,12 @@ impl PipeDriver {
         pipes.remove(pipe_index);
     }
 
+    /*
     pub fn get_open_pipes() -> Vec<usize> {
         let pipes = PIPES.read();
         pipes.enumerate().map(|(index, _)| index).collect()
     }
+    */
 }
 
 impl KernelDriver for PipeDriver {
@@ -339,7 +353,13 @@ impl KernelDriver for PipeDriver {
         Some(Err(IOError::UnsupportedOperation))
     }
 
-    fn read(&self, instance: u32, buffer: &mut [u8], _offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn read(
+        &self,
+        instance: u32,
+        buffer: &mut [u8],
+        _offset: u32,
+        io_callback: AsyncIOCallback,
+    ) -> Option<IOResult> {
         let pipe_index: usize = {
             match OPEN_PIPES.read().get(instance as usize) {
                 Some(PipeEnd::Reader(index)) => *index,
@@ -350,7 +370,13 @@ impl KernelDriver for PipeDriver {
         Self::begin_read(pipe_index, buffer, io_callback)
     }
 
-    fn write(&self, instance: u32, buffer: &[u8], _offset: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn write(
+        &self,
+        instance: u32,
+        buffer: &[u8],
+        _offset: u32,
+        io_callback: AsyncIOCallback,
+    ) -> Option<IOResult> {
         let pipe_index: usize = {
             match OPEN_PIPES.read().get(instance as usize) {
                 Some(PipeEnd::Writer(index)) => *index,
@@ -365,10 +391,10 @@ impl KernelDriver for PipeDriver {
         match OPEN_PIPES.read().get(instance as usize) {
             Some(PipeEnd::Reader(index)) => {
                 Self::close_reader(*index);
-            },
+            }
             Some(PipeEnd::Writer(index)) => {
                 Self::close_writer(*index);
-            },
+            }
             None => return Some(Err(IOError::FileHandleInvalid)),
         }
 
@@ -380,9 +406,8 @@ impl KernelDriver for PipeDriver {
 pub static PIPE_DRIVER_ID: Once<DriverID> = Once::new();
 
 pub fn install() {
-    PIPE_DRIVER_ID.call_once(|| {
-        crate::io::filesystem::install_kernel_fs("", Box::new(PipeDriver {}))
-    });
+    PIPE_DRIVER_ID
+        .call_once(|| crate::io::filesystem::install_kernel_fs("", Box::new(PipeDriver {})));
 }
 
 pub fn get_pipe_drive_id() -> DriverID {
@@ -392,12 +417,15 @@ pub fn get_pipe_drive_id() -> DriverID {
 #[cfg(test)]
 mod tests {
     use super::{Pipe, ReadMode};
-    use crate::task::id::TaskID;
     use crate::io::async_io::{AsyncOpID, ASYNC_OP_READ};
     use crate::io::handle::{Handle, PendingHandleOp};
-    use crate::task::actions::handle::{create_kernel_task, create_pipe_handles, handle_op_read, handle_op_write, handle_op_close, transfer_handle};
+    use crate::task::actions::handle::{
+        create_kernel_task, create_pipe_handles, handle_op_close, handle_op_read, handle_op_write,
+        transfer_handle,
+    };
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::yield_coop;
+    use crate::task::id::TaskID;
     use idos_api::io::error::IOError;
 
     // pipe tests
@@ -408,12 +436,18 @@ mod tests {
         let mut read_buffer: [u8; 3] = [0; 3];
         let write_buffer: [u8; 4] = [0xaa, 0xbb, 0xcc, 0xdd];
         pipe.write(&write_buffer);
-        let mut read_result = pipe.read(&mut read_buffer, ReadMode::Blocking((TaskID::new(0), 0, AsyncOpID::new(0))));
+        let mut read_result = pipe.read(
+            &mut read_buffer,
+            ReadMode::Blocking((TaskID::new(0), 0, AsyncOpID::new(0))),
+        );
         assert_eq!(read_result, Some(3));
         assert_eq!(read_buffer, [0xaa, 0xbb, 0xcc]);
 
         pipe.write(&write_buffer);
-        read_result = pipe.read(&mut read_buffer, ReadMode::Blocking((TaskID::new(0), 0, AsyncOpID::new(0))));
+        read_result = pipe.read(
+            &mut read_buffer,
+            ReadMode::Blocking((TaskID::new(0), 0, AsyncOpID::new(0))),
+        );
         assert_eq!(read_result, Some(3));
         assert_eq!(read_buffer, [0xdd, 0xaa, 0xbb]);
     }
@@ -489,7 +523,7 @@ mod tests {
         let (reader, writer) = create_pipe_handles();
         let mut read_buffer: [u8; 3] = [0; 3];
         let read_op = handle_op_read(reader, &mut read_buffer, 0);
-        
+
         let write_op = handle_op_write(writer, &[2, 4, 6]);
         assert_eq!(write_op.wait_for_completion(), 3);
         assert_eq!(read_op.wait_for_completion(), 3);
@@ -560,6 +594,9 @@ mod tests {
         handle_op_close(reader).wait_for_completion();
         let write_buffer: [u8; 3] = [12, 14, 18];
         let write_op = handle_op_write(writer, &[12, 14, 18]);
-        assert_eq!(write_op.wait_for_completion(), 0x80000000 | IOError::WriteToClosedIO as u32);
+        assert_eq!(
+            write_op.wait_for_completion(),
+            0x80000000 | IOError::WriteToClosedIO as u32
+        );
     }
 }

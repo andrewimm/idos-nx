@@ -1,9 +1,9 @@
+use super::super::ip::IPV4Address;
+use super::super::socket::{SocketHandle, SocketPort};
+use super::header::TCPHeader;
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 use spin::RwLock;
-use super::header::TCPHeader;
-use super::super::ip::IPV4Address;
-use super::super::socket::{SocketHandle, SocketPort};
 
 #[derive(Copy, Clone)]
 pub enum TCPState {
@@ -75,7 +75,7 @@ pub fn action_for_tcp_packet(connection: &TCPConnection, header: &TCPHeader) -> 
             }
             // TODO: implement
             TCPAction::Discard
-        },
+        }
         TCPState::SynReceived => {
             if !header.is_ack() {
                 return TCPAction::Reset;
@@ -85,7 +85,7 @@ pub fn action_for_tcp_packet(connection: &TCPConnection, header: &TCPHeader) -> 
                 return TCPAction::Reset;
             }
             TCPAction::Connect
-        },
+        }
 
         TCPState::Established => {
             if header.is_fin() {
@@ -95,27 +95,28 @@ pub fn action_for_tcp_packet(connection: &TCPConnection, header: &TCPHeader) -> 
                 return TCPAction::Reset;
             }
             TCPAction::Enqueue
-        },
+        }
 
-        TCPState::LastAck => {
-            TCPAction::Close
-        },
+        TCPState::LastAck => TCPAction::Close,
     }
 }
 
 pub struct TCPConnectionLookup {
     remote_ip: IPV4Address,
     remote_port: SocketPort,
-    local_ip: IPV4Address,
-    local_port: SocketPort,
     handle: SocketHandle,
 }
 
-static ESTABLISHED_CONNECTIONS: RwLock<BTreeMap<SocketPort, Vec<TCPConnectionLookup>>> = RwLock::new(BTreeMap::new());
+static ESTABLISHED_CONNECTIONS: RwLock<BTreeMap<SocketPort, Vec<TCPConnectionLookup>>> =
+    RwLock::new(BTreeMap::new());
 
 /// Get the Socket Handle for an established connection between a local ip/port
 /// and a remote ip/port
-pub fn get_tcp_connection_socket(local_ip: IPV4Address, local_port: SocketPort, remote_ip: IPV4Address, remote_port: SocketPort) -> Option<SocketHandle> {
+pub fn get_tcp_connection_socket(
+    local_port: SocketPort,
+    remote_ip: IPV4Address,
+    remote_port: SocketPort,
+) -> Option<SocketHandle> {
     let connections = ESTABLISHED_CONNECTIONS.read();
     let port_list = connections.get(&local_port)?;
     for lookup in port_list.iter() {
@@ -132,12 +133,15 @@ pub fn get_tcp_connection_socket(local_ip: IPV4Address, local_port: SocketPort, 
 
 /// Associate a local and remote endpoint pair with a newly opened socket, for
 /// easy lookup
-pub fn add_tcp_connection_lookup(local_ip: IPV4Address, local_port: SocketPort, remote_ip: IPV4Address, remote_port: SocketPort, handle: SocketHandle) {
+pub fn add_tcp_connection_lookup(
+    local_port: SocketPort,
+    remote_ip: IPV4Address,
+    remote_port: SocketPort,
+    handle: SocketHandle,
+) {
     let lookup = TCPConnectionLookup {
         remote_ip,
         remote_port,
-        local_ip,
-        local_port,
         handle,
     };
     let mut connections = ESTABLISHED_CONNECTIONS.write();
@@ -150,7 +154,11 @@ pub fn add_tcp_connection_lookup(local_ip: IPV4Address, local_port: SocketPort, 
     connections.get_mut(&local_port).unwrap().push(lookup);
 }
 
-pub fn remove_tcp_connection_lookup(local_ip: IPV4Address, local_port: SocketPort, remote_ip: IPV4Address, remote_port: SocketPort) {
+pub fn remove_tcp_connection_lookup(
+    local_port: SocketPort,
+    remote_ip: IPV4Address,
+    remote_port: SocketPort,
+) {
     let mut connections = ESTABLISHED_CONNECTIONS.write();
     match connections.get_mut(&local_port) {
         Some(port_list) => {
@@ -165,8 +173,7 @@ pub fn remove_tcp_connection_lookup(local_ip: IPV4Address, local_port: SocketPor
                 port_list.remove(i);
                 return;
             }
-        },
+        }
         None => return,
     }
 }
-

@@ -31,7 +31,7 @@ fn run_driver() -> ! {
     let name_length = name_length_buffer[0] as usize;
 
     let mut dev_name_buffer: [u8; 5 + 8] = [0; 5 + 8];
-    &mut dev_name_buffer[0..5].copy_from_slice("DEV:\\".as_bytes());
+    dev_name_buffer[0..5].copy_from_slice("DEV:\\".as_bytes());
     let dev_name_len =
         5 + handle_op_read(args_reader, &mut dev_name_buffer[5..(5 + name_length)], 0)
             .wait_for_completion() as usize;
@@ -65,28 +65,6 @@ fn run_driver() -> ! {
             wait_on_notify(notify, None);
         }
     }
-}
-
-fn send_response(task: TaskID, request_id: u32, result: IOResult) {
-    let message = match result {
-        Ok(result) => {
-            let code = result & 0x7fffffff;
-            Message {
-                message_type: DRIVER_RESPONSE_MAGIC,
-                unique_id: request_id,
-                args: [code, 0, 0, 0, 0, 0],
-            }
-        }
-        Err(err) => {
-            let code = Into::<u32>::into(err) | 0x80000000;
-            Message {
-                message_type: DRIVER_RESPONSE_MAGIC,
-                unique_id: request_id,
-                args: [code, 0, 0, 0, 0, 0],
-            }
-        }
-    };
-    send_message(task, message, 0xffffffff)
 }
 
 pub fn mount_fat_fs() {
