@@ -66,11 +66,15 @@ impl<T> HandleTable<T> {
     }
 
     pub fn iter(&self) -> impl Iterator<Item = (Handle, &T)> {
-        self.inner.enumerate().map(|(index, item)| (Handle::new(index), item))
+        self.inner
+            .enumerate()
+            .map(|(index, item)| (Handle::new(index), item))
     }
 
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (Handle, &mut T)> {
-        self.inner.enumerate_mut().map(|(index, item)| (Handle::new(index), item))
+        self.inner
+            .enumerate_mut()
+            .map(|(index, item)| (Handle::new(index), item))
     }
 }
 
@@ -95,8 +99,8 @@ impl PendingHandleOp {
             arg2,
         );
 
-        crate::task::actions::handle::add_io_op(handle, op);
-        
+        crate::task::actions::handle::add_io_op(handle, op).unwrap();
+
         Self {
             semaphore,
             return_value,
@@ -155,4 +159,3 @@ mod tests {
         assert_eq!(iter.next(), None);
     }
 }
-

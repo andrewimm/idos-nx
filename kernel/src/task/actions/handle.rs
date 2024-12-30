@@ -1,10 +1,8 @@
 use core::ops::Deref;
 use core::sync::atomic::Ordering;
 
-use alloc::string::ToString;
-use idos_api::io::error::IOError;
 use crate::interrupts::pic::add_interrupt_listener;
-use crate::io::async_io::{IOType, AsyncOp, ASYNC_OP_CLOSE};
+use crate::io::async_io::{AsyncOp, IOType, ASYNC_OP_CLOSE};
 use crate::io::filesystem::driver::DriverID;
 use crate::io::filesystem::get_driver_id_by_name;
 use crate::io::handle::{Handle, PendingHandleOp};
@@ -16,6 +14,8 @@ use crate::io::provider::task::TaskIOProvider;
 use crate::pipes::driver::{create_pipe, get_pipe_drive_id};
 use crate::task::id::TaskID;
 use crate::task::switching::get_task;
+use alloc::string::ToString;
+use idos_api::io::error::IOError;
 
 use super::switching::get_current_task;
 use super::yield_coop;
@@ -37,8 +37,12 @@ pub fn add_io_op(handle: Handle, op: AsyncOp) -> Result<(), ()> {
     let code = op.op_code;
     if code & 0xfff == ASYNC_OP_CLOSE {
         let mut task = task_lock.write();
+        // TODO: use a real error type for this
         let io_index = task.open_handles.get(handle).ok_or(())?.clone();
-        let ref_count = task.async_io_table.get_reference_count(io_index).ok_or(())?;
+        let ref_count = task
+            .async_io_table
+            .get_reference_count(io_index)
+            .ok_or(())?;
         if ref_count > 1 {
             // if there are multiple open handles, just remove the reference
             // but don't actually close the provider
@@ -96,7 +100,7 @@ pub fn create_pipe_handles() -> (Handle, Handle) {
     let read_io_index = task.async_io_table.add_io(IOType::File(read_io));
     let write_io = FileIOProvider::bound(task.id, pipe_driver_id, writer_instance);
     let write_io_index = task.async_io_table.add_io(IOType::File(write_io));
-    
+
     (
         task.open_handles.insert(read_io_index),
         task.open_handles.insert(write_io_index),
@@ -158,14 +162,14 @@ pub fn transfer_handle(handle: Handle, transfer_to: TaskID) -> Option<Handle> {
                 // It can be modified and added to the destination task
                 io_entry.set_task(transfer_to);
                 io_entry
-            },
+            }
             None => {
                 panic!("Not implemented");
                 // TODO: entry needs to be duplicated
-            },
+            }
         }
     };
-    
+
     let mut dest_task = dest_lock.write();
     let dest_index = dest_task.async_io_table.insert(async_io_entry);
     Some(dest_task.open_handles.insert(dest_index))
@@ -225,7 +229,6 @@ pub fn handle_op_close(handle: Handle) -> PendingHandleOp {
     PendingHandleOp::new(handle, ASYNC_OP_CLOSE, 0, 0, 0)
 }
 
-
 pub fn set_active_drive(drive_name: &str) -> Result<DriverID, IOError> {
     let found_id = if drive_name.to_ascii_uppercase() == "DEV" {
         Some(DriverID::new(0))
@@ -239,15 +242,15 @@ pub fn set_active_drive(drive_name: &str) -> Result<DriverID, IOError> {
             task.current_drive.name = drive_name.to_string();
             task.current_drive.driver_id = id;
             Ok(id)
-        },
+        }
         _ => Err(IOError::NotFound),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::io::async_io::{ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
     use crate::io::handle::PendingHandleOp;
-    use crate::io::async_io::{ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE, ASYNC_OP_CLOSE};
 
     #[test_case]
     fn wait_for_child() {
@@ -292,15 +295,21 @@ mod tests {
 
     #[test_case]
     fn message_queue() {
-        use crate::task::actions::send_message;
         use crate::task::actions::lifecycle::terminate;
         use crate::task::actions::messaging::Message;
+        use crate::task::actions::send_message;
 
         fn child_task_body() -> ! {
             let msg_handle = super::open_message_queue();
             let message = Message::empty();
 
-            let op = PendingHandleOp::new(msg_handle, ASYNC_OP_READ, &message as *const Message as u32, 0, 0);
+            let op = PendingHandleOp::new(
+                msg_handle,
+                ASYNC_OP_READ,
+                &message as *const Message as u32,
+                0,
+                0,
+            );
             let _sender = op.wait_for_completion();
 
             assert_eq!(message.args, [1, 2, 3, 4, 5, 6]);
@@ -308,7 +317,11 @@ mod tests {
         }
 
         let (handle, child_id) = super::create_kernel_task(child_task_body, Some("CHILD"));
-        send_message(child_id, Message::empty().set_args([1, 2, 3, 4, 5, 6]), 0xffffffff);
+        send_message(
+            child_id,
+            Message::empty().set_args([1, 2, 3, 4, 5, 6]),
+            0xffffffff,
+        );
 
         let op = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
         op.wait_for_completion();
@@ -316,16 +329,28 @@ mod tests {
 
     #[test_case]
     fn multiple_messages() {
-        use crate::task::actions::send_message;
         use crate::task::actions::lifecycle::terminate;
         use crate::task::actions::messaging::Message;
+        use crate::task::actions::send_message;
 
         fn child_task_body() -> ! {
             let msg_handle = super::open_message_queue();
             let message = Message::empty();
             crate::task::actions::sleep(100);
-            let op1 = PendingHandleOp::new(msg_handle, ASYNC_OP_READ, &message as *const Message as u32, 0, 0);
-            let op2 = PendingHandleOp::new(msg_handle, ASYNC_OP_READ, &message as *const Message as u32, 0, 0);
+            let op1 = PendingHandleOp::new(
+                msg_handle,
+                ASYNC_OP_READ,
+                &message as *const Message as u32,
+                0,
+                0,
+            );
+            let op2 = PendingHandleOp::new(
+                msg_handle,
+                ASYNC_OP_READ,
+                &message as *const Message as u32,
+                0,
+                0,
+            );
             op1.wait_for_completion();
             op2.wait_for_completion();
 
@@ -334,8 +359,24 @@ mod tests {
         }
 
         let (handle, child_id) = super::create_kernel_task(child_task_body, Some("CHILD"));
-        send_message(child_id, Message { message_type: 0, unique_id: 1, args: [0; 6] }, 0xffffffff);
-        send_message(child_id, Message { message_type: 0, unique_id: 5, args: [0; 6] }, 0xffffffff);
+        send_message(
+            child_id,
+            Message {
+                message_type: 0,
+                unique_id: 1,
+                args: [0; 6],
+            },
+            0xffffffff,
+        );
+        send_message(
+            child_id,
+            Message {
+                message_type: 0,
+                unique_id: 5,
+                args: [0; 6],
+            },
+            0xffffffff,
+        );
 
         let op = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
         op.wait_for_completion();
@@ -400,7 +441,13 @@ mod tests {
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 5] = [0; 5];
-        op = PendingHandleOp::new(handle, ASYNC_OP_READ, buffer.as_ptr() as u32, buffer.len() as u32, 0);
+        op = PendingHandleOp::new(
+            handle,
+            ASYNC_OP_READ,
+            buffer.as_ptr() as u32,
+            buffer.len() as u32,
+            0,
+        );
         result = op.wait_for_completion();
         assert_eq!(result, 5);
         assert_eq!(buffer, [b'A', b'B', b'C', b'D', b'E']);
@@ -417,7 +464,13 @@ mod tests {
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 5] = [0; 5];
-        op = PendingHandleOp::new(handle, ASYNC_OP_READ, buffer.as_ptr() as u32, buffer.len() as u32, 0);
+        op = PendingHandleOp::new(
+            handle,
+            ASYNC_OP_READ,
+            buffer.as_ptr() as u32,
+            buffer.len() as u32,
+            0,
+        );
         result = op.wait_for_completion();
         assert_eq!(result, 5);
         assert_eq!(buffer, [b'A', b'B', b'C', b'D', b'E']);
@@ -463,7 +516,13 @@ mod tests {
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 3] = [0xAA; 3];
-        op = PendingHandleOp::new(handle, ASYNC_OP_READ, buffer.as_ptr() as u32, buffer.len() as u32, 0);
+        op = PendingHandleOp::new(
+            handle,
+            ASYNC_OP_READ,
+            buffer.as_ptr() as u32,
+            buffer.len() as u32,
+            0,
+        );
         result = op.wait_for_completion();
         assert_eq!(result, 3);
         assert_eq!(buffer, [0, 0, 0]);
@@ -499,7 +558,13 @@ mod tests {
         let path_len = path.len() as u32;
         let mut buffer: [u8; 4] = [0; 4];
         let op1 = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
-        let op2 = PendingHandleOp::new(handle, ASYNC_OP_READ, buffer.as_ptr() as u32, buffer.len() as u32, 0);
+        let op2 = PendingHandleOp::new(
+            handle,
+            ASYNC_OP_READ,
+            buffer.as_ptr() as u32,
+            buffer.len() as u32,
+            0,
+        );
 
         let result = op2.wait_for_completion();
         assert_eq!(result, 4);
@@ -529,7 +594,7 @@ mod tests {
         let mut read_buffer: [u8; 3] = [0; 3];
         super::handle_op_read(handle, &mut read_buffer, 0).wait_for_completion();
         assert_eq!(read_buffer, [b'A', b'B', b'C']);
-        
+
         super::handle_op_read(handle_dup, &mut read_buffer, 0).wait_for_completion();
         // dup handle should point to the same instance
         assert_eq!(read_buffer, [b'D', b'E', b'F']);

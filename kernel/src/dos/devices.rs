@@ -1,4 +1,4 @@
-use crate::task::actions::io::{write_file, read_file};
+use crate::task::actions::io::{read_file, write_file};
 use crate::task::files::FileHandle;
 
 use super::execution::{get_current_psp_segment, PSP};
@@ -79,7 +79,7 @@ pub fn write_stdaux(regs: &mut DosApiRegisters) {
 pub fn print_string(regs: &mut DosApiRegisters, segments: &mut VM86Frame) {
     // TODO: this needs to be the PSP's STDOUT, not the Task's...
     let stdout_handle = FileHandle::new(1);
-    
+
     let string_location = SegmentedAddress {
         segment: segments.ds as u16,
         offset: regs.dx(),
@@ -102,5 +102,5 @@ pub fn print_string(regs: &mut DosApiRegisters, segments: &mut VM86Frame) {
     }
 
     let buffer = unsafe { core::slice::from_raw_parts(start, length) };
-    write_file(stdout_handle, buffer);
+    write_file(stdout_handle, buffer).unwrap();
 }

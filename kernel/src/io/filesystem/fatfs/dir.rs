@@ -194,15 +194,14 @@ impl FileDate {
 
 pub struct RootDirectory {
     first_sector: u32,
-    max_sectors: u32,
+    max_entries: u32,
 }
 
 impl RootDirectory {
     pub fn new(first_sector: u32, max_entries: u32) -> Self {
-        let max_sectors = max_entries * 32 / 512;
         Self {
             first_sector,
-            max_sectors,
+            max_entries,
         }
     }
 
@@ -215,6 +214,7 @@ impl RootDirectory {
             disk,
             dir_offset,
             current_index: 0,
+            max_index: self.max_entries,
             current,
         }
     }
@@ -248,6 +248,7 @@ pub struct RootDirectoryIter<'disk> {
     disk: &'disk mut DiskAccess,
     dir_offset: u32,
     current_index: u32,
+    max_index: u32,
     current: DirEntry,
 }
 
@@ -256,6 +257,10 @@ impl Iterator for RootDirectoryIter<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current.is_empty() {
+            return None;
+        }
+
+        if self.current_index + 1 >= self.max_index {
             return None;
         }
 

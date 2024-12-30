@@ -162,7 +162,6 @@ static CURRENT_TRANSACTIONS: RwLock<BTreeMap<u32, Transaction>> = RwLock::new(BT
 struct Transaction {
     mac: HardwareAddress,
     state: TransactionState,
-    blocked_task: TaskID,
 }
 
 enum TransactionState {
@@ -193,7 +192,6 @@ pub fn start_dhcp_transaction(blocked_task: TaskID, mac: HardwareAddress) {
     let transaction = Transaction {
         mac,
         state: TransactionState::Discover,
-        blocked_task,
     };
 
     CURRENT_TRANSACTIONS.write().insert(xid, transaction);
