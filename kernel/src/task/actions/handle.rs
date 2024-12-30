@@ -1,6 +1,3 @@
-use core::ops::Deref;
-use core::sync::atomic::Ordering;
-
 use crate::interrupts::pic::add_interrupt_listener;
 use crate::io::async_io::{AsyncOp, IOType, ASYNC_OP_CLOSE};
 use crate::io::filesystem::driver::DriverID;
@@ -224,8 +221,6 @@ pub fn handle_op_write_struct<T: Sized>(handle: Handle, struct_ref: &T) -> Pendi
 }
 
 pub fn handle_op_close(handle: Handle) -> PendingHandleOp {
-    use crate::io::async_io::ASYNC_OP_CLOSE;
-
     PendingHandleOp::new(handle, ASYNC_OP_CLOSE, 0, 0, 0)
 }
 

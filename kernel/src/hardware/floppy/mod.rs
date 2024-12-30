@@ -1,6 +1,6 @@
 use crate::task::actions::{
+    handle::{create_pipe_handles, handle_op_read, transfer_handle},
     lifecycle::create_kernel_task,
-    handle::{create_pipe_handles, handle_op_close, handle_op_read, transfer_handle},
 };
 
 pub mod controller;

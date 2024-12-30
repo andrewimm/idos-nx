@@ -1,11 +1,12 @@
 pub mod zero;
 
-use alloc::boxed::Box;
-use alloc::sync::Arc;
 use crate::files::cursor::SeekMethod;
 use crate::io::IOError;
 use crate::task::id::TaskID;
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 
+#[allow(unused_variables)]
 pub trait SyncDriver {
     fn open(&self) -> Result<u32, IOError>;
     fn read(&self, index: u32, buffer: &mut [u8]) -> Result<u32, IOError>;

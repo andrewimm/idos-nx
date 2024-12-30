@@ -1,8 +1,7 @@
-use super::dir::{Directory, Entity, File};
+use super::dir::{Directory, Entity};
 use super::fs::FatFS;
 use super::table::AllocationTable;
 use crate::collections::SlotList;
-use crate::files::cursor::SeekMethod;
 use crate::files::stat::{FileStatus, FileType};
 use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::IOError;
@@ -87,12 +86,11 @@ impl AsyncDriver for FatDriver {
                 status.file_type = FileType::File as u32;
                 status.modification_time = f.get_modification_time();
             }
-            Entity::Dir(d) => {
+            Entity::Dir(_) => {
                 status.byte_size = 0;
                 status.file_type = FileType::Dir as u32;
                 status.modification_time = 0;
             }
-            _ => panic!("Need to implement stat for other handle types"),
         }
         Ok(0)
     }

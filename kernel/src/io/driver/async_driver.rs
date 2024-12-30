@@ -1,13 +1,18 @@
+use super::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
+use crate::{
+    files::stat::FileStatus,
+    memory::{address::VirtualAddress, shared::release_buffer},
+    task::messaging::Message,
+};
 use alloc::string::ToString;
 use idos_api::io::error::IOError;
-use crate::{task::messaging::Message, files::stat::FileStatus, memory::{shared::release_buffer, address::VirtualAddress}};
-use super::comms::{DriverCommand, DRIVER_RESPONSE_MAGIC, IOResult};
 
 /// Trait implemented by all async drivers. It provides a helper method to
 /// translate incoming messages from the DriverIO system into file IO method
 /// calls.
 ///
 /// TODO: This should eventually get moved out into the SDK.
+#[allow(unused_variables)]
 pub trait AsyncDriver {
     fn handle_request(&mut self, message: Message) -> Option<Message> {
         let driver_result: Option<IOResult> = match DriverCommand::from_u32(message.message_type) {
@@ -17,33 +22,29 @@ pub trait AsyncDriver {
                 let path = if path_len == 0 {
                     ""
                 } else {
-                    let path_slice = unsafe {
-                        core::slice::from_raw_parts(path_ptr, path_len)
-                    };
+                    let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
                     core::str::from_utf8(path_slice).ok()?
                 };
                 Some(self.open(path))
-            },
+            }
             DriverCommand::OpenRaw => {
                 let id_as_path = message.args[0].to_string();
                 Some(self.open(id_as_path.as_str()))
-            },
+            }
             DriverCommand::Close => {
                 let instance = message.args[0];
                 Some(self.close(instance))
-            },
+            }
             DriverCommand::Read => {
                 let instance = message.args[0];
                 let buffer_ptr = message.args[1] as *mut u8;
                 let buffer_len = message.args[2] as usize;
                 let offset = message.args[3];
-                let buffer = unsafe {
-                    core::slice::from_raw_parts_mut(buffer_ptr, buffer_len)
-                };
+                let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
                 let result = self.read(instance, buffer, offset);
                 release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
                 Some(result)
-            },
+            }
             DriverCommand::Stat => {
                 let instance = message.args[0];
                 let struct_ptr = message.args[1] as *mut FileStatus;
@@ -58,33 +59,29 @@ pub trait AsyncDriver {
                 let result = self.stat(instance, status_struct);
                 release_buffer(VirtualAddress::new(struct_ptr as u32), struct_len);
                 Some(result)
-            },
+            }
             _ => {
                 crate::kprintln!("Async driver: Unknown Request");
                 None
-            },
+            }
         };
         match driver_result {
             Some(Ok(result)) => {
                 let code = result & 0x7fffffff;
-                Some(
-                    Message {
-                        message_type: DRIVER_RESPONSE_MAGIC,
-                        unique_id: message.unique_id,
-                        args: [code, 0, 0, 0, 0, 0],
-                    }
-                )
-            },
+                Some(Message {
+                    message_type: DRIVER_RESPONSE_MAGIC,
+                    unique_id: message.unique_id,
+                    args: [code, 0, 0, 0, 0, 0],
+                })
+            }
             Some(Err(err)) => {
                 let code = Into::<u32>::into(err) | 0x80000000;
-                Some(
-                    Message {
-                        message_type: DRIVER_RESPONSE_MAGIC,
-                        unique_id: message.unique_id,
-                        args: [code, 0, 0, 0, 0, 0],
-                    }
-                )
-            },
+                Some(Message {
+                    message_type: DRIVER_RESPONSE_MAGIC,
+                    unique_id: message.unique_id,
+                    args: [code, 0, 0, 0, 0, 0],
+                })
+            }
             None => None,
         }
     }

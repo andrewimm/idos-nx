@@ -1,19 +1,20 @@
 use alloc::vec::Vec;
 
-use crate::filesystem::drive::DriveID;
-use crate::filesystem::get_driver_by_id;
-use crate::files::handle::DriverHandle;
-use crate::files::cursor::SeekMethod;
-use crate::dos::execution::PSP;
-use crate::dos::memory::SegmentedAddress;
-use crate::task::memory::{ExecutionSegment, ExecutionSection};
-use crate::memory::address::VirtualAddress;
-use super::LoaderError;
 use super::environment::{ExecutionEnvironment, InitialRegisters};
 use super::parse::FileHeader;
 use super::relocation::Relocation;
+use super::LoaderError;
+use crate::dos::execution::PSP;
+use crate::dos::memory::SegmentedAddress;
+use crate::files::cursor::SeekMethod;
+use crate::files::handle::DriverHandle;
+use crate::filesystem::drive::DriveID;
+use crate::filesystem::get_driver_by_id;
+use crate::memory::address::VirtualAddress;
+use crate::task::memory::{ExecutionSection, ExecutionSegment};
 
 #[repr(C, packed)]
+#[allow(dead_code)]
 pub struct MzHeader {
     magic_number: [u8; 2],
     /// Number of bytes actually occupied in the final page
@@ -67,17 +68,25 @@ impl MzHeader {
 
 impl FileHeader for MzHeader {}
 
-fn read_exec_file(drive_id: DriveID, driver_handle: DriverHandle, seek: usize, buffer: &mut [u8]) -> Result<u32, LoaderError> {
+fn read_exec_file(
+    drive_id: DriveID,
+    driver_handle: DriverHandle,
+    seek: usize,
+    buffer: &mut [u8],
+) -> Result<u32, LoaderError> {
     let driver = get_driver_by_id(drive_id).map_err(|_| LoaderError::FileNotFound)?;
-    driver.seek(driver_handle, SeekMethod::Absolute(seek)).map_err(|_| LoaderError::FileNotFound)?;
-    driver.read(driver_handle, buffer).map_err(|_| LoaderError::FileNotFound)
+    driver
+        .seek(driver_handle, SeekMethod::Absolute(seek))
+        .map_err(|_| LoaderError::FileNotFound)?;
+    driver
+        .read(driver_handle, buffer)
+        .map_err(|_| LoaderError::FileNotFound)
 }
 
 pub fn build_environment(
     drive_id: DriveID,
     driver_handle: DriverHandle,
 ) -> Result<ExecutionEnvironment, LoaderError> {
-    
     let mut mz_header = unsafe { core::mem::zeroed::<MzHeader>() };
     read_exec_file(drive_id, driver_handle, 0, mz_header.as_buffer_mut())?;
     if mz_header.page_count < 1 {
@@ -89,7 +98,6 @@ pub fn build_environment(
     let program_size = file_size - mz_header_size;
 
     let psp_segment: u32 = 0x100;
-    let psp_address = VirtualAddress::new(psp_segment << 4);
 
     // The "load module" is the code copied from the EXE, at a new segment
     // after the psp
@@ -120,10 +128,15 @@ pub fn build_environment(
             page_count += 1;
         }
 
-        let mut segment = ExecutionSegment::at_address(page_start, page_count).map_err(|_| LoaderError::InternalError)?;
+        let mut segment = ExecutionSegment::at_address(page_start, page_count)
+            .map_err(|_| LoaderError::InternalError)?;
         segment.set_user_write_flag(true);
-        segment.add_section(psp_section).map_err(|_| LoaderError::InternalError)?;
-        segment.add_section(code_section).map_err(|_| LoaderError::InternalError)?;
+        segment
+            .add_section(psp_section)
+            .map_err(|_| LoaderError::InternalError)?;
+        segment
+            .add_section(code_section)
+            .map_err(|_| LoaderError::InternalError)?;
         let mut segments = Vec::with_capacity(1);
         segments.push(segment);
         segments
@@ -133,7 +146,10 @@ pub fn build_environment(
         let relocation_table_size = mz_header.relocation_entries as usize;
         let mut relocation_table: Vec<SegmentedAddress> = Vec::with_capacity(relocation_table_size);
         for _ in 0..relocation_table_size {
-            relocation_table.push(SegmentedAddress { segment: 0, offset: 0 });
+            relocation_table.push(SegmentedAddress {
+                segment: 0,
+                offset: 0,
+            });
         }
         let relocation_table_bytes = unsafe {
             core::slice::from_raw_parts_mut(
@@ -141,9 +157,15 @@ pub fn build_environment(
                 relocation_table.len() * core::mem::size_of::<SegmentedAddress>(),
             )
         };
-        read_exec_file(drive_id, driver_handle, mz_header.relocation_table_offset as usize, relocation_table_bytes)?;
+        read_exec_file(
+            drive_id,
+            driver_handle,
+            mz_header.relocation_table_offset as usize,
+            relocation_table_bytes,
+        )?;
 
-        relocation_table.iter()
+        relocation_table
+            .iter()
             .map(|seg| {
                 let addr = seg.normalize() + (load_module_segment << 4);
                 Relocation::DosExe(addr, load_module_segment as u16)
@@ -153,30 +175,28 @@ pub fn build_environment(
 
     crate::kprintln!("Relocations: {:?}", relocations);
 
-    Ok(
-        ExecutionEnvironment {
-            segments,
-            relocations,
-            registers: InitialRegisters {
-                // Similar to COM, this should represent validity of FCBs in
-                // the PSP
-                eax: Some(0),
-                ebx: None,
-                ecx: None,
-                edx: None,
-                ebp: None,
-                esi: None,
-                edi: None,
+    Ok(ExecutionEnvironment {
+        segments,
+        relocations,
+        registers: InitialRegisters {
+            // Similar to COM, this should represent validity of FCBs in
+            // the PSP
+            eax: Some(0),
+            ebx: None,
+            ecx: None,
+            edx: None,
+            ebp: None,
+            esi: None,
+            edi: None,
 
-                eip: mz_header.initial_ip as u32,
-                esp: Some(mz_header.initial_sp as u32),
+            eip: mz_header.initial_ip as u32,
+            esp: Some(mz_header.initial_sp as u32),
 
-                cs: Some(mz_header.initial_cs as u32 + load_module_segment),
-                ds: Some(psp_segment as u32),
-                es: Some(psp_segment as u32),
-                ss: Some(mz_header.initial_ss as u32 + load_module_segment),
-            },
-            require_vm: true,
-        }
-    )
+            cs: Some(mz_header.initial_cs as u32 + load_module_segment),
+            ds: Some(psp_segment as u32),
+            es: Some(psp_segment as u32),
+            ss: Some(mz_header.initial_ss as u32 + load_module_segment),
+        },
+        require_vm: true,
+    })
 }

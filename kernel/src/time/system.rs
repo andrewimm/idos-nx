@@ -117,9 +117,7 @@ pub fn increment_offset(delta: u64) {
 
 pub fn initialize_time_from_rtc() {
     let cmos_time = crate::hardware::rtc::read_rtc_time();
-    let dt = cmos_time.to_datetime();
     let timestamp = cmos_time.to_datetime().to_timestamp();
     let system_time = TimestampHires::from_timestamp(timestamp);
     reset_known_time(system_time.0)
 }
-

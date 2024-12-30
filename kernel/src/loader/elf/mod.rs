@@ -1,12 +1,12 @@
-use alloc::vec::Vec;
 use crate::files::handle::DriverHandle;
 use crate::filesystem::drive::DriveID;
 use crate::loader::elf::headers::ProgramHeader;
 use crate::memory::address::VirtualAddress;
-use crate::task::memory::{ExecutionSegment, ExecutionSection};
+use crate::task::memory::{ExecutionSection, ExecutionSegment};
+use alloc::vec::Vec;
 
-use super::LoaderError;
 use super::environment::{ExecutionEnvironment, InitialRegisters};
+use super::LoaderError;
 
 pub mod headers;
 pub mod parse;
@@ -28,13 +28,15 @@ pub fn build_environment(
             let address = segment_start.prev_page_barrier();
             let page_count = (segment_end.next_page_barrier() - address) / 4096;
             let mut segment = ExecutionSegment::at_address(address, page_count).ok()?;
-            segment.set_user_write_flag(program_header.segment_flags & headers::SEGMENT_FLAG_WRITE != 0);
+            segment.set_user_write_flag(
+                program_header.segment_flags & headers::SEGMENT_FLAG_WRITE != 0,
+            );
 
             Some(segment)
         })
         .filter_map(|e| e)
         .collect();
-    
+
     for section_header in section_headers.iter() {
         // only allocate memory for sections marked ALLOC
         if section_header.section_flags & headers::SECTION_FLAG_ALLOC == 0 {
@@ -56,7 +58,9 @@ pub fn build_environment(
                     size: section_header.section_size_in_file,
                 };
 
-                segment.add_section(section).map_err(|_| LoaderError::InternalError)?;
+                segment
+                    .add_section(section)
+                    .map_err(|_| LoaderError::InternalError)?;
                 break;
             }
         }
@@ -67,17 +71,20 @@ pub fn build_environment(
     let mut stack_segment = ExecutionSegment::at_address(
         VirtualAddress::new(0xc0000000 - 0x1000 * stack_size_pages),
         stack_size_pages,
-    ).map_err(|_| LoaderError::InternalError)?;
+    )
+    .map_err(|_| LoaderError::InternalError)?;
     stack_segment.set_user_write_flag(true);
     let stack_section = ExecutionSection {
         segment_offset: 0,
         executable_file_offset: None,
         size: stack_size_pages * 0x1000,
     };
-    stack_segment.add_section(stack_section).map_err(|_| LoaderError::InternalError)?;
+    stack_segment
+        .add_section(stack_section)
+        .map_err(|_| LoaderError::InternalError)?;
     segments.push(stack_segment);
 
-    let mut relocations = Vec::new();
+    let relocations = Vec::new();
 
     let env = ExecutionEnvironment {
         segments,

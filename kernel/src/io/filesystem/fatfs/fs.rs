@@ -1,5 +1,5 @@
 use super::bpb::BiosParamBlock;
-use super::dir::{DirEntry, RootDirectory};
+use super::dir::RootDirectory;
 use super::disk::DiskAccess;
 use super::table::AllocationTable;
 
@@ -26,11 +26,7 @@ impl FatFS {
 
         let table = AllocationTable::from_bpb(bpb);
 
-        Self {
-            disk,
-            bpb,
-            table,
-        }
+        Self { disk, bpb, table }
     }
 
     pub fn get_root_directory(&self) -> RootDirectory {

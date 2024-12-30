@@ -402,8 +402,6 @@ pub fn handle_incoming_tcp(
             }
             TCPAction::FinAck => {
                 connection.state = TCPState::LastAck;
-                let data_start = tcp_header.byte_size();
-                let data_size = packet.len() - data_start;
                 Some(create_tcp_packet(
                     conn_socket.binding.local_ip,
                     conn_socket.binding.local_port,

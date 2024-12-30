@@ -4,10 +4,10 @@ use spin::RwLock;
 use crate::collections::SlotList;
 use crate::files::path::Path;
 use crate::files::stat::FileStatus;
-use crate::io::IOError;
 use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::filesystem::driver::AsyncIOCallback;
+use crate::io::IOError;
 use crate::task::id::TaskID;
 use crate::task::switching::{for_each_task_id, get_task};
 
@@ -57,7 +57,11 @@ impl TaskFileSystem {
                 content,
             }
         } else {
-            let id = TaskID::new(path.as_str().parse::<u32>().map_err(|_| IOError::NotFound)?);
+            let id = TaskID::new(
+                path.as_str()
+                    .parse::<u32>()
+                    .map_err(|_| IOError::NotFound)?,
+            );
             let content = Self::generate_content_for_task(id).ok_or(IOError::NotFound)?;
             OpenFile {
                 task: id,
@@ -71,7 +75,9 @@ impl TaskFileSystem {
 
     fn read_impl(&self, instance: u32, buffer: &mut [u8]) -> IOResult {
         let mut open_files = self.open_files.write();
-        let open_file = open_files.get_mut(instance as usize).ok_or(IOError::FileHandleInvalid)?;
+        let open_file = open_files
+            .get_mut(instance as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
         let content_bytes = open_file.content.as_bytes();
         let bytes_unread = content_bytes.len() - open_file.cursor;
         let to_write = bytes_unread.min(buffer.len());
@@ -84,7 +90,9 @@ impl TaskFileSystem {
 
     fn stat_impl(&self, instance: u32, file_status: &mut FileStatus) -> IOResult {
         let open_files = self.open_files.read();
-        let open_file = open_files.get(instance as usize).ok_or(IOError::FileHandleInvalid)?;
+        let open_file = open_files
+            .get(instance as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
         let task_lock = get_task(open_file.task).ok_or(IOError::NotFound)?;
         let task = task_lock.read();
         file_status.byte_size = 0;
@@ -108,11 +116,22 @@ impl KernelDriver for TaskFileSystem {
         }
     }
 
-    fn read(&self, instance: u32, buffer: &mut [u8], _offset: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn read(
+        &self,
+        instance: u32,
+        buffer: &mut [u8],
+        _offset: u32,
+        _io_callback: AsyncIOCallback,
+    ) -> Option<IOResult> {
         Some(self.read_impl(instance, buffer))
     }
 
-    fn stat(&self, instance: u32, file_status: &mut FileStatus, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn stat(
+        &self,
+        instance: u32,
+        file_status: &mut FileStatus,
+        _io_callback: AsyncIOCallback,
+    ) -> Option<IOResult> {
         Some(self.stat_impl(instance, file_status))
     }
 

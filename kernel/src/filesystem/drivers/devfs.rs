@@ -3,21 +3,21 @@
 //! LPI, etc. Now, every device can be given a filename without polluting the
 //! global namespace.
 
+use crate::collections::SlotList;
+use crate::devices::{DeviceDriver, SyncDriverType};
+use crate::files::cursor::SeekMethod;
+use crate::files::handle::DriverHandle;
+use crate::files::path::Path;
+use crate::filesystem::arbiter::{begin_io, AsyncIO};
+use crate::filesystem::kernel::KernelFileSystem;
+use crate::io::IOError;
+use crate::memory::shared::SharedMemoryRange;
+use crate::task::id::TaskID;
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::sync::Arc;
-use crate::collections::SlotList;
-use crate::devices::{DeviceDriver, SyncDriverType};
-use crate::files::cursor::SeekMethod;
-use crate::io::IOError;
-use crate::files::handle::DriverHandle;
-use crate::files::path::Path;
-use crate::filesystem::arbiter::{AsyncIO, begin_io};
-use crate::filesystem::kernel::KernelFileSystem;
-use crate::memory::shared::SharedMemoryRange;
-use crate::task::id::TaskID;
-use spin::{RwLock, Mutex};
+use spin::{Mutex, RwLock};
 
 pub struct DevFileSystem {
     /// Stores the actual device driver enums
@@ -34,22 +34,6 @@ enum OpenHandle {
     // handle pointing to a device file
     // tuple of a driver index and unique file instance
     DeviceDriver(usize, u32),
-}
-
-impl OpenHandle {
-    pub fn is_device(&self) -> bool {
-        match self {
-            Self::DeviceDriver(_, _) => true,
-            _ => false,
-        }
-    }
-
-    pub fn get_driver_and_instance(&self) -> Option<(usize, u32)> {
-        match self {
-            Self::DeviceDriver(driver, instance) => Some((*driver, *instance)),
-            _ => None,
-        }
-    }
 }
 
 impl DevFileSystem {
@@ -80,25 +64,16 @@ impl DevFileSystem {
     }
 
     fn get_driver(&self, index: usize) -> Option<DeviceDriver> {
+        self.installed_drivers.read().get(index).cloned()
+    }
+
+    fn get_driver_by_name(&self, name: String) -> Option<(usize, DeviceDriver)> {
+        let index: usize = self.drivers_by_name.read().get(&name).copied()?;
         self.installed_drivers
             .read()
             .get(index)
             .cloned()
-    }
-    
-    fn get_driver_by_name(&self, name: String) -> Option<(usize, DeviceDriver)> {
-        let index: usize = self.drivers_by_name.read().get(&name).copied()?;
-        self.installed_drivers.read().get(index).cloned()
             .map(|driver| (index, driver))
-    }
-
-    fn get_handle_data(&self, handle: DriverHandle) -> Option<(usize, u32)> {
-        let list_index: usize = handle.into();
-        self.open_handles
-            .read()
-            .get(list_index)
-            .and_then(|h| h.get_driver_and_instance())
-            
     }
 
     fn async_op(&self, task: TaskID, request: AsyncIO) -> Option<Result<u32, u32>> {
@@ -123,28 +98,38 @@ impl KernelFileSystem for DevFileSystem {
                 drives.push_str(name);
                 drives.push('\0');
             }
-            let handle = self.open_handles.write().insert(OpenHandle::RootDir(drives, 0));
+            let handle = self
+                .open_handles
+                .write()
+                .insert(OpenHandle::RootDir(drives, 0));
             return Ok(DriverHandle(handle as u32));
         }
-        let (driver_index, driver) = self.get_driver_by_name(path.into()).ok_or(IOError::NotFound)?;
+        let (driver_index, driver) = self
+            .get_driver_by_name(path.into())
+            .ok_or(IOError::NotFound)?;
         match driver {
             DeviceDriver::SyncDriver(driver) => {
                 let open_instance: u32 = driver.open()?;
-                let handle = self.open_handles.write().insert(OpenHandle::DeviceDriver(driver_index, open_instance));
+                let handle = self
+                    .open_handles
+                    .write()
+                    .insert(OpenHandle::DeviceDriver(driver_index, open_instance));
                 Ok(DriverHandle(handle as u32))
-            },
+            }
             DeviceDriver::AsyncDriver(id, sub_id) => {
                 // send the command to the async driver
-                let result = self.async_op(
-                    id,
-                    AsyncIO::OpenRaw(sub_id),
-                ).ok_or(IOError::FileSystemError)?;
+                let result = self
+                    .async_op(id, AsyncIO::OpenRaw(sub_id))
+                    .ok_or(IOError::FileSystemError)?;
 
                 let open_instance = result.map_err(|err| IOError::try_from(err).unwrap())?;
 
-                let handle = self.open_handles.write().insert(OpenHandle::DeviceDriver(driver_index, open_instance));
+                let handle = self
+                    .open_handles
+                    .write()
+                    .insert(OpenHandle::DeviceDriver(driver_index, open_instance));
                 Ok(DriverHandle(handle as u32))
-            },
+            }
         }
     }
 
@@ -161,14 +146,12 @@ impl KernelFileSystem for DevFileSystem {
                 }
                 *cursor += bytes_written;
                 return Ok(bytes_written as u32);
-            },
+            }
             None => return Err(IOError::FileHandleInvalid),
         };
         let driver = self.get_driver(driver_index).ok_or(IOError::NotFound)?;
         match driver {
-            DeviceDriver::SyncDriver(driver) => {
-                driver.read(open_instance, buffer)
-            },
+            DeviceDriver::SyncDriver(driver) => driver.read(open_instance, buffer),
             DeviceDriver::AsyncDriver(id, _) => {
                 let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
                 let shared_to_driver = shared_range.share_with_task(id);
@@ -178,7 +161,7 @@ impl KernelFileSystem for DevFileSystem {
                         open_instance,
                         shared_to_driver.get_range_start(),
                         shared_to_driver.range_length,
-                    )
+                    ),
                 );
 
                 match response {
@@ -186,7 +169,7 @@ impl KernelFileSystem for DevFileSystem {
                     Some(Err(err)) => Err(IOError::try_from(err).unwrap()),
                     None => Err(IOError::FileSystemError),
                 }
-            },
+            }
         }
     }
 
@@ -198,9 +181,7 @@ impl KernelFileSystem for DevFileSystem {
         };
         let driver = self.get_driver(driver_index).ok_or(IOError::NotFound)?;
         match driver {
-            DeviceDriver::SyncDriver(driver) => {
-                driver.write(open_instance, buffer)
-            },
+            DeviceDriver::SyncDriver(driver) => driver.write(open_instance, buffer),
             DeviceDriver::AsyncDriver(id, _) => {
                 let shared_range = SharedMemoryRange::for_slice::<u8>(buffer);
                 let shared_to_driver = shared_range.share_with_task(id);
@@ -211,7 +192,7 @@ impl KernelFileSystem for DevFileSystem {
                         open_instance,
                         shared_to_driver.get_range_start(),
                         shared_to_driver.range_length,
-                    )
+                    ),
                 );
 
                 match response {
@@ -219,13 +200,14 @@ impl KernelFileSystem for DevFileSystem {
                     Some(Err(err)) => Err(IOError::try_from(err).unwrap()),
                     None => Err(IOError::FileSystemError),
                 }
-            },
+            }
         }
     }
 
     fn close(&self, handle: DriverHandle) -> Result<(), IOError> {
         let list_index: usize = handle.into();
-        let open_handle = self.open_handles
+        let open_handle = self
+            .open_handles
             .write()
             .remove(list_index)
             .ok_or(IOError::FileHandleInvalid)?;
@@ -233,26 +215,22 @@ impl KernelFileSystem for DevFileSystem {
             OpenHandle::DeviceDriver(index, instance) => (index, instance),
             _ => return Ok(()),
         };
-        let driver = self.installed_drivers
+        let driver = self
+            .installed_drivers
             .read()
             .get(driver_index)
             .cloned()
             .ok_or(IOError::FileSystemError)?;
         match driver {
-            DeviceDriver::SyncDriver(driver) => {
-                driver.close(open_instance)
-            },
+            DeviceDriver::SyncDriver(driver) => driver.close(open_instance),
             DeviceDriver::AsyncDriver(id, _) => {
-                let response = self.async_op(
-                    id,
-                    AsyncIO::Close(open_instance),
-                );
+                let response = self.async_op(id, AsyncIO::Close(open_instance));
                 match response {
                     Some(Ok(_)) => Ok(()),
                     Some(Err(err)) => Err(IOError::try_from(err).unwrap()),
                     None => Err(IOError::FileSystemError),
                 }
-            },
+            }
         }
     }
 
@@ -264,26 +242,17 @@ impl KernelFileSystem for DevFileSystem {
         };
         let driver = self.get_driver(driver_index).ok_or(IOError::NotFound)?;
         match driver {
-            DeviceDriver::SyncDriver(driver) => {
-                driver.seek(open_instance, offset)
-            },
+            DeviceDriver::SyncDriver(driver) => driver.seek(open_instance, offset),
             DeviceDriver::AsyncDriver(id, _) => {
                 let (method, delta) = offset.encode();
-                let response = self.async_op(
-                    id,
-                    AsyncIO::Seek(
-                        open_instance,
-                        method,
-                        delta,
-                    )
-                );
+                let response = self.async_op(id, AsyncIO::Seek(open_instance, method, delta));
 
                 match response {
                     Some(Ok(count)) => Ok(count),
                     Some(Err(err)) => Err(IOError::try_from(err).unwrap()),
                     None => Err(IOError::FileSystemError),
                 }
-            },
+            }
         }
     }
 
@@ -297,31 +266,40 @@ impl KernelFileSystem for DevFileSystem {
         match driver {
             DeviceDriver::SyncDriver(driver) => {
                 let open_instance: u32 = driver.dup(open_instance, dup_into)?;
-                let handle = self.open_handles.write().insert(OpenHandle::DeviceDriver(driver_index, open_instance));
+                let handle = self
+                    .open_handles
+                    .write()
+                    .insert(OpenHandle::DeviceDriver(driver_index, open_instance));
                 Ok(DriverHandle(handle as u32))
-            },
+            }
             DeviceDriver::AsyncDriver(id, _) => {
                 let dup_into_encoded = match dup_into {
                     Some(value) => value,
                     None => 0xffffffff,
                 };
-                let result = self.async_op(
-                    id,
-                    AsyncIO::Dup(
-                        handle.into(),
-                        dup_into_encoded,
-                    )
-                ).ok_or(IOError::FileSystemError)?;
+                let result = self
+                    .async_op(id, AsyncIO::Dup(handle.into(), dup_into_encoded))
+                    .ok_or(IOError::FileSystemError)?;
 
                 let open_instance = result.map_err(|err| IOError::try_from(err).unwrap())?;
 
-                let handle = self.open_handles.write().insert(OpenHandle::DeviceDriver(driver_index, open_instance));
+                let handle = self
+                    .open_handles
+                    .write()
+                    .insert(OpenHandle::DeviceDriver(driver_index, open_instance));
                 Ok(DriverHandle(handle as u32))
-            },
+            }
         }
     }
 
-    fn configure(&self, command: u32, arg0: u32, arg1: u32, arg2: u32, arg3: u32) -> Result<u32, IOError> {
+    fn configure(
+        &self,
+        command: u32,
+        arg0: u32,
+        arg1: u32,
+        arg2: u32,
+        arg3: u32,
+    ) -> Result<u32, IOError> {
         match command {
             1 => {
                 // Install device driver with TaskID of `arg2`
@@ -329,16 +307,13 @@ impl KernelFileSystem for DevFileSystem {
                 // service multiple device names with a single Task.
                 // Assume arg0 and arg1 are the pointer and length of a string
                 // containing the device name
-                let name_slice = unsafe {
-                    core::slice::from_raw_parts(
-                        arg0 as *const u8,
-                        arg1 as usize,
-                    )
-                };
-                let name = core::str::from_utf8(name_slice).map_err(|_| IOError::FileSystemError)?;
+                let name_slice =
+                    unsafe { core::slice::from_raw_parts(arg0 as *const u8, arg1 as usize) };
+                let name =
+                    core::str::from_utf8(name_slice).map_err(|_| IOError::FileSystemError)?;
                 self.install_async_driver(name, TaskID::new(arg2), arg3);
                 Ok(0)
-            },
+            }
             _ => Err(IOError::UnsupportedCommand),
         }
     }
@@ -348,4 +323,3 @@ impl KernelFileSystem for DevFileSystem {
 pub enum ConfigurationCommands {
     InstallDevice = 1,
 }
-

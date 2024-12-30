@@ -12,18 +12,18 @@ use super::keycodes::{get_extended_keycode, get_keycode, KeyCode};
 
 pub static OPEN_KEYBOARD_HANDLES: RwLock<SlotList<OpenHandle>> = RwLock::new(SlotList::new());
 
-pub struct KeyboardDriver {
-}
+pub struct KeyboardDriver {}
 
 impl KeyboardDriver {
     pub const fn new() -> Self {
-        Self {
-        }
+        Self {}
     }
 
     pub fn begin_reading(&self, index: u32) -> Result<(), IOError> {
         let mut handles = OPEN_KEYBOARD_HANDLES.write();
-        let handle = handles.get_mut(index as usize).ok_or(IOError::FileHandleInvalid)?;
+        let handle = handles
+            .get_mut(index as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
         handle.is_reading = true;
         handle.unread.clear();
         Ok(())
@@ -31,14 +31,18 @@ impl KeyboardDriver {
 
     pub fn end_reading(&self, index: u32) -> Result<(), IOError> {
         let mut handles = OPEN_KEYBOARD_HANDLES.write();
-        let handle = handles.get_mut(index as usize).ok_or(IOError::FileHandleInvalid)?;
+        let handle = handles
+            .get_mut(index as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
         handle.is_reading = false;
         Ok(())
     }
 
     pub fn get_unread_bytes(&self, index: u32, buffer: &mut [u8]) -> Result<usize, IOError> {
         let mut handles = OPEN_KEYBOARD_HANDLES.write();
-        let handle = handles.get_mut(index as usize).ok_or(IOError::FileHandleInvalid)?;
+        let handle = handles
+            .get_mut(index as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
         let to_write = handle.unread.len().min(buffer.len());
         for i in 0..to_write {
             buffer[i] = *handle.unread.get(i).unwrap();
@@ -68,18 +72,22 @@ impl SyncDriver for KeyboardDriver {
             let written = self.get_unread_bytes(index, &mut buffer[bytes_written..])?;
             bytes_written += written;
         }
-        
+
         self.end_reading(index)?;
 
         Ok(bytes_written as u32)
     }
 
-    fn write(&self, index: u32, buffer: &[u8]) -> Result<u32, IOError> {
+    fn write(&self, _index: u32, _buffer: &[u8]) -> Result<u32, IOError> {
         Err(IOError::UnsupportedOperation)
     }
 
     fn close(&self, index: u32) -> Result<(), IOError> {
-        if OPEN_KEYBOARD_HANDLES.write().remove(index as usize).is_none() {
+        if OPEN_KEYBOARD_HANDLES
+            .write()
+            .remove(index as usize)
+            .is_none()
+        {
             Err(IOError::FileHandleInvalid)
         } else {
             Ok(())
@@ -128,11 +136,13 @@ impl KeyboardState {
 
         match key_code {
             KeyCode::None => None,
-            _ => if pressed {
-                Some(KeyAction::Press(key_code))
-            } else {
-                Some(KeyAction::Release(key_code))
-            },
+            _ => {
+                if pressed {
+                    Some(KeyAction::Press(key_code))
+                } else {
+                    Some(KeyAction::Release(key_code))
+                }
+            }
         }
     }
 }

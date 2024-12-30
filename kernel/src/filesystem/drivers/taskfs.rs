@@ -2,8 +2,8 @@ use alloc::string::{String, ToString};
 use spin::RwLock;
 
 use crate::collections::SlotList;
+use crate::files::{handle::DriverHandle, path::Path};
 use crate::filesystem::kernel::KernelFileSystem;
-use crate::files::{path::Path, handle::DriverHandle};
 use crate::io::IOError;
 use crate::task::id::TaskID;
 use crate::task::switching::{for_each_task_id, get_task};
@@ -62,7 +62,11 @@ impl KernelFileSystem for TaskFileSystem {
                 content,
             }
         } else {
-            let id = TaskID::new(path.as_str().parse::<u32>().map_err(|_| IOError::NotFound)?);
+            let id = TaskID::new(
+                path.as_str()
+                    .parse::<u32>()
+                    .map_err(|_| IOError::NotFound)?,
+            );
             let content = Self::generate_content_for_task(id).ok_or(IOError::NotFound)?;
             OpenHandle {
                 task: id,
@@ -76,7 +80,9 @@ impl KernelFileSystem for TaskFileSystem {
 
     fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<u32, IOError> {
         let mut handles = self.handles.write();
-        let handle = handles.get_mut(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        let handle = handles
+            .get_mut(handle.into())
+            .ok_or(IOError::FileHandleInvalid)?;
         let content_bytes = handle.content.as_bytes();
         let bytes_unread = content_bytes.len() - handle.cursor;
         let to_write = bytes_unread.min(buffer.len());
@@ -87,7 +93,7 @@ impl KernelFileSystem for TaskFileSystem {
         Ok(to_write as u32)
     }
 
-    fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<u32, IOError> {
+    fn write(&self, _handle: DriverHandle, _buffer: &[u8]) -> Result<u32, IOError> {
         Err(IOError::UnsupportedOperation)
     }
 
@@ -99,13 +105,19 @@ impl KernelFileSystem for TaskFileSystem {
         }
     }
 
-    fn seek(&self, handle: DriverHandle, offset: crate::files::cursor::SeekMethod) -> Result<u32, IOError> {
+    fn seek(
+        &self,
+        _handle: DriverHandle,
+        _offset: crate::files::cursor::SeekMethod,
+    ) -> Result<u32, IOError> {
         Err(IOError::UnsupportedOperation)
     }
 
     fn stat(&self, handle: DriverHandle) -> Result<crate::files::stat::FileStatus, IOError> {
         let handles = self.handles.read();
-        let handle = handles.get(handle.into()).ok_or(IOError::FileHandleInvalid)?;
+        let handle = handles
+            .get(handle.into())
+            .ok_or(IOError::FileHandleInvalid)?;
         let task_lock = get_task(handle.task).ok_or(IOError::NotFound)?;
         let task = task_lock.read();
 

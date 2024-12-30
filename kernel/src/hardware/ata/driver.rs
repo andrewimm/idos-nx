@@ -6,15 +6,14 @@ use crate::io::handle::Handle;
 use crate::io::IOError;
 use crate::task::actions::handle::handle_op_write;
 use crate::task::actions::handle::{
-    add_handle_to_notify_queue, create_notify_queue, handle_op_read_struct, handle_op_write_struct,
-    open_message_queue, wait_on_notify,
+    add_handle_to_notify_queue, create_notify_queue, handle_op_read_struct, open_message_queue,
+    wait_on_notify,
 };
 use crate::task::actions::send_message;
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;
 use crate::task::switching::get_current_id;
 use alloc::collections::BTreeMap;
-use alloc::vec::Vec;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 pub struct AtaDeviceDriver {

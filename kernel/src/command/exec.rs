@@ -10,7 +10,6 @@ use crate::io::filesystem::get_all_drive_names;
 use crate::io::handle::{Handle, PendingHandleOp};
 use crate::task::actions::handle::{
     create_file_handle, handle_op_close, handle_op_open, handle_op_read, handle_op_write,
-    set_active_drive,
 };
 use crate::task::actions::memory::map_memory;
 use crate::task::memory::MemoryBacking;
@@ -45,9 +44,9 @@ pub fn exec(stdin: Handle, stdout: Handle, tree: CommandTree, env: &mut Environm
 
     match root {
         CommandComponent::Executable(name, args) => {
-            let mut output = String::new();
+            //let mut output = String::new();
 
-            handle_op_write(stdout, output.as_bytes());
+            //handle_op_write(stdout, output.as_bytes());
             match name.to_ascii_uppercase().as_str() {
                 "CD" => cd(stdout, args, env),
                 "DIR" => dir(stdout, args, env),
@@ -70,7 +69,7 @@ pub fn exec(stdin: Handle, stdout: Handle, tree: CommandTree, env: &mut Environm
     }
 }
 
-fn cd(stdout: Handle, args: &Vec<String>, env: &mut Environment) {
+fn cd(_stdout: Handle, args: &Vec<String>, env: &mut Environment) {
     let change_to = args.get(0).cloned().unwrap_or(String::from("/"));
     if Path::is_absolute(change_to.as_str()) || Path::is_drive(change_to.as_str()) {
         env.cwd = Path::from_str(change_to.as_str());
@@ -86,7 +85,7 @@ struct DirEntry {
     is_dir: bool,
 }
 
-fn dir(stdout: Handle, args: &Vec<String>, env: &Environment) {
+fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
     let file_read_buffer = get_buffers();
 
     let mut output = String::from(
@@ -190,11 +189,11 @@ fn drives(stdout: Handle) {
 }
 
 fn try_exec(
-    stdin: Handle,
-    stdout: Handle,
-    name: &str,
-    args: &Vec<String>,
-    env: &Environment,
+    _stdin: Handle,
+    _stdout: Handle,
+    _name: &str,
+    _args: &Vec<String>,
+    _env: &Environment,
 ) -> bool {
     /*
     match open_path(name) {

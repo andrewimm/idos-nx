@@ -18,14 +18,12 @@
 //! the other task. The receiving task must be trusted to not mess with
 //! anything outside of that explicitly shared range.
 
-use spin::{Mutex, RwLock};
+use spin::Mutex;
 
 use super::address::{PhysicalAddress, VirtualAddress};
 use super::virt::page_iter::PageIter;
 use crate::collections::RefCountMap;
-use crate::task::actions::memory::{
-    map_memory_for_task, remap_memory_for_task, unmap_memory_for_task,
-};
+use crate::task::actions::memory::{map_memory_for_task, unmap_memory_for_task};
 use crate::task::id::TaskID;
 use crate::task::memory::{MemoryBacking, TaskMemoryError};
 use crate::task::paging::get_current_physical_address;

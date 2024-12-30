@@ -24,7 +24,6 @@ use crate::task::id::TaskID;
 use self::devfs::DevFileSystem;
 use self::driver::{AsyncIOCallback, DriverID, DriverType, InstalledDriver};
 
-use super::async_io::{AsyncOp, AsyncOpID};
 use super::driver::comms::{DriverIOAction, IOResult};
 use super::driver::io_task::send_async_request;
 

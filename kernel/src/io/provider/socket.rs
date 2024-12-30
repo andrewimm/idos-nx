@@ -66,7 +66,7 @@ impl IOProvider for SocketIOProvider {
     /// Opening a socket binds it to a local or remote port
     /// The format of the IP addresses in the struct attached to the Op will
     /// determine what kind of port is opened.
-    fn open(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<IOResult> {
+    fn open(&self, _provider_index: u32, _id: AsyncOpID, op: AsyncOp) -> Option<IOResult> {
         let binding_ptr = op.arg0 as *const SocketBindingRequest;
         let binding_len = op.arg1 as usize;
         if binding_len != core::mem::size_of::<SocketBindingRequest>() {
@@ -91,11 +91,11 @@ impl IOProvider for SocketIOProvider {
         )
     }
 
-    fn read(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<IOResult> {
+    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<IOResult> {
         panic!("Not implemented");
     }
 
-    fn write(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<IOResult> {
+    fn write(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<IOResult> {
         panic!("Not implemented");
     }
 }

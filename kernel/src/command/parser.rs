@@ -1,9 +1,9 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use super::lexer::{Lexer, Token};
 use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
-use super::lexer::{Token, Lexer};
 
 pub struct Parser<'input> {
     lexer: Lexer<'input>,
@@ -41,15 +41,15 @@ impl<'input> Parser<'input> {
                 Token::End => break,
                 Token::Invalid => break,
                 Token::RedirectInput => {
-                    let source = self.parse_filename();
-                    
+                    let _source = self.parse_filename();
+
                     panic!("not implemented");
-                },
+                }
                 _ => {
                     let next_segment = self.parse_segment();
                     let id = self.tree.insert(next_segment);
                     segment_ids.push(id);
-                },
+                }
             }
         }
     }
@@ -60,19 +60,19 @@ impl<'input> Parser<'input> {
                 // first Argument is a command, or possibly a drive switch
                 let name_str = core::str::from_utf8(&bytes).unwrap();
                 let name = String::from(name_str);
-                
+
                 self.advance_token();
                 let arguments = self.parse_argument_string();
 
                 CommandComponent::Executable(name, arguments)
-            },
+            }
             Token::RedirectInput => {
                 // read the next token to determine the filename, and then
                 panic!("");
-            },
+            }
             Token::RedirectOutputAppend => {
                 panic!("");
-            },
+            }
             _ => panic!(""),
         }
     }
@@ -136,4 +136,3 @@ impl CommandTree {
         self.tree.get(&self.root)
     }
 }
-

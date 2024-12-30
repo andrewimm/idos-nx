@@ -1,9 +1,9 @@
-use alloc::collections::BTreeMap;
-use core::sync::atomic::{AtomicU32, Ordering};
 use crate::files::path::Path;
 use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::filesystem::driver::AsyncIOCallback;
+use alloc::collections::BTreeMap;
+use core::sync::atomic::{AtomicU32, Ordering};
 use idos_api::io::error::IOError;
 use spin::RwLock;
 
@@ -12,13 +12,11 @@ pub struct NullDev {
     open_files: RwLock<BTreeMap<u32, OpenFile>>,
 }
 
-struct OpenFile {
-}
+struct OpenFile {}
 
 impl OpenFile {
     pub fn new() -> Self {
-        Self {
-        }
+        Self {}
     }
 }
 
@@ -36,15 +34,19 @@ impl NullDev {
         Ok(instance)
     }
 
-    fn read_impl(&self, instance: u32, buffer: &mut [u8]) -> IOResult {
+    fn read_impl(&self, instance: u32, _buffer: &mut [u8]) -> IOResult {
         let mut open_files = self.open_files.write();
-        let _found = open_files.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
+        let _found = open_files
+            .get_mut(&instance)
+            .ok_or(IOError::FileHandleInvalid)?;
         Ok(0)
     }
 
     fn close_impl(&self, instance: u32) -> IOResult {
         let mut open_files = self.open_files.write();
-        open_files.remove(&instance).ok_or(IOError::FileHandleInvalid)?;
+        open_files
+            .remove(&instance)
+            .ok_or(IOError::FileHandleInvalid)?;
         Ok(0)
     }
 }
@@ -54,7 +56,13 @@ impl KernelDriver for NullDev {
         Some(self.open_impl())
     }
 
-    fn read(&self, instance: u32, buffer: &mut [u8], _: u32, _: AsyncIOCallback) -> Option<IOResult> {
+    fn read(
+        &self,
+        instance: u32,
+        buffer: &mut [u8],
+        _: u32,
+        _: AsyncIOCallback,
+    ) -> Option<IOResult> {
         Some(self.read_impl(instance, buffer))
     }
 

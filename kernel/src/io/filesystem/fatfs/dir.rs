@@ -310,7 +310,7 @@ impl Directory {
         &mut self,
         buffer: &mut [u8],
         offset: u32,
-        table: AllocationTable,
+        _table: AllocationTable,
         disk: &mut DiskAccess,
     ) -> u32 {
         if !self.entries_fetched {
@@ -325,7 +325,7 @@ impl Directory {
                     }
                     self.entries_fetched = true;
                 }
-                DirectoryType::Subdir(entry) => {
+                DirectoryType::Subdir(_entry) => {
                     // needs to be implemented
                     return 0;
                 }

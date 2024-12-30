@@ -61,7 +61,7 @@ pub fn add_pending_connection(
 /// first step for the socket accept() action
 pub fn accept_pending_connection(
     port: SocketPort,
-    timeout: Option<u32>,
+    _timeout: Option<u32>,
 ) -> Option<PendingConnection> {
     let mut connections = PENDING_CONNECTIONS.write();
     let list = connections.get_mut(&port)?;

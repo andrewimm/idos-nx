@@ -1,10 +1,10 @@
 use crate::interrupts::stack::StackFrame;
 use crate::memory::address::VirtualAddress;
 use crate::memory::physical::allocate_frame;
-use crate::task::paging::{page_on_demand, PermissionFlags, current_pagedir_map};
+use crate::task::paging::{current_pagedir_map, page_on_demand, PermissionFlags};
 
-use super::execution::{get_current_psp_segment, PSP};
 use super::error::DosErrorCode;
+use super::execution::{get_current_psp_segment, PSP};
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
@@ -15,13 +15,11 @@ pub struct SegmentedAddress {
 
 impl SegmentedAddress {
     pub fn normalize(&self) -> VirtualAddress {
-        VirtualAddress::new(
-            ((self.segment as u32) << 4) + (self.offset as u32)
-        )
+        VirtualAddress::new(((self.segment as u32) << 4) + (self.offset as u32))
     }
 }
 
-pub fn handle_page_fault(stack_frame: &StackFrame, address: u32) -> bool {
+pub fn handle_page_fault(_stack_frame: &StackFrame, address: u32) -> bool {
     let vaddr = VirtualAddress::new(address);
     let page_start = vaddr.prev_page_barrier();
     if !page_on_demand(vaddr).is_none() {
@@ -42,19 +40,19 @@ pub fn handle_page_fault(stack_frame: &StackFrame, address: u32) -> bool {
             // first page is full of PC/DOS internals
 
             let allocated_frame = allocate_frame().unwrap();
-            let flags = PermissionFlags::new(PermissionFlags::USER_ACCESS | PermissionFlags::WRITE_ACCESS);
+            let flags =
+                PermissionFlags::new(PermissionFlags::USER_ACCESS | PermissionFlags::WRITE_ACCESS);
             let _paddr = current_pagedir_map(allocated_frame, page_start, flags);
             return true;
         }
 
         // idk just allocate free memory for now
         let allocated_frame = allocate_frame().unwrap();
-        let flags = PermissionFlags::new(PermissionFlags::USER_ACCESS | PermissionFlags::WRITE_ACCESS);
+        let flags =
+            PermissionFlags::new(PermissionFlags::USER_ACCESS | PermissionFlags::WRITE_ACCESS);
         current_pagedir_map(allocated_frame, page_start, flags);
         return true;
     }
-
-    false
 }
 
 /// AH=0x48 - Allocate a block of memory
@@ -70,19 +68,22 @@ pub fn handle_page_fault(stack_frame: &StackFrame, address: u32) -> bool {
 ///     AX = error code
 ///     BX = number of paragraphs available
 ///     CF set
-pub fn allocate_mcb(paragraphs_requested: u16) -> Result<u16, (DosErrorCode, u16)> {
+pub fn allocate_mcb(_paragraphs_requested: u16) -> Result<u16, (DosErrorCode, u16)> {
     crate::kprintln!("!!! DOS API unimplemented 0x48");
     Ok(0x200)
 }
 
 /// AH=0x49 - Free a block of memory
-pub fn free_mcb(mcb_segment: u16) -> Result<(), DosErrorCode> {
+pub fn free_mcb(_mcb_segment: u16) -> Result<(), DosErrorCode> {
     crate::kprintln!("!!! DOS API unimplemented 0x49");
     Ok(())
 }
 
 /// AH=0x4a - Resize a block of memory
-pub fn resize_mcb(mcb_segment: u16, paragraphs_requested: u16) -> Result<(), (DosErrorCode, u16)> {
+pub fn resize_mcb(
+    _mcb_segment: u16,
+    _paragraphs_requested: u16,
+) -> Result<(), (DosErrorCode, u16)> {
     crate::kprintln!("!!! DOS API unimplemented 0x4a");
     Ok(())
 }

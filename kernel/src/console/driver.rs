@@ -6,8 +6,8 @@ use crate::collections::SlotList;
 use crate::files::path::Path;
 use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
-use crate::io::IOError;
 use crate::io::filesystem::driver::AsyncIOCallback;
+use crate::io::IOError;
 use crate::task::actions::yield_coop;
 
 use super::buffers::ConsoleBuffers;
@@ -27,7 +27,11 @@ impl ConsoleDriver {
     }
 
     fn read_impl(&self, instance: u32, buffer: &mut [u8]) -> IOResult {
-        let instance = self.open_instances.read().get(instance as usize).ok_or(IOError::FileHandleInvalid)?;
+        let _ = self
+            .open_instances
+            .read()
+            .get(instance as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
         let mut bytes_written = 0;
         let input_buffer = loop {
             if let Some(buffers) = super::IO_BUFFERS.try_read() {
@@ -40,7 +44,7 @@ impl ConsoleDriver {
                 Some(ch) => {
                     buffer[bytes_written] = ch;
                     bytes_written += 1;
-                },
+                }
                 None => {
                     if bytes_written == 0 {
                         // TODO: this should sleep, and wake when something is written
@@ -48,14 +52,18 @@ impl ConsoleDriver {
                     } else {
                         break;
                     }
-                },
+                }
             }
         }
         Ok(bytes_written as u32)
     }
 
     fn write_impl(&self, instance: u32, buffer: &[u8]) -> IOResult {
-        let instance = self.open_instances.read().get(instance as usize).ok_or(IOError::FileHandleInvalid)?;
+        let _ = self
+            .open_instances
+            .read()
+            .get(instance as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
 
         let mut bytes_written = 0;
         let output_buffer = loop {
@@ -84,16 +92,33 @@ impl KernelDriver for ConsoleDriver {
         Some(Ok(self.open_instances.write().insert(instance) as u32))
     }
 
-    fn read(&self, instance: u32, buffer: &mut [u8], _offset: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn read(
+        &self,
+        instance: u32,
+        buffer: &mut [u8],
+        _offset: u32,
+        _io_callback: AsyncIOCallback,
+    ) -> Option<IOResult> {
         Some(self.read_impl(instance, buffer))
     }
 
-    fn write(&self, instance: u32, buffer: &[u8], _offset: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn write(
+        &self,
+        instance: u32,
+        buffer: &[u8],
+        _offset: u32,
+        _io_callback: AsyncIOCallback,
+    ) -> Option<IOResult> {
         Some(self.write_impl(instance, buffer))
     }
 
     fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
-        if self.open_instances.write().remove(instance as usize).is_none() {
+        if self
+            .open_instances
+            .write()
+            .remove(instance as usize)
+            .is_none()
+        {
             return Some(Err(IOError::FileHandleInvalid));
         }
         Some(Ok(1))
@@ -101,8 +126,7 @@ impl KernelDriver for ConsoleDriver {
 }
 
 #[derive(Copy, Clone)]
-struct OpenInstance {
-}
+struct OpenInstance {}
 
 pub fn create_new_console() -> (Box<ConsoleDriver>, String) {
     loop {
@@ -111,7 +135,7 @@ pub fn create_new_console() -> (Box<ConsoleDriver>, String) {
             buffers.push(ConsoleBuffers::new());
             let name = alloc::format!("CON{}", index + 1);
             let driver = Box::new(ConsoleDriver::new(index));
-            
+
             return (driver, name);
         }
         yield_coop();

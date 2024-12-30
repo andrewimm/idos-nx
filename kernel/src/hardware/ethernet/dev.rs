@@ -12,7 +12,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::hardware::pci::devices::PciDevice;
 use crate::hardware::pci::get_bus_devices;
-use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
@@ -27,12 +26,10 @@ use crate::task::actions::handle::{
 };
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
-use crate::task::actions::{read_message_blocking, send_message};
+use crate::task::actions::send_message;
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::messaging::Message;
-use crate::task::switching::get_current_id;
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use super::controller::E1000Controller;
@@ -58,9 +55,8 @@ impl EthernetDevice {
     pub fn handle_request(&mut self, sender: TaskID, message: Message) -> Option<IOResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::OpenRaw => Some(self.open()),
-            DriverCommand::Close => Some(self.close(message.args[0])),
+            DriverCommand::Close => Some(self.close()),
             DriverCommand::Read => {
-                let instance = message.args[0];
                 let buffer_ptr = message.args[1] as *mut u8;
                 let buffer_len = message.args[2] as usize;
                 if let Some(response) = self.read(buffer_ptr, buffer_len) {
@@ -74,7 +70,6 @@ impl EthernetDevice {
                 None
             }
             DriverCommand::Write => {
-                let instance = message.args[0];
                 let buffer_ptr = message.args[1] as *const u8;
                 let buffer_len = message.args[2] as usize;
                 Some(self.write(buffer_ptr, buffer_len))
@@ -88,7 +83,7 @@ impl EthernetDevice {
         Ok(instance)
     }
 
-    pub fn close(&mut self, instance: u32) -> IOResult {
+    pub fn close(&mut self) -> IOResult {
         return Ok(1);
     }
 
@@ -111,7 +106,6 @@ impl EthernetDevice {
 static mut MAC_ADDR: [u8; 6] = [0; 6];
 
 fn run_driver() -> ! {
-    let task_id = get_current_id();
     let args_reader = Handle::new(0);
     let response_writer = Handle::new(1);
 
@@ -150,7 +144,7 @@ fn run_driver() -> ! {
         MAC_ADDR = mac;
     }
 
-    let mut eth = EthernetDriver::new(controller);
+    let eth = EthernetDriver::new(controller);
     let mut driver_impl = EthernetDevice::new(eth);
 
     let interrupt_handle = if let Some(irq) = pci_dev.irq {
@@ -176,7 +170,7 @@ fn run_driver() -> ! {
             let cause = driver_impl.driver.get_interrupt_cause();
             if cause != 0 {
                 // check if a buffer can be read
-                if let Some(rx_buffer) = driver_impl.driver.get_next_rx_buffer() {
+                if driver_impl.driver.get_next_rx_buffer().is_some() {
                     if let Some((buffer_ptr, buffer_len, sender_id, unique_id)) =
                         driver_impl.pending_read.take()
                     {
