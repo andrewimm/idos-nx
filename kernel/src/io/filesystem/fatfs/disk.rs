@@ -1,9 +1,9 @@
-use alloc::vec::Vec;
-use crate::io::handle::{Handle, PendingHandleOp};
+use crate::io::handle::Handle;
 use crate::memory::address::VirtualAddress;
 use crate::task::actions::handle::{create_file_handle, handle_op_open, handle_op_read};
 use crate::task::actions::memory::map_memory;
 use crate::task::memory::MemoryBacking;
+use alloc::vec::Vec;
 
 /// DiskAccess provides an easy read/write interface to the underlying disk. It
 /// is responsible for fetching, caching, and flushing disk sectors. The rest
@@ -22,11 +22,14 @@ impl DiskAccess {
     pub fn new(mount: &str) -> Self {
         let mount_handle = create_file_handle();
 
-        handle_op_open(mount_handle, mount).wait_for_result().unwrap();
+        handle_op_open(mount_handle, mount)
+            .wait_for_result()
+            .unwrap();
 
         let buffer_size = 4096;
 
-        let buffer_location = map_memory(None, buffer_size as u32, MemoryBacking::Anonymous).unwrap();
+        let buffer_location =
+            map_memory(None, buffer_size as u32, MemoryBacking::Anonymous).unwrap();
 
         let disk = Self {
             mount_handle,
@@ -47,9 +50,7 @@ impl DiskAccess {
     fn get_buffer(&self) -> &mut [u8] {
         let data = self.buffer_location.as_u32() as *mut u8;
         let len = self.buffer_size;
-        unsafe {
-            core::slice::from_raw_parts_mut(data, len)
-        }
+        unsafe { core::slice::from_raw_parts_mut(data, len) }
     }
 
     fn get_buffer_sector(&self, index: usize) -> &mut [u8] {
@@ -82,12 +83,7 @@ impl DiskAccess {
                 entry.age += 1;
             }
             let index = self.cache_entries.len();
-            self.cache_entries.push(
-                CacheEntry {
-                    lba,
-                    age: 0,
-                }
-            );
+            self.cache_entries.push(CacheEntry { lba, age: 0 });
             index
         } else {
             // need to evict an entry
@@ -103,7 +99,9 @@ impl DiskAccess {
         };
         let cache_buffer = self.get_buffer_sector(cache_index);
 
-        handle_op_read(self.mount_handle, cache_buffer, lba * 512).wait_for_result().unwrap();
+        handle_op_read(self.mount_handle, cache_buffer, lba * 512)
+            .wait_for_result()
+            .unwrap();
         cache_index
     }
 
@@ -132,9 +130,7 @@ impl DiskAccess {
     pub fn read_struct_from_disk<S: Sized>(&mut self, offset: u32, s: &mut S) {
         let buffer_ptr = s as *mut S as *mut u8;
         let buffer_size = core::mem::size_of::<S>();
-        let buffer = unsafe {
-            core::slice::from_raw_parts_mut(buffer_ptr, buffer_size)
-        };
+        let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_size) };
         self.read_bytes_from_disk(offset, buffer);
     }
 }

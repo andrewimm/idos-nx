@@ -1,8 +1,8 @@
 //! Provider for hardware interrupts that come from the PIC chip
 
-use crate::io::async_io::{OpIdGenerator, AsyncOpQueue, AsyncOp, AsyncOpID};
-use crate::interrupts::pic::{is_interrupt_active, acknowledge_interrupt};
 use super::IOProvider;
+use crate::interrupts::pic::{acknowledge_interrupt, is_interrupt_active};
+use crate::io::async_io::{AsyncOp, AsyncOpID, AsyncOpQueue};
 
 /// Inner contents of the handle used to read IPC messages.
 pub struct InterruptIOProvider {
@@ -48,7 +48,7 @@ impl IOProvider for InterruptIOProvider {
     }
 
     /// `read`ing an irq listens for the interrupt
-    fn read(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<super::IOResult> {
         if is_interrupt_active(self.irq) {
             return Some(Ok(1));
         }
@@ -56,7 +56,7 @@ impl IOProvider for InterruptIOProvider {
     }
 
     /// `write` acknowledges the irq, allowing it to be triggered again
-    fn write(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+    fn write(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<super::IOResult> {
         acknowledge_interrupt(self.irq);
         Some(Ok(1))
     }

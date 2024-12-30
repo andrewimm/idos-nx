@@ -6,7 +6,10 @@
 
 use spin::Once;
 
-use crate::task::actions::handle::{open_message_queue, create_kernel_task, add_handle_to_notify_queue, handle_op_read_struct, wait_on_notify, create_notify_queue};
+use crate::task::actions::handle::{
+    add_handle_to_notify_queue, create_kernel_task, create_notify_queue, handle_op_read_struct,
+    open_message_queue, wait_on_notify,
+};
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;
 
@@ -20,7 +23,7 @@ fn loader_resident() -> ! {
 
     crate::kprintln!("Loader task ready to receive");
     loop {
-        if let Some(sender) = message_read.get_result() {
+        if let Some(_sender) = message_read.get_result() {
             crate::kprintln!("LOADER REQUEST");
 
             message_read = handle_op_read_struct(messages, &mut incoming_message);
@@ -33,10 +36,12 @@ fn loader_resident() -> ! {
 pub static LOADER_ID: Once<TaskID> = Once::new();
 
 pub fn get_loader_id() -> TaskID {
-    LOADER_ID.call_once(|| {
-        let (_, task_id) = create_kernel_task(loader_resident, Some("LOADER"));
-        // TODO: Register the task, or better yet execute it from within the registry
+    LOADER_ID
+        .call_once(|| {
+            let (_, task_id) = create_kernel_task(loader_resident, Some("LOADER"));
+            // TODO: Register the task, or better yet execute it from within the registry
 
-        task_id
-    }).clone()
+            task_id
+        })
+        .clone()
 }

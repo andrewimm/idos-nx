@@ -1,13 +1,13 @@
+use super::Pipe;
 use crate::collections::SlotList;
 use crate::files::cursor::SeekMethod;
-use crate::io::IOError;
 use crate::files::handle::DriverHandle;
 use crate::files::path::Path;
 use crate::filesystem::kernel::KernelFileSystem;
+use crate::io::IOError;
 use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::switching::{get_current_id, get_task};
 use spin::RwLock;
-use super::Pipe;
 
 /// Stores the actual pipes that have been created by the kernel
 pub static PIPES: RwLock<SlotList<Pipe>> = RwLock::new(SlotList::new());
@@ -31,8 +31,7 @@ pub fn create_pipe() -> (DriverHandle, DriverHandle) {
     (read_handle, write_handle)
 }
 
-pub struct PipeDriver {
-}
+pub struct PipeDriver {}
 
 impl PipeDriver {
     pub fn new() -> Self {
@@ -40,7 +39,8 @@ impl PipeDriver {
     }
 
     fn write_pipe(pipe_index: usize, buffer: &[u8]) -> Result<u32, IOError> {
-        let (ring_buffer, blocked) = PIPES.read()
+        let (ring_buffer, blocked) = PIPES
+            .read()
             .get(pipe_index)
             .ok_or(IOError::FileSystemError)
             .map(|pipe| (pipe.get_ring_buffer(), pipe.get_blocked_reader()))?;
@@ -105,7 +105,11 @@ impl KernelFileSystem for PipeDriver {
 
     fn read(&self, handle: DriverHandle, buffer: &mut [u8]) -> Result<u32, IOError> {
         let pipe_index = {
-            match PIPE_HANDLES.read().get(handle.into()).ok_or(IOError::FileHandleInvalid)? {
+            match PIPE_HANDLES
+                .read()
+                .get(handle.into())
+                .ok_or(IOError::FileHandleInvalid)?
+            {
                 PipeHandle::Reader(index) => *index,
                 _ => return Err(IOError::FileHandleWrongType),
             }
@@ -115,7 +119,11 @@ impl KernelFileSystem for PipeDriver {
 
     fn write(&self, handle: DriverHandle, buffer: &[u8]) -> Result<u32, IOError> {
         let pipe_index = {
-            match PIPE_HANDLES.read().get(handle.into()).ok_or(IOError::FileHandleInvalid)? {
+            match PIPE_HANDLES
+                .read()
+                .get(handle.into())
+                .ok_or(IOError::FileHandleInvalid)?
+            {
                 PipeHandle::Writer(index) => *index,
                 _ => return Err(IOError::FileHandleWrongType),
             }
@@ -124,16 +132,18 @@ impl KernelFileSystem for PipeDriver {
     }
 
     fn close(&self, handle: DriverHandle) -> Result<(), IOError> {
-        let pipe_index = {
-            match PIPE_HANDLES.write().remove(handle.into()).ok_or(IOError::FileHandleInvalid)? {
-                PipeHandle::Reader(index) => {
-                    PipeDriver::remove_reader(index)?;
-                },
-                PipeHandle::Writer(index) => {
-                    PipeDriver::remove_writer(index)?;
-                },
+        match PIPE_HANDLES
+            .write()
+            .remove(handle.into())
+            .ok_or(IOError::FileHandleInvalid)?
+        {
+            PipeHandle::Reader(index) => {
+                PipeDriver::remove_reader(index)?;
             }
-        };
+            PipeHandle::Writer(index) => {
+                PipeDriver::remove_writer(index)?;
+            }
+        }
         Ok(())
     }
 
@@ -141,4 +151,3 @@ impl KernelFileSystem for PipeDriver {
         Err(IOError::UnsupportedOperation)
     }
 }
-

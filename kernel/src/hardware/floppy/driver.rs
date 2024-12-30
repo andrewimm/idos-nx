@@ -1,5 +1,4 @@
 use core::cell::RefCell;
-use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::{Context, Poll, Waker};
 use core::{future::Future, pin::Pin};
@@ -9,7 +8,6 @@ use alloc::sync::Arc;
 use alloc::{boxed::Box, task::Wake};
 use idos_api::io::error::IOError;
 
-use crate::files::cursor::SeekMethod;
 use crate::hardware::dma::DmaChannelRegisters;
 use crate::io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::filesystem::install_task_dev;

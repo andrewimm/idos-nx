@@ -5,12 +5,9 @@ pub mod driver;
 pub mod fs;
 pub mod table;
 
-use idos_api::io::error::IOError;
-
 use self::driver::FatDriver;
 use super::install_task_fs;
 use crate::io::driver::async_driver::AsyncDriver;
-use crate::io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::handle::Handle;
 use crate::task::actions::handle::{
     add_handle_to_notify_queue, create_notify_queue, create_pipe_handles, handle_op_close,

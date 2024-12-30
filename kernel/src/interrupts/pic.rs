@@ -1,15 +1,18 @@
-use core::arch::{asm, global_asm};
-use core::ops::DerefMut;
-use core::sync::atomic::{AtomicU32, Ordering};
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use core::arch::{asm, global_asm};
+use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
-use crate::io::async_io::AsyncOpID;
-use crate::{hardware::pic::PIC, task::{id::TaskID, switching::get_task}};
 use super::stack::{SavedState, StackFrame};
+use crate::io::async_io::AsyncOpID;
+use crate::{
+    hardware::pic::PIC,
+    task::{id::TaskID, switching::get_task},
+};
 
-global_asm!(r#"
+global_asm!(
+    r#"
 .global pic_irq_0, pic_irq_1, pic_irq_3, pic_irq_4, pic_irq_5, pic_irq_6, pic_irq_7, pic_irq_8, pic_irq_9, pic_irq_a, pic_irq_b, pic_irq_c, pic_irq_d, pic_irq_e, pic_irq_f
 
 pic_irq_0:
@@ -94,7 +97,8 @@ pic_irq_core:
     add esp, 4 # clear the irq number
 
     iretd
-"#);
+"#
+);
 
 /// Handle interrupts that come from the PIC
 #[no_mangle]
@@ -153,7 +157,10 @@ pub fn add_interrupt_listener(irq: u8, task: TaskID, io_index: u32) -> bool {
     if irq > 15 {
         return false;
     }
-    match INTERRUPT_LISTENERS[irq as usize].write().try_insert(task, io_index) {
+    match INTERRUPT_LISTENERS[irq as usize]
+        .write()
+        .try_insert(task, io_index)
+    {
         Ok(_) => true,
         Err(_) => false,
     }
@@ -183,13 +190,19 @@ pub fn notify_interrupt_listeners(irq: u8) {
     let prev_mask = active.fetch_or(mask, Ordering::SeqCst);
     if prev_mask & mask == 0 {
         // the flag was newly raised
-        let task_list: Vec<(TaskID, u32)> = INTERRUPT_LISTENERS[irq as usize].read().iter().map(|(id, index)| (*id, *index)).collect();
+        let task_list: Vec<(TaskID, u32)> = INTERRUPT_LISTENERS[irq as usize]
+            .read()
+            .iter()
+            .map(|(id, index)| (*id, *index))
+            .collect();
         for (id, io_index) in task_list.iter() {
             let task_lock = match get_task(*id) {
                 Some(lock) => lock,
                 None => continue,
             };
-            task_lock.write().async_io_complete(*io_index, AsyncOpID::new(0), Ok(1));
+            task_lock
+                .write()
+                .async_io_complete(*io_index, AsyncOpID::new(0), Ok(1));
         }
     }
 }
@@ -243,7 +256,7 @@ pub fn install_interrupt_handler(irq: u32, f: fn(u32) -> (), task: Option<TaskID
                 None => InstallableHandlerType::Kernel(f),
             };
             *inner = handler_type;
-        },
+        }
         None => (),
     }
 }
@@ -284,7 +297,6 @@ pub fn try_installed_handler(irq: u32) {
                 );
             }
             crate::kprintln!("Int memory switch done");
-        },
+        }
     }
 }
-

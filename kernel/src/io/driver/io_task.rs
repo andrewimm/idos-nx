@@ -1,10 +1,22 @@
-use alloc::collections::{VecDeque, BTreeMap};
+use alloc::collections::{BTreeMap, VecDeque};
 use idos_api::io::error::IOError;
-use spin::{RwLock, Once, Mutex, MutexGuard};
+use spin::{Mutex, MutexGuard, Once, RwLock};
 
-use crate::{task::{id::TaskID, switching::{get_current_id, get_task}, actions::{handle::{open_message_queue, create_notify_queue, add_handle_to_notify_queue, wait_on_notify, handle_op_read_struct}, send_message}, messaging::Message}, io::{filesystem::driver::AsyncIOCallback, async_io::AsyncOpID}};
-
-use crate::io::handle::PendingHandleOp;
+use crate::{
+    io::{async_io::AsyncOpID, filesystem::driver::AsyncIOCallback},
+    task::{
+        actions::{
+            handle::{
+                add_handle_to_notify_queue, create_notify_queue, handle_op_read_struct,
+                open_message_queue, wait_on_notify,
+            },
+            send_message,
+        },
+        id::TaskID,
+        messaging::Message,
+        switching::{get_current_id, get_task},
+    },
+};
 
 use super::comms::{DriverIOAction, DRIVER_RESPONSE_MAGIC};
 
@@ -35,16 +47,12 @@ pub fn get_driver_io_task_id() -> TaskID {
 }
 
 fn get_incoming_queue() -> MutexGuard<'static, VecDeque<IncomingRequest>> {
-    INCOMING_QUEUE.call_once(|| {
-        Mutex::new(VecDeque::new())
-    }).lock()
+    INCOMING_QUEUE
+        .call_once(|| Mutex::new(VecDeque::new()))
+        .lock()
 }
 
-pub fn send_async_request(
-    driver_id: TaskID,
-    io_callback: AsyncIOCallback,
-    action: DriverIOAction,
-) {
+pub fn send_async_request(driver_id: TaskID, io_callback: AsyncIOCallback, action: DriverIOAction) {
     let request = IncomingRequest {
         driver_id,
         source_task: io_callback.0,
@@ -100,7 +108,7 @@ pub fn driver_io_task() -> ! {
                         let mut task = task_lock.write();
                         task.async_io_complete(request.source_io, request.source_op, return_value);
                     }
-                },
+                }
                 None => (),
             }
         }
@@ -123,11 +131,10 @@ pub fn driver_io_task() -> ! {
                         // TODO: I don't like locking this when also holding the queue lock
                         PENDING_REQUESTS.lock().insert(request_id, request);
                         send_message(driver_id, message, 0xffffffff);
-                    },
+                    }
                     None => break,
                 }
             }
         }
     }
 }
-

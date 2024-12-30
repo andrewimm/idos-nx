@@ -1,14 +1,10 @@
-use crate::files::cursor::SeekMethod;
 use crate::files::path::Path;
-use crate::files::stat::FileStatus;
-use crate::filesystem::drive::DriveID;
 use crate::filesystem::{get_drive_id_by_name, get_driver_by_id};
 use crate::io::IOError;
 use crate::pipes::{create_pipe, get_pipe_drive_id};
-use crate::task::files::{CurrentDrive, OpenFile};
+use crate::task::files::OpenFile;
 use crate::task::id::TaskID;
 use crate::task::switching::{get_current_task, get_task};
-use alloc::string::{String, ToString};
 
 use super::super::files::FileHandle;
 /// Do the actual work of opening a file from a filesystem driver, but don't

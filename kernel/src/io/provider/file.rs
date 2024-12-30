@@ -4,8 +4,7 @@ use super::IOProvider;
 use crate::{
     files::{path::Path, stat::FileStatus},
     io::{
-        async_io::{AsyncOp, AsyncOpID, AsyncOpQueue, OpIdGenerator, FILE_OP_STAT},
-        driver::comms::IOResult,
+        async_io::{AsyncOp, AsyncOpID, AsyncOpQueue, FILE_OP_STAT},
         filesystem::{
             driver::DriverID, driver_close, driver_open, driver_read, driver_stat, driver_write,
             get_driver_id_by_name,
@@ -13,7 +12,7 @@ use crate::{
     },
     task::{
         id::{AtomicTaskID, TaskID},
-        switching::{get_current_id, get_current_task},
+        switching::get_current_task,
     },
 };
 use idos_api::io::error::IOError;
@@ -135,7 +134,7 @@ impl IOProvider for FileIOProvider {
         Some(Err(IOError::FileHandleInvalid))
     }
 
-    fn close(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+    fn close(&self, provider_index: u32, id: AsyncOpID, _op: AsyncOp) -> Option<super::IOResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let driver_id: DriverID = self.driver_id.lock().unwrap();
             return driver_close(

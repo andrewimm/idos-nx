@@ -375,7 +375,7 @@ impl KernelDriver for PipeDriver {
         instance: u32,
         buffer: &[u8],
         _offset: u32,
-        io_callback: AsyncIOCallback,
+        _io_callback: AsyncIOCallback,
     ) -> Option<IOResult> {
         let pipe_index: usize = {
             match OPEN_PIPES.read().get(instance as usize) {
@@ -387,7 +387,7 @@ impl KernelDriver for PipeDriver {
         Self::write(pipe_index, buffer)
     }
 
-    fn close(&self, instance: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
         match OPEN_PIPES.read().get(instance as usize) {
             Some(PipeEnd::Reader(index)) => {
                 Self::close_reader(*index);

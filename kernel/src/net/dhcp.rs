@@ -1,7 +1,6 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::net::socket::socket_broadcast;
-use crate::task::id::TaskID;
 use alloc::{collections::BTreeMap, vec::Vec};
 use spin::{Once, RwLock};
 
@@ -186,7 +185,7 @@ fn get_dhcp_socket() -> SocketHandle {
     })
 }
 
-pub fn start_dhcp_transaction(blocked_task: TaskID, mac: HardwareAddress) {
+pub fn start_dhcp_transaction(mac: HardwareAddress) {
     crate::kprintln!("Start DHCP transaction");
     let xid = get_transaction_id();
     let transaction = Transaction {
@@ -211,8 +210,8 @@ pub fn handle_incoming_packet(data: &[u8]) {
     let mut subnet_mask: IPV4Address = IPV4Address([0, 0, 0, 0]);
     let mut router: IPV4Address = IPV4Address([0, 0, 0, 0]);
     let mut dhcp_server: IPV4Address = IPV4Address([0, 0, 0, 0]);
-    let mut lease_time: u32 = 0;
-    let mut dns_servers: Vec<IPV4Address> = Vec::new();
+    let mut _lease_time: u32 = 0;
+    let mut _dns_servers: Vec<IPV4Address> = Vec::new();
     let mut packet_type: u8 = 0;
 
     let mut options_cursor = 4;
@@ -260,13 +259,13 @@ pub fn handle_incoming_packet(data: &[u8]) {
 
                 let end = options_cursor + len;
                 while options_cursor < end {
-                    let mut ip = IPV4Address([
+                    let ip = IPV4Address([
                         options[options_cursor + 0],
                         options[options_cursor + 1],
                         options[options_cursor + 2],
                         options[options_cursor + 3],
                     ]);
-                    dns_servers.push(ip);
+                    _dns_servers.push(ip);
                     options_cursor += 4;
                 }
             }
@@ -275,7 +274,7 @@ pub fn handle_incoming_packet(data: &[u8]) {
                 let len = options[options_cursor] as usize;
                 options_cursor += 1;
 
-                lease_time = ((options[options_cursor + 0] as u32) << 24)
+                _lease_time = ((options[options_cursor + 0] as u32) << 24)
                     | ((options[options_cursor + 1] as u32) << 16)
                     | ((options[options_cursor + 2] as u32) << 8)
                     | (options[options_cursor + 3] as u32);

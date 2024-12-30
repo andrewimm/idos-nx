@@ -47,9 +47,7 @@ use crate::task::actions::handle::{
     create_file_handle, create_pipe_handles, handle_op_close, handle_op_open, handle_op_read,
     handle_op_write, transfer_handle,
 };
-use crate::task::actions::io::{close_file, open_path, open_pipe, read_file, write_file};
 use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
-use crate::task::files::FileHandle;
 use crate::task::id::TaskID;
 use crate::task::switching::{get_current_id, get_task};
 use alloc::{string::String, sync::Arc, vec::Vec};
@@ -140,8 +138,7 @@ pub fn get_active_device_ip(timeout: Option<u32>) -> Option<IPV4Address> {
         Some(stored) => return Some(stored),
         _ => (),
     }
-    let current_id = get_current_id();
-    start_dhcp_transaction(current_id, mac);
+    start_dhcp_transaction(mac);
     wait_for_io(timeout);
 
     match with_active_device(|netdev| *netdev.ip.read()) {

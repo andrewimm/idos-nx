@@ -7,11 +7,11 @@ pub mod parse;
 pub mod relocation;
 pub mod task;
 
+use self::environment::ExecutionEnvironment;
 use crate::files::path::Path;
 use crate::filesystem::get_driver_by_id;
 use crate::task::actions::io::prepare_open_file;
 use crate::task::files::OpenFile;
-use self::environment::ExecutionEnvironment;
 
 #[derive(Debug)]
 pub enum LoaderError {
@@ -21,9 +21,9 @@ pub enum LoaderError {
 
 pub fn load_executable(path_str: &str) -> Result<(OpenFile, ExecutionEnvironment), LoaderError> {
     let exec_file = prepare_open_file(path_str).map_err(|_| LoaderError::FileNotFound)?;
-    
+
     let mut magic_number: [u8; 4] = [0; 4];
-    let driver = get_driver_by_id(exec_file.drive)
+    let _ = get_driver_by_id(exec_file.drive)
         .map_err(|_| LoaderError::FileNotFound)?
         .read(exec_file.driver_handle, &mut magic_number)
         .map_err(|_| LoaderError::InternalError)?;
@@ -42,6 +42,6 @@ pub fn load_executable(path_str: &str) -> Result<(OpenFile, ExecutionEnvironment
             _ => self::bin::build_environment(exec_file.drive, exec_file.driver_handle)?,
         }
     };
-    
+
     Ok((exec_file, env))
 }

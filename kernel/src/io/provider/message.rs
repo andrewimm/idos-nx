@@ -1,5 +1,12 @@
-use crate::{task::{id::TaskID, messaging::{MessageQueue, Message}}, io::async_io::{AsyncOp, OpIdGenerator, AsyncOpQueue, AsyncOpID}, memory::{address::{VirtualAddress, PhysicalAddress}, virt::scratch::UnmappedPage}};
 use super::IOProvider;
+use crate::{
+    io::async_io::{AsyncOp, AsyncOpID, AsyncOpQueue},
+    memory::{
+        address::{PhysicalAddress, VirtualAddress},
+        virt::scratch::UnmappedPage,
+    },
+    task::messaging::{Message, MessageQueue},
+};
 
 /// Inner contents of the handle used to read IPC messages.
 pub struct MessageIOProvider {
@@ -19,7 +26,7 @@ impl MessageIOProvider {
             match first_message {
                 Some(packet) => {
                     let (sender, message) = packet.open();
-                    let (op_id, op) = self.pending_ops.pop().unwrap();
+                    let (_op_id, op) = self.pending_ops.pop().unwrap();
                     // arg0 is the address of the Message
                     // return value is the ID of the sender
                     let phys_frame_start = op.arg0 & 0xfffff000;
@@ -27,11 +34,12 @@ impl MessageIOProvider {
                     let unmapped_for_dir = UnmappedPage::map(unmapped_phys);
                     let message_offset = op.arg0 & 0xfff;
                     unsafe {
-                        let ptr = (unmapped_for_dir.virtual_address() + message_offset).as_ptr_mut::<Message>();
+                        let ptr = (unmapped_for_dir.virtual_address() + message_offset)
+                            .as_ptr_mut::<Message>();
                         core::ptr::write_volatile(ptr, message);
                     }
                     op.complete(sender.into());
-                },
+                }
                 None => return,
             }
             if !has_more {
@@ -70,9 +78,7 @@ impl IOProvider for MessageIOProvider {
         self.pending_ops.remove(id)
     }
 
-    fn read(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
-
+    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<super::IOResult> {
         None
     }
 }
-

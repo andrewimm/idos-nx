@@ -1,6 +1,9 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use crate::{interrupts::pic::install_interrupt_handler, task::{actions::lifecycle::create_kernel_task, switching::get_task, id::TaskID}};
+use crate::{
+    interrupts::pic::install_interrupt_handler,
+    task::{actions::lifecycle::create_kernel_task, id::TaskID, switching::get_task},
+};
 
 pub mod controller;
 pub mod driver;
@@ -13,8 +16,8 @@ static DRIVER_ID: AtomicU32 = AtomicU32::new(0);
 pub fn install_drivers() {
     crate::kprint!("Initialize PS/2\n");
     // TODO: When ACPI is enabled, use the data to confirm that PS/2 exists
-    
-    let mut device_ready = self::controller::initialize_controller();
+
+    let _device_ready = self::controller::initialize_controller();
 
     if self::controller::reset_device() {
         // initialize keyboard
@@ -31,7 +34,7 @@ pub fn install_drivers() {
     DRIVER_ID.store(task_id.into(), Ordering::SeqCst);
 
     // ======
-    
+
     self::controller::send_ps2_command(0xd4);
     self::controller::write_ps2_data(0xf4);
     while !self::controller::data_read_ready() {}

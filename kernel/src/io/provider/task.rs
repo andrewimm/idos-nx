@@ -1,8 +1,8 @@
 use spin::RwLock;
 
-use crate::task::id::TaskID;
-use crate::io::async_io::{AsyncOp, AsyncOpID, OpIdGenerator, AsyncOpQueue};
 use super::IOProvider;
+use crate::io::async_io::{AsyncOp, AsyncOpID, AsyncOpQueue};
+use crate::task::id::TaskID;
 
 /// Inner contents of the handle generated when a child task is spawned. This
 /// can be used to listen for status changes in the child task, such as when it
@@ -53,11 +53,10 @@ impl IOProvider for TaskIOProvider {
         self.pending_ops.remove(id)
     }
 
-    fn read(&self, provider_index: u32, id: AsyncOpID, op: AsyncOp) -> Option<super::IOResult> {
+    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<super::IOResult> {
         if let Some(code) = *self.exit_code.read() {
             return Some(Ok(code));
         }
         None
     }
 }
-

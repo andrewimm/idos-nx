@@ -36,7 +36,7 @@ fn command_task() -> ! {
         let input_str =
             unsafe { core::str::from_utf8_unchecked(&input_buffer[..input_len]).trim() };
 
-        let mut lexer = Lexer::new(input_str);
+        let lexer = Lexer::new(input_str);
         let mut parser = Parser::new(lexer);
         parser.parse_input();
 

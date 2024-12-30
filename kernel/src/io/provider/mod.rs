@@ -12,6 +12,7 @@ pub mod task;
 
 pub type IOResult = Result<u32, IOError>;
 
+#[allow(unused_variables)]
 pub trait IOProvider {
     /// Queue operations must be implemented by each Provider.
     /// enqueue_op adds a new op to be handled. Many providers implement a
