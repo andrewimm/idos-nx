@@ -146,10 +146,17 @@ impl DHCPPacket {
 
 impl PacketHeader for DHCPPacket {}
 
+#[derive(Copy, Clone)]
 pub enum IPAddressState {
+    /// No IP established
     Unknown,
-    Pending,
+    /// A transaction is in progress. The u32 is the transaction ID
+    Pending(u32),
+    /// An IP has been established
     Established(IPV4Address),
+    /// The IP has expired. A new transcaction requesting the previous address
+    /// again should be initiated
+    Expired(IPV4Address),
 }
 
 /// This struct holds an internal state machine for tracking the IP of a
@@ -157,9 +164,9 @@ pub enum IPAddressState {
 /// transaction.
 pub struct DHCPState {
     mac: HardwareAddress,
-    pub ip_address: IPV4Address,
+    ip_address: IPAddressState,
     pub subnet_mask: IPV4Address,
-    pub dns_server: IPV4Address,
+    pub dhcp_server: IPV4Address,
     expires_at: Timestamp,
 }
 
@@ -167,10 +174,37 @@ impl DHCPState {
     pub fn new(mac: HardwareAddress) -> Self {
         Self {
             mac,
-            ip_address: IPV4Address::default(),
+            ip_address: IPAddressState::Unknown,
             subnet_mask: IPV4Address::default(),
-            dns_server: IPV4Address::default(),
+            dhcp_server: IPV4Address::default(),
             expires_at: Timestamp(0),
+        }
+    }
+
+    pub fn get_current_ip_state(&mut self) -> IPAddressState {
+        if let IPAddressState::Established(ip) = self.ip_address {
+            if self.expires_at < Timestamp::now() {
+                self.ip_address = IPAddressState::Expired(ip);
+            }
+        }
+        self.ip_address
+    }
+
+    pub fn start_transaction(&mut self) -> Option<Vec<u8>> {
+        match self.get_current_ip_state() {
+            IPAddressState::Unknown => {
+                let xid = 0xaabb0000;
+                self.ip_address = IPAddressState::Pending(xid);
+                Some(DHCPPacket::discovery_packet(self.mac, xid))
+            }
+            IPAddressState::Pending(_) => None,
+            IPAddressState::Established(_) => None,
+            IPAddressState::Expired(ip) => {
+                let xid = 0xaabb0000;
+                let packet = DHCPPacket::request_packet(self.mac, self.dhcp_server, ip, xid);
+                self.ip_address = IPAddressState::Pending(xid);
+                Some(packet)
+            }
         }
     }
 
@@ -317,7 +351,8 @@ impl DHCPState {
             // associated with the network device's MAC.
             5 => {
                 crate::kprintln!("DHCP ACK");
-                self.ip_address = packet.yiaddr;
+                self.dhcp_server = dhcp_server;
+                self.ip_address = IPAddressState::Established(packet.yiaddr);
                 self.expires_at = Timestamp::now() + lease_time;
             }
             _ => (),

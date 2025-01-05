@@ -18,7 +18,6 @@ use crate::io::handle::Handle;
 use crate::io::IOError;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::shared::release_buffer;
-use crate::net::register_network_interface;
 use crate::task::actions::handle::{
     add_handle_to_notify_queue, create_notify_queue, create_pipe_handles, handle_op_read,
     handle_op_read_struct, handle_op_write, open_interrupt_handle, open_message_queue,
@@ -156,7 +155,7 @@ fn run_driver() -> ! {
     let mut message_read = handle_op_read_struct(messages_handle, &mut incoming_message);
     let mut interrupt_read = handle_op_read(interrupt_handle, &mut interrupt_ready, 0);
 
-    register_network_interface(mac, "DEV:\\ETH");
+    //register_network_interface(mac, "DEV:\\ETH");
     handle_op_write(response_writer, &[0]);
 
     loop {

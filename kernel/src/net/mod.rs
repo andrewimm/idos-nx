@@ -38,27 +38,14 @@ pub mod tcp;
 pub mod udp;
 
 use self::ethernet::HardwareAddress;
-use self::{dhcp::start_dhcp_transaction, ip::IPV4Address};
 use crate::collections::SlotList;
 use crate::task::actions::handle::{
     create_file_handle, create_kernel_task, create_pipe_handles, handle_op_close, handle_op_open,
     handle_op_read, handle_op_write, transfer_handle,
 };
-use crate::task::actions::lifecycle::wait_for_io;
 use alloc::{string::String, sync::Arc};
 use core::ops::Deref;
 use spin::RwLock;
-
-#[repr(transparent)]
-pub struct NetID(u32);
-
-impl core::ops::Deref for NetID {
-    type Target = u32;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 
 pub struct NetDevice {
     pub mac: HardwareAddress,
@@ -85,24 +72,7 @@ impl NetDevice {
     }
 }
 
-static NET_DEVICES: RwLock<SlotList<Arc<NetDevice>>> = RwLock::new(SlotList::new());
-
 static ACTIVE_DEVICE: RwLock<Option<Arc<NetDevice>>> = RwLock::new(None);
-
-pub fn register_network_interface(mac: [u8; 6], device_name: &str) -> NetID {
-    let device = Arc::new(NetDevice::new(
-        HardwareAddress(mac),
-        String::from(device_name),
-    ));
-    let index = NET_DEVICES.write().insert(device.clone()) as u32;
-
-    let mut active = ACTIVE_DEVICE.write();
-    if active.is_none() {
-        active.replace(device);
-    }
-
-    NetID(index)
-}
 
 pub fn with_active_device<F, T>(f: F) -> Result<T, ()>
 where
@@ -115,36 +85,9 @@ where
     }
 }
 
-pub fn get_net_device_by_mac(mac: HardwareAddress) -> Option<Arc<NetDevice>> {
-    NET_DEVICES
-        .read()
-        .iter()
-        .find(|dev| dev.mac == mac)
-        .cloned()
-}
-
-pub fn get_active_device_ip(timeout: Option<u32>) -> Option<IPV4Address> {
-    let (mac, stored_ip) = match with_active_device(|netdev| (netdev.mac, *netdev.ip.read())) {
-        Ok(pair) => pair,
-        Err(_) => return None,
-    };
-    match stored_ip {
-        Some(stored) => return Some(stored),
-        _ => (),
-    }
-    start_dhcp_transaction(mac);
-    wait_for_io(timeout);
-
-    match with_active_device(|netdev| *netdev.ip.read()) {
-        Ok(Some(ip)) => Some(ip),
-        _ => None,
-    }
-}
-
 pub fn start_net_stack() {
     let (response_reader, response_writer) = create_pipe_handles();
 
-    //let driver_task = create_kernel_task(net_stack_task, Some("NET"));
     let (_, driver_task) = create_kernel_task(resident::net_stack_resident, Some("NETR"));
     transfer_handle(response_writer, driver_task).unwrap();
     // wait for a response from the driver indicating initialization

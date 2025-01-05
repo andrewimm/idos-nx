@@ -50,6 +50,12 @@ impl RegisteredNetDevice {
         }
     }
 
+    pub fn init_dhcp(&mut self) {
+        if let Some(packet) = self.dhcp_state.start_transaction() {
+            self.dhcp_broadcast(&packet);
+        }
+    }
+
     /// This method should be called whenever the network interface has
     /// completed a read into this struct's read buffer. It will inspect the
     /// ethernet frame and process its contents according to
@@ -115,20 +121,20 @@ impl RegisteredNetDevice {
                 crate::kprintln!("LOOK A DHCP PACKET");
                 if let Some(dhcp_response) = self.dhcp_state.handle_dhcp_packet(udp_payload) {
                     // if the DHCP state machine has a response, send it
-                    let eth_header =
-                        EthernetFrameHeader::new_ipv4(self.mac, HardwareAddress::broadcast());
-                    let ip_packet = create_datagram(
-                        IPV4Address([0; 4]),
-                        68,
-                        IPV4Address([255; 4]),
-                        67,
-                        &dhcp_response,
-                    );
-                    self.send_raw(eth_header, &ip_packet);
+                    self.dhcp_broadcast(&dhcp_response);
                 }
             } else {
             }
         }
+    }
+
+    /// Special handling for sending DHCP payloads through ethernet broadcasts.
+    /// We don't open a true socket for DHCP navigation. We just fake it.
+    pub fn dhcp_broadcast(&self, payload: &[u8]) -> PendingHandleOp {
+        let eth_header = EthernetFrameHeader::new_ipv4(self.mac, HardwareAddress::broadcast());
+        let ip_packet =
+            create_datagram(IPV4Address([0; 4]), 68, IPV4Address([255; 4]), 67, payload);
+        self.send_raw(eth_header, &ip_packet)
     }
 
     pub fn send_raw(&self, eth_header: EthernetFrameHeader, payload: &[u8]) -> PendingHandleOp {
@@ -189,6 +195,7 @@ pub fn net_stack_resident() -> ! {
                 // the initial open op. Mark the device as opened and begin
                 // reading from the device.
                 net_dev.is_open = true;
+                net_dev.init_dhcp();
                 net_dev.current_op = handle_op_read(net_dev.handle, &mut net_dev.read_buffer, 0);
                 continue;
             }
