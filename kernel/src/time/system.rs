@@ -73,7 +73,7 @@ impl core::ops::Add for TimestampHires {
 /// Unsigned, 32-bit number representing the number of seconds passed since
 /// midnight on 1 January 1980. It neglects leap seconds.
 /// This is NOT the same as POSIX time!
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd)]
 pub struct Timestamp(pub u32);
 
 impl Timestamp {

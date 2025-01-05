@@ -9,7 +9,6 @@
 #![feature(map_try_insert)]
 #![feature(naked_functions)]
 #![feature(vec_into_raw_parts)]
-
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
@@ -66,7 +65,7 @@ pub extern "C" fn _start() -> ! {
     {
         task::actions::lifecycle::create_kernel_task(run_tests, Some("TESTS"));
     }
-    
+
     #[cfg(not(test))]
     {
         task::actions::lifecycle::create_kernel_task(init_system, Some("INIT"));
@@ -76,10 +75,7 @@ pub extern "C" fn _start() -> ! {
         unsafe {
             asm!("cli");
             task::switching::yield_coop();
-            asm!(
-                "sti",
-                "hlt",
-            );
+            asm!("sti", "hlt",);
         }
     }
 }
@@ -97,39 +93,21 @@ fn init_system() -> ! {
         hardware::ps2::install_drivers();
 
         task::actions::handle::handle_op_write(con, "Installing ATA Drivers...\n".as_bytes());
-        //hardware::ata::dev::install_drivers();
         hardware::ata::install();
 
         task::actions::handle::handle_op_write(con, "Installing Floppy Drivers...\n".as_bytes());
-        //hardware::floppy::dev::install_drivers();
-
-        // new floppy driver
         hardware::floppy::install();
 
-        task::actions::handle::handle_op_write(con, "Installing Network Device Drivers...\n".as_bytes());
+        task::actions::handle::handle_op_write(
+            con,
+            "Installing Network Device Drivers...\n".as_bytes(),
+        );
         hardware::ethernet::dev::install_driver();
 
         task::actions::handle::handle_op_write(con, "Initializing Net Stack...\n".as_bytes());
         net::start_net_stack();
 
-        {
-            let mac = net::with_active_device(|dev| dev.mac).unwrap();
-            task::actions::handle::handle_op_write(con,
-                alloc::format!("Network device MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]).as_bytes()
-            );
-            task::actions::handle::handle_op_write(con, "Resolving IP Address...\n".as_bytes());
-            match net::get_active_device_ip(Some(2000)) {
-                Some(ip) => {
-                    task::actions::handle::handle_op_write(con, alloc::format!("Got IP: {:}\n", ip).as_bytes());
-                },
-                None => {
-                    task::actions::handle::handle_op_write(con, "DHCP request timed out!\n".as_bytes());
-                },
-            }
-        }
-
         task::actions::handle::handle_op_write(con, "Mounting FAT FS...\n".as_bytes());
-        //filesystem::drivers::fatfs::mount_fat_fs();
         io::filesystem::fatfs::mount_fat_fs();
 
         task::actions::handle::handle_op_write(con, "System ready! Welcome to IDOS\n\n".as_bytes());
@@ -138,9 +116,9 @@ fn init_system() -> ! {
 
     {
         // Loader test
-        use task::messaging::Message;
         use task::actions::send_message;
-        
+        use task::messaging::Message;
+
         let loader_id = loader::task::get_loader_id();
 
         let req = Message::empty();
@@ -163,7 +141,7 @@ fn init_system() -> ! {
             }
         };
         crate::kprintln!("Accepted connection from remote endpoint");
-        
+
         let mut buffer = alloc::vec::Vec::new();
         for _ in 0..1024 {
             buffer.push(0);
@@ -202,4 +180,3 @@ fn test_runner(tests: &[&dyn Fn()]) -> ! {
     task::actions::sleep(5000);
     hardware::qemu::debug_exit(0);
 }
-
