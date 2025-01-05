@@ -103,8 +103,6 @@ impl EthernetDevice {
     }
 }
 
-static mut MAC_ADDR: [u8; 6] = [0; 6];
-
 fn run_driver() -> ! {
     let args_reader = Handle::new(0);
     let response_writer = Handle::new(1);
@@ -139,10 +137,6 @@ fn run_driver() -> ! {
         mac[4],
         mac[5],
     );
-
-    unsafe {
-        MAC_ADDR = mac;
-    }
 
     let eth = EthernetDriver::new(controller);
     let mut driver_impl = EthernetDevice::new(eth);

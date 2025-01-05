@@ -19,6 +19,12 @@ impl core::ops::DerefMut for IPV4Address {
     }
 }
 
+impl Default for IPV4Address {
+    fn default() -> Self {
+        Self([0; 4])
+    }
+}
+
 impl core::fmt::Display for IPV4Address {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(core::format_args!(

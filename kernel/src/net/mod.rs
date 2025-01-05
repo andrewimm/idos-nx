@@ -32,27 +32,21 @@ pub mod error;
 pub mod ethernet;
 pub mod ip;
 pub mod packet;
+pub mod resident;
 pub mod socket;
 pub mod tcp;
 pub mod udp;
 
 use self::ethernet::HardwareAddress;
-use self::{
-    dhcp::start_dhcp_transaction, ethernet::EthernetFrameHeader, ip::IPV4Address,
-    packet::PacketHeader,
-};
+use self::{dhcp::start_dhcp_transaction, ip::IPV4Address};
 use crate::collections::SlotList;
-use crate::io::handle::Handle;
 use crate::task::actions::handle::{
-    create_file_handle, create_pipe_handles, handle_op_close, handle_op_open, handle_op_read,
-    handle_op_write, transfer_handle,
+    create_file_handle, create_kernel_task, create_pipe_handles, handle_op_close, handle_op_open,
+    handle_op_read, handle_op_write, transfer_handle,
 };
-use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
-use crate::task::id::TaskID;
-use crate::task::switching::{get_current_id, get_task};
-use alloc::{string::String, sync::Arc, vec::Vec};
+use crate::task::actions::lifecycle::wait_for_io;
+use alloc::{string::String, sync::Arc};
 use core::ops::Deref;
-use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
 #[repr(transparent)]
@@ -147,62 +141,11 @@ pub fn get_active_device_ip(timeout: Option<u32>) -> Option<IPV4Address> {
     }
 }
 
-static NET_TASK_ID: AtomicU32 = AtomicU32::new(0);
-static PACKETS_RECEIVED: AtomicU32 = AtomicU32::new(0);
-
-pub fn notify_net_device_ready(_id: u32) {
-    PACKETS_RECEIVED.fetch_add(1, Ordering::SeqCst);
-    let task_id = TaskID::new(NET_TASK_ID.load(Ordering::SeqCst));
-    if let Some(lock) = get_task(task_id) {
-        lock.write().io_complete();
-    }
-}
-
-fn net_stack_task() -> ! {
-    let current_id = get_current_id();
-    NET_TASK_ID.store(current_id.into(), Ordering::SeqCst);
-
-    let response_writer = Handle::new(0);
-    handle_op_write(response_writer, &[1]);
-
-    let mut read_buffer = Vec::with_capacity(1024);
-    for _ in 0..1024 {
-        read_buffer.push(0);
-    }
-
-    let eth_dev = create_file_handle();
-    handle_op_open(eth_dev, "DEV:\\ETH").wait_for_completion();
-
-    loop {
-        //PACKETS_RECEIVED.store(0, Ordering::SeqCst);
-        let len = handle_op_read(eth_dev, &mut read_buffer, 0)
-            .wait_for_result()
-            .unwrap() as usize;
-        if len > 0 {
-            match EthernetFrameHeader::try_from_u8_buffer(&read_buffer)
-                .map(|frame| (frame.get_ethertype(), frame.src_mac))
-            {
-                Some((self::ethernet::ETHERTYPE_ARP, _)) => {
-                    self::arp::handle_arp_announcement(
-                        &read_buffer[EthernetFrameHeader::get_size()..],
-                    );
-                }
-                Some((self::ethernet::ETHERTYPE_IP, src_mac)) => {
-                    self::socket::receive_ip_packet(
-                        src_mac,
-                        &read_buffer[EthernetFrameHeader::get_size()..],
-                    );
-                }
-                _ => (),
-            }
-        }
-    }
-}
-
 pub fn start_net_stack() {
     let (response_reader, response_writer) = create_pipe_handles();
 
-    let driver_task = create_kernel_task(net_stack_task, Some("NET"));
+    //let driver_task = create_kernel_task(net_stack_task, Some("NET"));
+    let (_, driver_task) = create_kernel_task(resident::net_stack_resident, Some("NETR"));
     transfer_handle(response_writer, driver_task).unwrap();
     // wait for a response from the driver indicating initialization
     handle_op_read(response_reader, &mut [0u8], 0).wait_for_completion();

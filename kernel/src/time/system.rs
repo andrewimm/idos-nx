@@ -88,6 +88,19 @@ impl Timestamp {
     pub fn as_u32(&self) -> u32 {
         self.0
     }
+
+    pub fn now() -> Self {
+        let hires = get_system_time();
+        hires.to_timestamp()
+    }
+}
+
+impl core::ops::Add<u32> for Timestamp {
+    type Output = Timestamp;
+
+    fn add(self, rhs: u32) -> Self::Output {
+        Timestamp(self.0 + rhs)
+    }
 }
 
 /// Reset the reference point time
