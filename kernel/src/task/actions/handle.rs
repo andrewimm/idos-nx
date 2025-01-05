@@ -7,6 +7,7 @@ use crate::io::notify::NotifyQueue;
 use crate::io::provider::file::FileIOProvider;
 use crate::io::provider::irq::InterruptIOProvider;
 use crate::io::provider::message::MessageIOProvider;
+use crate::io::provider::socket::SocketIOProvider;
 use crate::io::provider::task::TaskIOProvider;
 use crate::pipes::driver::{create_pipe, get_pipe_drive_id};
 use crate::task::id::TaskID;
@@ -116,6 +117,14 @@ pub fn open_interrupt_handle(irq: u8) -> Handle {
     };
     add_interrupt_listener(irq, task_id, io_index);
     handle
+}
+
+pub fn create_udp_socket() -> Handle {
+    let task_lock = get_current_task();
+    let mut task = task_lock.write();
+    let io = IOType::Socket(SocketIOProvider::create_udp());
+    let io_index = task.async_io_table.add_io(io);
+    task.open_handles.insert(io_index)
 }
 
 pub fn create_notify_queue() -> Handle {

@@ -6,8 +6,8 @@ pub fn terminate(code: u32) -> ! {
 }
 
 pub fn read_message_blocking(timeout: Option<u32>) -> Option<(u32, Message)> {
-    let mut message = Message(0, 0, 0, 0);
-    
+    let message = Message(0, 0, 0, 0);
+
     let encode_timeout = match timeout {
         Some(value) => value,
         None => 0xffffffff,
@@ -27,4 +27,3 @@ pub fn send_message(send_to: u32, message: Message, expiration: u32) {
 pub fn yield_coop() {
     super::syscall(6, 0, 0, 0);
 }
-

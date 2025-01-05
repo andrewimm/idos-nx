@@ -200,9 +200,7 @@ pub fn receive_ip_packet(source_mac: HardwareAddress, raw: &[u8]) {
         };
         let dest_port = udp_header.dest_port.to_be();
 
-        if dest_port == 68 {
-            super::dhcp::handle_incoming_packet(&remainder[UDPHeader::get_size()..]);
-        }
+        if dest_port == 68 {}
     }
 }
 

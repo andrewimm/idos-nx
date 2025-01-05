@@ -16,7 +16,7 @@ use crate::{
 
 use super::provider::{
     file::FileIOProvider, irq::InterruptIOProvider, message::MessageIOProvider,
-    task::TaskIOProvider, IOProvider,
+    socket::SocketIOProvider, task::TaskIOProvider, IOProvider,
 };
 
 pub enum IOType {
@@ -24,6 +24,7 @@ pub enum IOType {
     MessageQueue(MessageIOProvider),
     File(FileIOProvider),
     Interrupt(InterruptIOProvider),
+    Socket(SocketIOProvider),
 }
 
 impl IOType {
@@ -33,6 +34,7 @@ impl IOType {
             Self::MessageQueue(io) => io,
             Self::File(io) => io,
             Self::Interrupt(io) => io,
+            Self::Socket(io) => io,
         };
         provider.op_request(index, op)
     }

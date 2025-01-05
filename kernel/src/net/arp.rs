@@ -28,26 +28,26 @@ use super::with_active_device;
 #[repr(C, packed)]
 pub struct ARPPacket {
     /// Network link type; 1 for Ethernet
-    hardware_type: u16,
+    pub hardware_type: u16,
     /// Network protocol type, using the same values as EtherType; 0x0800 for IPv4
-    protocol_type: u16,
+    pub protocol_type: u16,
     /// Length of hardware address in octets; 6 for Ethernet
-    hardware_addr_length: u8,
+    pub hardware_addr_length: u8,
     /// Length of protocol address in octets; 4 for IPv4
-    protocol_addr_length: u8,
+    pub protocol_addr_length: u8,
     /// ARP operation; 1 for request, 2 for response
-    opcode: u16,
+    pub opcode: u16,
 
     // The sizes of the following fields are declared earlier by the `_length`
     // properties. Since we only support Ethernet and IPv4, we can hard-code
     // these to 6 and 4 octets respectively.
     /// 6-octet buffer for the source hardware address
-    source_hardware_addr: HardwareAddress,
+    pub source_hardware_addr: HardwareAddress,
     /// 4-octet buffer for the source protocol address
-    source_protocol_addr: IPV4Address,
+    pub source_protocol_addr: IPV4Address,
 
-    dest_hardware_addr: HardwareAddress,
-    dest_protocol_addr: IPV4Address,
+    pub dest_hardware_addr: HardwareAddress,
+    pub dest_protocol_addr: IPV4Address,
 }
 
 impl ARPPacket {
