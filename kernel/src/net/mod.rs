@@ -38,7 +38,6 @@ pub mod tcp;
 pub mod udp;
 
 use self::ethernet::HardwareAddress;
-use crate::collections::SlotList;
 use crate::task::actions::handle::{
     create_file_handle, create_kernel_task, create_pipe_handles, handle_op_close, handle_op_open,
     handle_op_read, handle_op_write, transfer_handle,
