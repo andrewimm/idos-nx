@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-use alloc::vec::Vec;
+use alloc::{collections::VecDeque, string::String, vec::Vec};
 
 use super::{
     arp::{ARPPacket, ARPTable},
@@ -18,6 +18,8 @@ use super::{
     udp::UDPHeader,
 };
 use super::{ip::IPV4Address, packet::PacketHeader};
+
+use spin::Mutex;
 
 struct RegisteredNetDevice {
     handle: Handle,
@@ -146,6 +148,27 @@ impl RegisteredNetDevice {
     }
 }
 
+pub enum NetRequest {
+    RegisterDevice(String, HardwareAddress),
+    GetIP,
+    SocketBind,
+    SocketAccept,
+    SocketRead,
+    SocketWrite,
+    SocketClose,
+}
+
+static NET_STACK_REQUESTS: Mutex<VecDeque<NetRequest>> = Mutex::new(VecDeque::new());
+
+pub fn register_network_device(name: &str, mac: [u8; 6]) {
+    NET_STACK_REQUESTS
+        .lock()
+        .push_back(NetRequest::RegisterDevice(
+            String::from(name),
+            HardwareAddress(mac),
+        ));
+}
+
 pub fn net_stack_resident() -> ! {
     // this notify queue will be used to listen for all network devices
     // each time a new network device is registered, it will be opened and the
@@ -155,22 +178,8 @@ pub fn net_stack_resident() -> ! {
     let mut network_devices: SlotList<RegisteredNetDevice> = SlotList::new();
 
     // TODO: move this out to an external call
-    let my_mac = HardwareAddress([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
-    network_devices.insert(RegisteredNetDevice::new("DEV:\\ETH", my_mac, notify));
-
-    {
-        let packet = super::dhcp::DHCPPacket::discovery_packet(my_mac, 0xaabb0000);
-        let mut total_frame = Vec::with_capacity(EthernetFrameHeader::get_size() + packet.len());
-        let eth_header = EthernetFrameHeader::new_ipv4(my_mac, HardwareAddress::broadcast());
-        total_frame.extend_from_slice(eth_header.as_u8_buffer());
-        total_frame.extend(packet);
-
-        /*crate::task::actions::handle::handle_op_write(
-            network_devices.get(0).unwrap().handle,
-            &total_frame,
-        )
-        .wait_for_completion();*/
-    }
+    //let my_mac = HardwareAddress([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
+    //network_devices.insert(RegisteredNetDevice::new("DEV:\\ETH", my_mac, notify));
 
     // let the init task know that the network stack is ready
     let response_writer = Handle::new(0);
@@ -216,6 +225,20 @@ pub fn net_stack_resident() -> ! {
         }
 
         // check the task queue for external requests
+        // External async requests include:
+        //  - Register network device by name + MAC
+        //  - Socket accept / send / receive / close
+        //  - IP lookup (async because DHCP may not have been established yet)
+        if let Some(mut queue) = NET_STACK_REQUESTS.try_lock() {
+            while let Some(req) = queue.pop_front() {
+                match req {
+                    NetRequest::RegisterDevice(name, mac) => {
+                        network_devices.insert(RegisteredNetDevice::new(&name, mac, notify));
+                    }
+                    _ => {}
+                }
+            }
+        }
 
         // block on notify queue
         wait_on_notify(notify, Some(1000));
