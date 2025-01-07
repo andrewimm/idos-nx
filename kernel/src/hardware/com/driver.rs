@@ -162,7 +162,7 @@ impl ComDeviceDriver {
     }
 
     fn init_read(&mut self) {
-        let mut first = match self.read_list.get_mut(0) {
+        let first = match self.read_list.get_mut(0) {
             Some(pending) => pending,
             None => return,
         };

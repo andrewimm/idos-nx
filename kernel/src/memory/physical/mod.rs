@@ -3,18 +3,22 @@ pub mod bios;
 pub mod bitmap;
 pub mod range;
 
+use super::address::PhysicalAddress;
 use allocated_frame::AllocatedFrame;
 use bios::load_memory_map;
 use bitmap::{BitmapError, FrameBitmap};
 use range::FrameRange;
 use spin::Mutex;
-use super::address::PhysicalAddress;
 
-static mut ALLOCATOR: Mutex<FrameBitmap> = Mutex::new(FrameBitmap::empty());
+static ALLOCATOR: Mutex<FrameBitmap> = Mutex::new(FrameBitmap::empty());
 
 pub const FRAME_SIZE: u32 = 0x1000;
 
-pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAddress, kernel_range: FrameRange) {
+pub fn init_allocator(
+    location: PhysicalAddress,
+    memory_map_address: PhysicalAddress,
+    kernel_range: FrameRange,
+) {
     // Get the memory map from BIOS to know how much memory is installed
     let memory_map = load_memory_map(memory_map_address);
     let mut memory_end = 0;
@@ -39,7 +43,9 @@ pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAdd
     // Mark the kernel segments as allocated
     bitmap.allocate_range(kernel_range).unwrap();
     // Mark the first 0x1000 bytes as occupied, too. We may need the BIOS data
-    bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0), 0x1000)).unwrap();
+    bitmap
+        .allocate_range(FrameRange::new(PhysicalAddress::new(0), 0x1000))
+        .unwrap();
 
     crate::kprint!(
         "Total Memory: {} KiB\nFree Memory: {} KiB\n",
@@ -47,15 +53,14 @@ pub fn init_allocator(location: PhysicalAddress, memory_map_address: PhysicalAdd
         bitmap.get_free_frame_count() * 4,
     );
 
-    unsafe {
-        ALLOCATOR = Mutex::new(bitmap);
-    }
+    *ALLOCATOR.lock() = bitmap;
 }
 
-pub fn with_allocator<F, T>(f: F) -> T where
-    F: Fn(&mut FrameBitmap) -> T {
-    // Safe because the ALLOCATOR will only be set once, synchronously
-    let mut alloc = unsafe { ALLOCATOR.lock() };
+pub fn with_allocator<F, T>(f: F) -> T
+where
+    F: Fn(&mut FrameBitmap) -> T,
+{
+    let mut alloc = ALLOCATOR.lock();
     f(&mut alloc)
 }
 
@@ -79,14 +84,9 @@ pub fn allocate_frames(count: usize) -> Result<AllocatedFrame, BitmapError> {
 
 pub fn release_frame(address: PhysicalAddress) -> Result<(), BitmapError> {
     let range = FrameRange::new(address, FRAME_SIZE);
-    with_allocator(|alloc| {
-        alloc.free_range(range)
-    })
+    with_allocator(|alloc| alloc.free_range(range))
 }
 
 pub fn get_allocator_size() -> usize {
-    with_allocator(|alloc| {
-        alloc.size_in_bytes()
-    })
+    with_allocator(|alloc| alloc.size_in_bytes())
 }
-

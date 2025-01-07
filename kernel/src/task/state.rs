@@ -1,17 +1,17 @@
-use alloc::boxed::Box;
-use alloc::string::String;
 use crate::files::path::Path;
-use crate::io::async_io::{AsyncIOTable, IOType, AsyncOpID};
+use crate::io::async_io::{AsyncIOTable, AsyncOpID, IOType};
 use crate::io::driver::comms::IOResult;
-use crate::io::handle::{HandleTable, Handle};
+use crate::io::handle::{Handle, HandleTable};
 use crate::io::notify::NotifyQueue;
 use crate::io::provider::IOProvider;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
-use crate::time::system::{Timestamp, get_system_time};
+use crate::time::system::{get_system_time, Timestamp};
+use alloc::boxed::Box;
+use alloc::string::String;
 
 use super::args::ExecArgs;
-use super::files::{OpenFileMap, CurrentDrive, OpenFile};
+use super::files::{CurrentDrive, OpenFile, OpenFileMap};
 use super::id::TaskID;
 use super::memory::TaskMemory;
 use super::messaging::{Message, MessagePacket, MessageQueue};
@@ -29,7 +29,7 @@ pub struct Task {
     pub created_at: Timestamp,
 
     /// A Box pointing to the kernel stack for this task. This stack will be
-    /// used when the task is executing kernel-mode code. 
+    /// used when the task is executing kernel-mode code.
     /// The stack Box is wrapped in an Option so that we can replace it with
     /// None before the Task struct is dropped. If any code attempts to drop
     /// the stack Box, it will panic because it was not created by the global
@@ -201,7 +201,7 @@ impl Task {
                 } else {
                     RunState::Blocked(Some(t - ms), block_type)
                 };
-            },
+            }
             _ => (),
         }
     }
@@ -218,7 +218,11 @@ impl Task {
         self.message_queue.read(current_ticks)
     }
 
-    pub fn read_message_blocking(&mut self, current_ticks: u32, timeout: Option<u32>) -> (Option<MessagePacket>, bool) {
+    pub fn read_message_blocking(
+        &mut self,
+        current_ticks: u32,
+        timeout: Option<u32>,
+    ) -> (Option<MessagePacket>, bool) {
         let (first_read, has_more) = self.message_queue.read(current_ticks);
         if first_read.is_some() {
             return (first_read, has_more);
@@ -232,20 +236,30 @@ impl Task {
     /// on reading the message queue, it will resume running.
     /// Each message is accompanied by an expiration time (in system ticks),
     /// after which point the message is considered invalid.
-    pub fn receive_message(&mut self, current_ticks: u32, from: TaskID, message: Message, expiration_ticks: u32) {
-        self.message_queue.add(from, message, current_ticks, expiration_ticks);
+    pub fn receive_message(
+        &mut self,
+        current_ticks: u32,
+        from: TaskID,
+        message: Message,
+        expiration_ticks: u32,
+    ) {
+        self.message_queue
+            .add(from, message, current_ticks, expiration_ticks);
         self.handle_incoming_messages();
 
         match self.state {
             RunState::Blocked(_, BlockType::Message) => {
                 self.state = RunState::Running;
-            },
+            }
             _ => (),
         }
     }
 
     pub fn handle_incoming_messages(&mut self) {
-        if let Some(io_index) = self.async_io_table.handle_incoming_messages(&mut self.message_queue) {
+        if let Some(io_index) = self
+            .async_io_table
+            .handle_incoming_messages(&mut self.message_queue)
+        {
             self.io_action_notify(io_index);
         }
     }
@@ -272,7 +286,7 @@ impl Task {
                 if notify {
                     self.io_action_notify(io_index);
                 }
-            },
+            }
             _ => (),
         }
 
@@ -286,13 +300,31 @@ impl Task {
     }
 
     pub fn wait_on_notify_queue(&mut self, handle: Handle, timeout: Option<u32>) {
-        if self.notify_queues.get(handle).is_none() {
-            return;
+        match self.notify_queues.get_mut(handle) {
+            Some(queue) => {
+                if queue.is_ready() {
+                    return;
+                }
+            }
+            None => return,
         }
         self.state = RunState::Blocked(timeout, BlockType::Notify(handle));
     }
 
     pub fn io_action_notify(&mut self, io_index: u32) {
+        let waiting_on = match self.state {
+            RunState::Blocked(_, BlockType::Notify(handle)) => Some(handle),
+            _ => None,
+        };
+        for (index, queue) in self.notify_queues.iter_mut() {
+            if queue.contains(io_index) {
+                if waiting_on == Some(index) {
+                    self.state = RunState::Running;
+                } else {
+                    queue.mark_ready();
+                }
+            }
+        }
         let waiting_on = match self.state {
             RunState::Blocked(_, BlockType::Notify(handle)) => handle,
             _ => return,
@@ -302,7 +334,7 @@ impl Task {
                 if queue.contains(io_index) {
                     self.state = RunState::Running;
                 }
-            },
+            }
             None => return,
         }
     }
@@ -310,18 +342,16 @@ impl Task {
     pub fn async_io_complete(&mut self, io_index: u32, op_id: AsyncOpID, return_value: IOResult) {
         crate::kprintln!("IO COMPLETE");
         let should_notify = match self.async_io_table.get(io_index) {
-            Some(async_io) => {
-                match *async_io.io_type {
-                    IOType::File(ref fp) => {
-                        fp.complete_op(io_index, op_id, return_value);
-                        true
-                    },
-                    IOType::Interrupt(ref ip) => {
-                        ip.interrupt_notify();
-                        true
-                    },
-                    _ => false,
+            Some(async_io) => match *async_io.io_type {
+                IOType::File(ref fp) => {
+                    fp.complete_op(io_index, op_id, return_value);
+                    true
                 }
+                IOType::Interrupt(ref ip) => {
+                    ip.interrupt_notify();
+                    true
+                }
+                _ => false,
             },
             _ => false,
         };
@@ -335,7 +365,7 @@ impl Task {
         match self.state {
             RunState::Blocked(_, BlockType::IO) => {
                 self.state = RunState::Running;
-            },
+            }
             _ => return,
         }
     }
@@ -354,7 +384,7 @@ impl Task {
         match self.state {
             RunState::Blocked(_, _) => {
                 self.state = RunState::Running;
-            },
+            }
             _ => return,
         }
     }
@@ -364,8 +394,10 @@ impl Task {
     }
 
     pub fn push_args<I, A>(&mut self, args: I)
-        where I: IntoIterator<Item = A>,
-              A: AsRef<str> {
+    where
+        I: IntoIterator<Item = A>,
+        A: AsRef<str>,
+    {
         for arg in args {
             self.args.add(arg.as_ref());
         }
@@ -387,7 +419,6 @@ impl Task {
 
         if require_vm {
             flags |= 0x20000;
-
         }
 
         let esp_start = registers.esp.unwrap_or(0xc0000000);
@@ -469,7 +500,7 @@ impl Drop for Task {
 /// or blocking until hardware or another task is ready. The Blocked state
 /// contains information on what conditions will allow the task to resume
 /// execution, as well as an optional timeout. This allows every blocking
-/// operation to 
+/// operation to
 #[derive(Copy, Clone)]
 pub enum RunState {
     /// The Task has been created, but is not ready to be executed

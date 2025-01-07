@@ -233,6 +233,7 @@ impl FloppyDeviceDriver {
     // Async IO methods:
 
     pub fn open(&mut self, sub_driver: u32) -> IOResult {
+        crate::kprintln!("FLOPPY OPEN");
         match self.attached.get(sub_driver as usize) {
             None => return Err(IOError::NotFound),
             _ => (),
@@ -406,6 +407,8 @@ pub fn run_driver() -> ! {
             interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
         } else if let Some(sender) = message_read.get_result() {
             pending_requests.push_back((TaskID::new(sender), incoming_message.clone()));
+
+            crate::kprintln!("NEW REQUEST");
 
             message_read = handle_op_read_struct(messages, &mut incoming_message);
         } else {
