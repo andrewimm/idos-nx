@@ -7,6 +7,7 @@
 #![no_main]
 #![feature(core_intrinsics)]
 #![feature(naked_functions)]
+#![allow(internal_features)]
 
 mod fat;
 
@@ -47,11 +48,10 @@ pub extern "C" fn mbr_start(disk_number: u16) -> ! {
 
     fat::read_sectors(first_cluster_sector, 0x2000, boot_bin_sectors);
 
-    let boot_bin_start: extern "C" fn(fat_metadata: *const fat::FatMetadata) = unsafe {
-        core::mem::transmute(0x2000 as *const ())
-    };
+    let boot_bin_start: extern "C" fn(fat_metadata: *const fat::FatMetadata) =
+        unsafe { core::mem::transmute(0x2000 as *const ()) };
 
-    let fat_meta_ptr = unsafe { &fat::FAT_DATA as *const fat::FatMetadata };
+    let fat_meta_ptr = &raw const fat::FAT_DATA as *const fat::FatMetadata;
     boot_bin_start(fat_meta_ptr);
 
     loop {}

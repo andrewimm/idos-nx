@@ -88,7 +88,7 @@ impl PendingHandleOp {
         let semaphore = Box::new(AtomicU32::new(0));
         let return_value = Box::new(0);
 
-        let semaphore_ptr = semaphore.as_mut_ptr();
+        let semaphore_ptr: *mut u32 = semaphore.as_ptr();
         let return_value_ptr = return_value.as_ref() as *const u32;
         let op = AsyncOp::new(
             op_code,

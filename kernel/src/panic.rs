@@ -1,7 +1,7 @@
 use core::panic::PanicInfo;
 
 #[panic_handler]
-extern "C" fn panic(info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
     let id = crate::task::switching::get_current_id();
     crate::kprint!("Kernel Panic in {:?} ", id);
     print_name(id);
@@ -16,11 +16,10 @@ fn print_name(id: crate::task::id::TaskID) {
             Some(task) => {
                 crate::kprint!("({})", task.filename.as_str());
                 return;
-            },
+            }
             _ => (),
         },
         _ => (),
     }
     crate::kprint!("(UNKNOWN)");
 }
-

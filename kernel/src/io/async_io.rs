@@ -134,8 +134,9 @@ impl AsyncOp {
             unmapped_for_dir = UnmappedPage::map(unmapped_phys);
         }
         unsafe {
-            let ptr = (unmapped_for_dir.virtual_address() + semaphore_offset).as_ptr::<AtomicU32>();
-            (&*ptr).store(semaphore_value, Ordering::SeqCst);
+            let ptr = (unmapped_for_dir.virtual_address() + semaphore_offset).as_ptr_mut::<u32>();
+            let atomic = AtomicU32::from_ptr(ptr);
+            atomic.store(semaphore_value, Ordering::SeqCst);
         }
     }
 }

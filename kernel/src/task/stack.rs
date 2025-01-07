@@ -1,13 +1,13 @@
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use spin::Mutex;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::physical::{allocate_frame, release_frame};
 use crate::memory::virt::invalidate_page;
 use crate::memory::virt::page_table::PageTable;
 use crate::memory::virt::scratch::SCRATCH_BOTTOM;
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use spin::Mutex;
 
-extern {
+extern "C" {
     #[link_name = "__stack_start"]
     static mut label_stack_start: u8;
 }
@@ -23,16 +23,14 @@ static STACK_ALLOCATION_BITMAP: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
 /// Return the physical location and size (in pages) of the initial kernel stack
 pub fn get_initial_kernel_stack_location() -> (PhysicalAddress, usize) {
-    let addr = PhysicalAddress::new(
-        unsafe { &label_stack_start as *const u8 as u32 }
-    );
+    let addr = PhysicalAddress::new(&raw const label_stack_start as *const u8 as u32);
     (addr, STACK_SIZE_IN_PAGES)
 }
 
 /// Return the distance between the virtual initial kernel stack and its
 /// physical location.
 pub fn get_kernel_stack_virtual_offset() -> usize {
-    let physical_start = unsafe { &label_stack_start as *const u8 as usize };
+    let physical_start = &raw const label_stack_start as *const u8 as usize;
     let virtual_start = KERNEL_STACKS_TOP - STACK_SIZE_IN_BYTES;
     virtual_start - physical_start - 0xc0000000
 }
@@ -132,18 +130,13 @@ pub fn allocate_stack() -> Box<[u8]> {
     invalidate_page(stack_start);
 
     crate::kprint!("ALLOC STACK: {:?} {:?}\n", stack_start, frame_address);
-    
+
     stack
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        find_free_stack,
-        mark_stack_as_free,
-        Mutex,
-        Vec,
-    };
+    use super::{find_free_stack, mark_stack_as_free, Mutex, Vec};
 
     #[test_case]
     fn allocate_stack() {
@@ -172,4 +165,3 @@ mod tests {
         assert_eq!(find_free_stack(&stacks), 1);
     }
 }
-

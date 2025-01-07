@@ -1,7 +1,7 @@
-use core::arch::asm;
-use crate::arch::segment::SegmentSelector;
 use super::exceptions;
 use super::stack::StackFrame;
+use crate::arch::segment::SegmentSelector;
+use core::arch::asm;
 
 // Flags used in IDT entries
 pub const IDT_PRESENT: u8 = 1 << 7;
@@ -94,10 +94,7 @@ pub struct IdtDescriptor {
 
 impl IdtDescriptor {
     pub const fn new() -> Self {
-        Self {
-            size: 0,
-            offset: 0,
-        }
+        Self { size: 0, offset: 0 }
     }
 
     pub fn point_to(&mut self, idt: &[IdtEntry]) {
@@ -147,7 +144,7 @@ pub unsafe fn init_idt() {
 
     // Interrupts through 0x1f represent exceptions that we don't handle,
     // usually because they are deprecated or represent unsupported hardware.
-    
+
     // Interrupts 0x20-0x2f are mostly unused, to avoid conflict with legacy
     // DOS interrupts. The only one used by the kernel is 0x2b, which is the
     // entrypoint for user-mode programs to make a syscall.
