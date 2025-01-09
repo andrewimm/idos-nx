@@ -136,7 +136,10 @@ impl AsyncOp {
         unsafe {
             let ptr = (unmapped_for_dir.virtual_address() + semaphore_offset).as_ptr_mut::<u32>();
             let atomic = AtomicU32::from_ptr(ptr);
-            atomic.store(semaphore_value, Ordering::SeqCst);
+            let prev = atomic.swap(semaphore_value, Ordering::SeqCst);
+            if prev != 0 {
+                crate::kprintln!("WARN: Semaphore was not zero");
+            }
         }
     }
 }

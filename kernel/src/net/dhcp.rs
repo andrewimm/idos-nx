@@ -351,6 +351,7 @@ impl DHCPState {
             // associated with the network device's MAC.
             5 => {
                 crate::kprintln!("DHCP ACK");
+                crate::kprintln!("NEW IP ADDRESS: {}", packet.yiaddr);
                 self.dhcp_server = dhcp_server;
                 self.ip_address = IPAddressState::Established(packet.yiaddr);
                 self.expires_at = Timestamp::now() + lease_time;

@@ -140,6 +140,16 @@ impl PendingHandleOp {
     }
 }
 
+impl core::fmt::Debug for PendingHandleOp {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let sem_value = self.semaphore.load(Ordering::SeqCst);
+        f.debug_struct("PendingHandleOp")
+            .field("semaphore", &sem_value)
+            .field("return_value", &self.return_value)
+            .finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Handle, HandleTable};
