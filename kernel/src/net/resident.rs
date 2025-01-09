@@ -25,7 +25,8 @@ struct RegisteredNetDevice {
     handle: Handle,
     mac: HardwareAddress,
     is_open: bool,
-    current_op: PendingHandleOp,
+    current_read: PendingHandleOp,
+    current_writes: VecDeque<PendingHandleOp>,
     read_buffer: Vec<u8>,
     arp_table: ARPTable,
     dhcp_state: DHCPState,
@@ -45,7 +46,8 @@ impl RegisteredNetDevice {
             handle,
             mac,
             is_open: false,
-            current_op: handle_op_open(handle, device_path),
+            current_read: handle_op_open(handle, device_path),
+            current_writes: VecDeque::new(),
             read_buffer,
             arp_table: ARPTable::new(),
             dhcp_state: DHCPState::new(mac),
@@ -123,7 +125,8 @@ impl RegisteredNetDevice {
                 crate::kprintln!("LOOK A DHCP PACKET");
                 if let Some(dhcp_response) = self.dhcp_state.handle_dhcp_packet(udp_payload) {
                     // if the DHCP state machine has a response, send it
-                    self.dhcp_broadcast(&dhcp_response);
+                    self.current_writes
+                        .push_back(self.dhcp_broadcast(&dhcp_response));
                 }
             } else {
             }
@@ -183,7 +186,7 @@ pub fn net_stack_resident() -> ! {
 
     // let the init task know that the network stack is ready
     let response_writer = Handle::new(0);
-    handle_op_write(response_writer, &[1]);
+    handle_op_write(response_writer, &[1]).wait_for_completion();
 
     // each time a device is registered, open it and add its handle to the
     // notify queue
@@ -196,7 +199,21 @@ pub fn net_stack_resident() -> ! {
         // For each device, check the read op
         crate::kprintln!(" ~ ~ NETWAKE");
         for net_dev in network_devices.iter_mut() {
-            if !net_dev.current_op.is_complete() {
+            // clear out any completed writes
+            loop {
+                let pop = if let Some(pending_write) = net_dev.current_writes.front() {
+                    pending_write.is_complete()
+                } else {
+                    false
+                };
+                if pop {
+                    net_dev.current_writes.pop_front();
+                } else {
+                    break;
+                }
+            }
+            // process the pending read, if it's ready
+            if !net_dev.current_read.is_complete() {
                 continue;
             }
             if !net_dev.is_open {
@@ -205,23 +222,22 @@ pub fn net_stack_resident() -> ! {
                 // reading from the device.
                 net_dev.is_open = true;
                 net_dev.init_dhcp();
-                net_dev.current_op = handle_op_read(net_dev.handle, &mut net_dev.read_buffer, 0);
+                net_dev.current_read = handle_op_read(net_dev.handle, &mut net_dev.read_buffer, 0);
                 continue;
             }
             // if data is ready, inspect the packet
             // TODO: Implement error handling
-            let len = net_dev.current_op.get_result().unwrap() as usize;
-            if len == 0 {
-                net_dev.current_op = handle_op_read(net_dev.handle, &mut net_dev.read_buffer, 0);
-                continue;
-            }
+            let len = net_dev.current_read.get_result().unwrap() as usize;
+            if len > 0 {
+                net_dev.process_read_buffer();
 
-            net_dev.process_read_buffer();
-
-            for i in 0..net_dev.read_buffer.len() {
-                net_dev.read_buffer[i] = 0;
+                for i in 0..net_dev.read_buffer.len() {
+                    net_dev.read_buffer[i] = 0;
+                }
+            } else {
+                crate::kprintln!("NET RESPONSE ZERO LENGTH");
             }
-            net_dev.current_op = handle_op_read(net_dev.handle, &mut net_dev.read_buffer, 0);
+            net_dev.current_read = handle_op_read(net_dev.handle, &mut net_dev.read_buffer, 0);
         }
 
         // check the task queue for external requests
@@ -241,7 +257,7 @@ pub fn net_stack_resident() -> ! {
         }
 
         // block on notify queue
-        wait_on_notify(notify, Some(1000));
+        wait_on_notify(notify, Some(5000));
     }
 }
 

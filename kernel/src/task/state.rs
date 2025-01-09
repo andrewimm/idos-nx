@@ -326,7 +326,7 @@ impl Task {
     }
 
     pub fn async_io_complete(&mut self, io_index: u32, op_id: AsyncOpID, return_value: IOResult) {
-        crate::kprintln!("IO COMPLETE");
+        crate::kprintln!("IO COMPLETE {} {:?} {:?}", io_index, op_id, return_value);
         let should_notify = match self.async_io_table.get(io_index) {
             Some(async_io) => match *async_io.io_type {
                 IOType::File(ref fp) => {
