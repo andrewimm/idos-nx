@@ -1,13 +1,13 @@
+use super::id::TaskID;
+use super::memory::{MemMappedRegion, MemoryBacking};
+use super::switching::{get_current_task, get_task};
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
-use crate::memory::physical::{allocate_frame, allocate_frames};
 use crate::memory::physical::allocated_frame::AllocatedFrame;
+use crate::memory::physical::{allocate_frame, allocate_frames};
 use crate::memory::virt::invalidate_page;
 use crate::memory::virt::page_entry::PageTableEntry;
 use crate::memory::virt::page_table::PageTable;
 use crate::memory::virt::scratch::UnmappedPage;
-use super::id::TaskID;
-use super::memory::{MemMappedRegion, MemoryBacking};
-use super::switching::{get_current_task, get_task};
 
 /// PermissionFlags are used by kernel or user code to request the extra
 /// permission bits applied to paged memory
@@ -44,79 +44,6 @@ impl PermissionFlags {
 /// appropriate frame to the current page table.
 pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
     let task_lock = get_current_task();
-    let exec_segment = task_lock
-        .read()
-        .memory_mapping
-        .get_execution_segment_containing_address(&address)
-        .cloned();
-
-    let page_start = address.prev_page_barrier();
-    let page_end = page_start + 0x1000;
-
-    if let Some(segment) = exec_segment {
-        crate::kprintln!("FOUND EXEC SEGMENT");
-        crate::kprintln!("{:?}", segment);
-        let allocated_frame = allocate_frame().ok()?;
-        let mut flags = PermissionFlags::USER_ACCESS;
-        if segment.can_user_write() {
-            flags |= PermissionFlags::WRITE_ACCESS;
-        }
-        let paddr = current_pagedir_map(allocated_frame, page_start, PermissionFlags::new(flags));
-
-        let current_exec = task_lock.read().current_executable.clone();
-        if let Some(exec) = current_exec {
-            segment.fill_frame(exec, page_start);
-        }
-
-        let relocations = task_lock
-            .read()
-            .memory_mapping
-            .get_relocations_in_range(page_start..page_end);
-
-        for rel in relocations {
-            crate::kprintln!("Apply relocation: {:?}", rel.get_address());
-            rel.apply();
-        }
-
-        // The first time the top stack is allocated, fill it with environment
-        // and args
-        if address >= VirtualAddress::new(0xbffff000) && address < VirtualAddress::new(0xc0000000) {
-            let task = task_lock.read();
-            let args = task.args.arg_string();
-            let page_end = VirtualAddress::new(0xc0000000);
-            let mut args_start = page_end - args.len() as u32;
-            // make sure that the arg count is 4-bytes aligned
-            let alignment_offset = args_start.as_u32() & 3;
-            if alignment_offset != 0 {
-                args_start = args_start - alignment_offset;
-            }
-            // copy raw arg strings
-            let args_slice = unsafe {
-                core::slice::from_raw_parts_mut(
-                    args_start.as_ptr_mut::<u8>(),
-                    args.len(),
-                )
-            };
-            args_slice.copy_from_slice(&args);
-            // construct argv
-            let arg_lengths = task.args.arg_lengths();
-            let arg_pointers_size = arg_lengths.len() * 4;
-            let arg_pointers_start = args_start - arg_pointers_size as u32;
-            let mut arg_pointer_index = arg_pointers_start;
-            let mut string_offset = 0;
-            for length in arg_lengths {
-                let ptr = arg_pointer_index.as_ptr_mut::<u32>();
-                unsafe { *ptr = args_start.as_u32() + string_offset };
-                string_offset += length;
-                arg_pointer_index = arg_pointer_index + 4;
-            }
-            // construct argc
-            let arg_count_ptr = (arg_pointers_start - 4).as_ptr_mut::<u32>();
-            unsafe { *arg_count_ptr = task.args.arg_count() };
-        }
-
-        return Some(paddr);
-    }
 
     let mem_mapping = task_lock
         .read()
@@ -134,23 +61,25 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
                 // span as a contiguous set of pages
                 let page_count = mapping.page_count();
                 let map_to = mapping.address;
-                let allocated_range = allocate_frames(page_count).expect("Failed to allocate DMA memory");
+                let allocated_range =
+                    allocate_frames(page_count).expect("Failed to allocate DMA memory");
                 let range_start = allocated_range.to_physical_address();
-                
+
                 for i in 0..page_count {
                     let offset = i as u32 * 0x1000;
-                    current_pagedir_map_explicit(
-                        range_start + offset,
-                        map_to + offset,
-                        flags,
-                    );
+                    current_pagedir_map_explicit(range_start + offset, map_to + offset, flags);
                 }
                 Some(range_start)
-            },
+            }
             _ => {
-                let allocated_frame = get_frame_for_region(mapping, offset).expect("Failed to allocate memory for page");
-                Some(current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags))
-            },
+                let allocated_frame = get_frame_for_region(mapping, offset)
+                    .expect("Failed to allocate memory for page");
+                Some(current_pagedir_map(
+                    allocated_frame,
+                    address.prev_page_barrier(),
+                    flags,
+                ))
+            }
         }
     } else {
         None
@@ -182,7 +111,11 @@ pub fn create_page_directory() -> PhysicalAddress {
 /// Map a physical frame to the specified virtual address, in the current page
 /// directory. Returns the physical address of the frame, in case that's
 /// useful to the caller.
-pub fn current_pagedir_map(frame: AllocatedFrame, vaddr: VirtualAddress, flags: PermissionFlags) -> PhysicalAddress {
+pub fn current_pagedir_map(
+    frame: AllocatedFrame,
+    vaddr: VirtualAddress,
+    flags: PermissionFlags,
+) -> PhysicalAddress {
     let paddr = frame.to_physical_address();
     current_pagedir_map_explicit(paddr, vaddr, flags);
     paddr
@@ -190,7 +123,11 @@ pub fn current_pagedir_map(frame: AllocatedFrame, vaddr: VirtualAddress, flags: 
 
 /// Actual implementation of mapping a page in virtual memory.
 /// Modifies the current pagedir, adding a table frame if necessary.
-pub fn current_pagedir_map_explicit(paddr: PhysicalAddress, vaddr: VirtualAddress, flags: PermissionFlags) {
+pub fn current_pagedir_map_explicit(
+    paddr: PhysicalAddress,
+    vaddr: VirtualAddress,
+    flags: PermissionFlags,
+) {
     crate::kprint!("Mapping {:?} to {:?}\n", vaddr, paddr);
     let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
     let dir_index = vaddr.get_page_directory_index();

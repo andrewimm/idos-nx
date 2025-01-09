@@ -1,7 +1,5 @@
 use crate::interrupts::pic::add_interrupt_listener;
 use crate::io::async_io::{AsyncOp, IOType, ASYNC_OP_CLOSE};
-use crate::io::filesystem::driver::DriverID;
-use crate::io::filesystem::get_driver_id_by_name;
 use crate::io::handle::{Handle, PendingHandleOp};
 use crate::io::notify::NotifyQueue;
 use crate::io::provider::file::FileIOProvider;
@@ -12,8 +10,6 @@ use crate::io::provider::task::TaskIOProvider;
 use crate::pipes::driver::{create_pipe, get_pipe_drive_id};
 use crate::task::id::TaskID;
 use crate::task::switching::get_task;
-use alloc::string::ToString;
-use idos_api::io::error::IOError;
 
 use super::switching::get_current_task;
 use super::yield_coop;
@@ -231,24 +227,6 @@ pub fn handle_op_write_struct<T: Sized>(handle: Handle, struct_ref: &T) -> Pendi
 
 pub fn handle_op_close(handle: Handle) -> PendingHandleOp {
     PendingHandleOp::new(handle, ASYNC_OP_CLOSE, 0, 0, 0)
-}
-
-pub fn set_active_drive(drive_name: &str) -> Result<DriverID, IOError> {
-    let found_id = if drive_name.to_ascii_uppercase() == "DEV" {
-        Some(DriverID::new(0))
-    } else {
-        get_driver_id_by_name(drive_name)
-    };
-    match found_id {
-        Some(id) => {
-            let task_lock = get_current_task();
-            let mut task = task_lock.write();
-            task.current_drive.name = drive_name.to_string();
-            task.current_drive.driver_id = id;
-            Ok(id)
-        }
-        _ => Err(IOError::NotFound),
-    }
 }
 
 #[cfg(test)]

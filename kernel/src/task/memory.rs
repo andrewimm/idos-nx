@@ -1,8 +1,9 @@
+use crate::{
+    loader::relocation::Relocation,
+    memory::address::{PhysicalAddress, VirtualAddress},
+};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::Range;
-use crate::{memory::address::{VirtualAddress, PhysicalAddress}, filesystem::get_driver_by_id, files::cursor::SeekMethod, loader::relocation::Relocation};
-
-use super::files::OpenFile;
 
 /// MemMappedRegion represents a section of memory that has been mapped to a
 /// Task.
@@ -96,19 +97,20 @@ impl ExecutionSection {
         }
         let (start, offset) = if self.segment_offset < range.start {
             let delta = range.start - self.segment_offset;
-            (range.start, self.executable_file_offset.map(|off| off + delta))
+            (
+                range.start,
+                self.executable_file_offset.map(|off| off + delta),
+            )
         } else {
             (self.segment_offset, self.executable_file_offset)
         };
         let end = range.end.min(self.segment_offset + self.size);
         let size = if end > start { end - start } else { 0 };
-        Some(
-            ExecutionSection {
-                segment_offset: start,
-                executable_file_offset: offset,
-                size,
-            }
-        )
+        Some(ExecutionSection {
+            segment_offset: start,
+            executable_file_offset: offset,
+            size,
+        })
     }
 }
 
@@ -134,18 +136,19 @@ pub struct ExecutionSegment {
 impl ExecutionSegment {
     /// Construct a new ExecutionSegment that begins at the specified virtual
     /// address, and contains the requested number of pages
-    pub fn at_address(address: VirtualAddress, size_in_pages: u32) -> Result<Self, TaskMemoryError> {
+    pub fn at_address(
+        address: VirtualAddress,
+        size_in_pages: u32,
+    ) -> Result<Self, TaskMemoryError> {
         if !address.is_page_aligned() {
             return Err(TaskMemoryError::SegmentWrongAlignment);
         }
-        Ok(
-            Self {
-                address,
-                size_in_pages,
-                sections: Vec::new(),
-                can_write: false,
-            }
-        )
+        Ok(Self {
+            address,
+            size_in_pages,
+            sections: Vec::new(),
+            can_write: false,
+        })
     }
 
     pub fn get_starting_address(&self) -> VirtualAddress {
@@ -184,50 +187,6 @@ impl ExecutionSegment {
     pub fn sections_iter(&self) -> impl Iterator<Item = &ExecutionSection> {
         self.sections.iter()
     }
-
-    pub fn fill_frame(&self, open_file: OpenFile, page_start: VirtualAddress) {
-        // because the segment is guaranteed to start on a page boundary, if it
-        // intersects with this frame it must begin before or at page_start
-        let start_offset = page_start.as_u32() - self.address.as_u32();
-        let end_offset = start_offset + 0x1000;
-        let clipped = self
-            .sections_iter()
-            .map(|s| s.clip_to(start_offset..end_offset));
-
-        for clipped_section in clipped {
-            let section = match clipped_section {
-                Some(section) => {
-                    if section.is_empty() {
-                        continue;
-                    }
-                    section
-                },
-                None => continue,
-            };
-
-            let write_to = self.get_starting_address() + section.segment_offset;
-            let write_len = section.size as usize;
-
-            let mut buffer = unsafe {
-                let write_ptr = write_to.as_u32() as *mut u8;
-                core::slice::from_raw_parts_mut(write_ptr, write_len)
-            };
-
-            match section.executable_file_offset {
-                Some(file_offset) => {
-                    crate::kprint!("Filling exec memory from \"{}\"\n", open_file.filename.as_str());
-                    let driver = get_driver_by_id(open_file.drive).unwrap();
-                    driver.seek(open_file.driver_handle, SeekMethod::Absolute(file_offset as usize)).unwrap();
-                    driver.read(open_file.driver_handle, &mut buffer).unwrap();
-                },
-                None => {
-                    for i in 0..buffer.len() {
-                        buffer[i] = 0;
-                    }
-                },
-            }
-        }
-    }
 }
 
 pub struct TaskMemory {
@@ -252,7 +211,12 @@ impl TaskMemory {
     /// the page table, but the next time a page fault occurs in this region
     /// the kernel will be able to use this information to fill in the page.
     /// On success, it returns the address that the region has been mapped to.
-    pub fn map_memory(&mut self, addr: Option<VirtualAddress>, size: u32, backing: MemoryBacking) -> Result<VirtualAddress, TaskMemoryError> {
+    pub fn map_memory(
+        &mut self,
+        addr: Option<VirtualAddress>,
+        size: u32,
+        backing: MemoryBacking,
+    ) -> Result<VirtualAddress, TaskMemoryError> {
         // Find an appropriate spot in virtual memory. If the caller specified
         // a location, we want to find the closest available space; otherwise,
         // crawl through the existing allocations until an appropriately sized
@@ -268,7 +232,7 @@ impl TaskMemory {
                 } else {
                     self.find_free_mapping_space(size)
                 }
-            },
+            }
             None => self.find_free_mapping_space(size),
         };
 
@@ -283,7 +247,11 @@ impl TaskMemory {
         Ok(free_space)
     }
 
-    pub fn unmap_memory(&mut self, addr: VirtualAddress, length: u32) -> Result<Range<VirtualAddress>, TaskMemoryError> {
+    pub fn unmap_memory(
+        &mut self,
+        addr: VirtualAddress,
+        length: u32,
+    ) -> Result<Range<VirtualAddress>, TaskMemoryError> {
         if length & 0xfff != 0 {
             return Err(TaskMemoryError::UnmapNotPageMultiple);
         }
@@ -300,7 +268,8 @@ impl TaskMemory {
         let mut modified_regions: Vec<(VirtualAddress, Range<u32>)> = Vec::new();
         for (_, region) in self.mapped_regions.iter() {
             let region_range = region.get_address_range();
-            if unmap_start < region_range.start && (unmap_start + unmap_length) > region_range.start {
+            if unmap_start < region_range.start && (unmap_start + unmap_length) > region_range.start
+            {
                 let delta = region_range.start - unmap_start;
                 unmap_length -= delta;
                 unmap_start = unmap_start + delta;
@@ -323,7 +292,9 @@ impl TaskMemory {
             }
         }
         for modification in modified_regions {
-            let region = self.mapped_regions.remove(&modification.0)
+            let region = self
+                .mapped_regions
+                .remove(&modification.0)
                 .expect("Attempted to unmap region that is not mapped");
             if modification.1.start > 0 {
                 let before = MemMappedRegion {
@@ -349,7 +320,10 @@ impl TaskMemory {
 
     /// Return a reference to a mmap region if it contains the requested
     /// address. This is useful for handling a page fault.
-    pub fn get_mapping_containing_address(&self, addr: &VirtualAddress) -> Option<&MemMappedRegion> {
+    pub fn get_mapping_containing_address(
+        &self,
+        addr: &VirtualAddress,
+    ) -> Option<&MemMappedRegion> {
         for (_, region) in self.mapped_regions.iter() {
             if region.contains_address(addr) {
                 return Some(region);
@@ -358,7 +332,10 @@ impl TaskMemory {
         None
     }
 
-    pub fn get_mut_mapping_containing_address(&mut self, addr: &VirtualAddress) -> Option<&mut MemMappedRegion> {
+    pub fn get_mut_mapping_containing_address(
+        &mut self,
+        addr: &VirtualAddress,
+    ) -> Option<&mut MemMappedRegion> {
         for (_, region) in self.mapped_regions.iter_mut() {
             if region.contains_address(addr) {
                 return Some(region);
@@ -367,7 +344,10 @@ impl TaskMemory {
         None
     }
 
-    pub fn get_execution_segment_containing_address(&self, addr: &VirtualAddress) -> Option<&ExecutionSegment> {
+    pub fn get_execution_segment_containing_address(
+        &self,
+        addr: &VirtualAddress,
+    ) -> Option<&ExecutionSegment> {
         for segment in self.execution_segments.iter() {
             if segment.contains_address(addr) {
                 return Some(segment);
@@ -416,7 +396,10 @@ impl TaskMemory {
     }
 
     /// Apply the set of execution segments, returning the previously set one
-    pub fn set_execution_segments(&mut self, segments: Vec<ExecutionSegment>) -> Vec<ExecutionSegment> {
+    pub fn set_execution_segments(
+        &mut self,
+        segments: Vec<ExecutionSegment>,
+    ) -> Vec<ExecutionSegment> {
         core::mem::replace(&mut self.execution_segments, segments)
     }
 
@@ -436,11 +419,11 @@ impl TaskMemory {
 }
 
 pub fn ranges_overlap(a: &Range<VirtualAddress>, b: &Range<VirtualAddress>) -> bool {
-  let min = a.start.min(b.start);
-  let max = a.end.max(b.end);
-  let a_length = a.end - a.start;
-  let b_length = b.end - b.start;
-  (a_length + b_length) > (max - min)
+    let min = a.start.min(b.start);
+    let max = a.end.max(b.end);
+    let a_length = a.end - a.start;
+    let b_length = b.end - b.start;
+    (a_length + b_length) > (max - min)
 }
 
 #[derive(Debug)]
@@ -492,15 +475,33 @@ mod tests {
     fn explicit_mmap() {
         let mut regions = TaskMemory::new();
         assert_eq!(
-            regions.map_memory(Some(VirtualAddress::new(0x4000)), 0x1000, MemoryBacking::Anonymous).unwrap(),
+            regions
+                .map_memory(
+                    Some(VirtualAddress::new(0x4000)),
+                    0x1000,
+                    MemoryBacking::Anonymous
+                )
+                .unwrap(),
             VirtualAddress::new(0x4000),
         );
         assert_eq!(
-            regions.map_memory(Some(VirtualAddress::new(0x6000)), 0x2000, MemoryBacking::Anonymous).unwrap(),
+            regions
+                .map_memory(
+                    Some(VirtualAddress::new(0x6000)),
+                    0x2000,
+                    MemoryBacking::Anonymous
+                )
+                .unwrap(),
             VirtualAddress::new(0x6000),
         );
         assert_eq!(
-            regions.map_memory(Some(VirtualAddress::new(0x5000)), 0x2000, MemoryBacking::Anonymous).unwrap(),
+            regions
+                .map_memory(
+                    Some(VirtualAddress::new(0x5000)),
+                    0x2000,
+                    MemoryBacking::Anonymous
+                )
+                .unwrap(),
             VirtualAddress::new(0xbfffc000),
         );
     }
@@ -509,11 +510,15 @@ mod tests {
     fn auto_allocated_mmap() {
         let mut regions = TaskMemory::new();
         assert_eq!(
-            regions.map_memory(None, 0x1000, MemoryBacking::Anonymous).unwrap(),
+            regions
+                .map_memory(None, 0x1000, MemoryBacking::Anonymous)
+                .unwrap(),
             VirtualAddress::new(0xbfffd000),
         );
         assert_eq!(
-            regions.map_memory(None, 0x400, MemoryBacking::Anonymous).unwrap(),
+            regions
+                .map_memory(None, 0x400, MemoryBacking::Anonymous)
+                .unwrap(),
             VirtualAddress::new(0xbfffc000),
         );
     }
@@ -521,38 +526,67 @@ mod tests {
     #[test_case]
     fn unmapping() {
         let mut regions = TaskMemory::new();
-        regions.map_memory(Some(VirtualAddress::new(0x1000)), 0x1000, MemoryBacking::Anonymous).unwrap();
+        regions
+            .map_memory(
+                Some(VirtualAddress::new(0x1000)),
+                0x1000,
+                MemoryBacking::Anonymous,
+            )
+            .unwrap();
         assert_eq!(
-            regions.unmap_memory(VirtualAddress::new(0x1000), 0x1000).unwrap(),
+            regions
+                .unmap_memory(VirtualAddress::new(0x1000), 0x1000)
+                .unwrap(),
             VirtualAddress::new(0x1000)..VirtualAddress::new(0x2000),
         );
         assert!(regions.mapped_regions.is_empty());
 
-        regions.map_memory(Some(VirtualAddress::new(0x1000)), 0x2000, MemoryBacking::Anonymous).unwrap();
-        regions.map_memory(Some(VirtualAddress::new(0x4000)), 0x3000, MemoryBacking::Anonymous).unwrap();
+        regions
+            .map_memory(
+                Some(VirtualAddress::new(0x1000)),
+                0x2000,
+                MemoryBacking::Anonymous,
+            )
+            .unwrap();
+        regions
+            .map_memory(
+                Some(VirtualAddress::new(0x4000)),
+                0x3000,
+                MemoryBacking::Anonymous,
+            )
+            .unwrap();
         assert_eq!(
-            regions.unmap_memory(VirtualAddress::new(0x2000), 0x2000).unwrap(),
+            regions
+                .unmap_memory(VirtualAddress::new(0x2000), 0x2000)
+                .unwrap(),
             VirtualAddress::new(0x2000)..VirtualAddress::new(0x4000),
         );
 
         {
-            let shrunk = regions.mapped_regions.get(&VirtualAddress::new(0x1000)).unwrap();
+            let shrunk = regions
+                .mapped_regions
+                .get(&VirtualAddress::new(0x1000))
+                .unwrap();
             assert_eq!(shrunk.address, VirtualAddress::new(0x1000));
             assert_eq!(shrunk.size, 0x1000);
         }
-    
+
         assert_eq!(regions.mapped_regions.len(), 2);
         assert_eq!(
-            regions.unmap_memory(VirtualAddress::new(0x1000), 0x4000).unwrap(),
+            regions
+                .unmap_memory(VirtualAddress::new(0x1000), 0x4000)
+                .unwrap(),
             VirtualAddress::new(0x1000)..VirtualAddress::new(0x5000),
         );
-    
+
         {
-            let shrunk = regions.mapped_regions.get(&VirtualAddress::new(0x5000)).unwrap();
+            let shrunk = regions
+                .mapped_regions
+                .get(&VirtualAddress::new(0x5000))
+                .unwrap();
             assert_eq!(shrunk.address, VirtualAddress::new(0x5000));
             assert_eq!(shrunk.size, 0x2000);
         }
         assert_eq!(regions.mapped_regions.len(), 1);
     }
 }
-

@@ -1,15 +1,10 @@
-use alloc::string::String;
-use crate::collections::SlotList;
-use crate::files::handle::DriverHandle;
-use crate::files::path::Path;
-use crate::filesystem::drive::DriveID;
 use crate::io::filesystem::driver::DriverID;
+use alloc::string::String;
 
 #[derive(Clone)]
 pub struct CurrentDrive {
     pub name: String,
-    pub id: DriveID,
-    
+
     pub driver_id: DriverID,
 }
 
@@ -17,45 +12,7 @@ impl CurrentDrive {
     pub fn empty() -> Self {
         Self {
             name: String::new(),
-            id: DriveID(0),
             driver_id: DriverID::new(0),
         }
     }
 }
-
-#[derive(Clone)]
-pub struct OpenFile {
-    pub drive: DriveID,
-    pub driver_handle: DriverHandle,
-    pub filename: Path,
-}
-
-/// An Open File Map maps numeric slots to files currently opened by this task.
-pub type OpenFileMap = SlotList<OpenFile>;
-
-/// A FileHandle is an identifier for a currently open file, and is an index
-/// into the task's OpenFileMap
-#[derive(Copy, Clone)]
-#[repr(transparent)]
-pub struct FileHandle(u32);
-
-impl FileHandle {
-    pub fn new(index: usize) -> Self {
-        Self(index as u32)
-    }
-}
-
-impl Into<usize> for FileHandle {
-    fn into(self) -> usize {
-        self.0 as usize
-    }
-}
-
-impl core::fmt::Write for FileHandle {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        crate::task::actions::io::write_file(*self, s.as_bytes())
-            .map(|_| ())
-            .map_err(|_| core::fmt::Error)
-    }
-}
-

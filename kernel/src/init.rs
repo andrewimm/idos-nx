@@ -45,7 +45,7 @@ pub unsafe fn init_cpu_tables() {
 /// need to be or-ed with 0xc0000000 so that they can correctly point to the
 /// kernel in all tasks.
 pub unsafe fn init_memory() {
-    let kernel_start_addr = &label_kernel_start as *const () as u32;
+    let kernel_start_addr = &raw const label_kernel_start as u32;
     let kernel_end_addr = &label_kernel_end as *const () as u32;
     let kernel_range = FrameRange::new(
         PhysicalAddress::new(kernel_start_addr),

@@ -4,7 +4,7 @@ use crate::cleanup::get_cleanup_task_id;
 
 use super::super::id::TaskID;
 use super::super::messaging::Message;
-use super::{yield_coop, send_message};
+use super::{send_message, yield_coop};
 
 pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> TaskID {
     let task_id = create_task();
@@ -33,15 +33,17 @@ pub fn create_task() -> TaskID {
 /// loader, and assign the executable segments to
 pub fn attach_executable_to_task(id: TaskID, exec_path: &str) {
     let task_lock = super::super::switching::get_task(id).unwrap();
-    let (file, env) = crate::loader::load_executable(exec_path).unwrap();
+    let env = crate::loader::load_executable(exec_path).unwrap();
 
-    task_lock.write().attach_executable(file, env);
+    task_lock.write().attach_executable(env);
     task_lock.write().make_runnable();
 }
 
 pub fn add_args<I, A>(id: TaskID, args: I)
-    where I: IntoIterator<Item = A>,
-          A: AsRef<str> {
+where
+    I: IntoIterator<Item = A>,
+    A: AsRef<str>,
+{
     let task_lock = super::super::switching::get_task(id).unwrap();
     task_lock.write().push_args(args);
 }
@@ -54,7 +56,7 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
                 let mut task = task_lock.write();
                 task.terminate();
                 task.parent_id
-            },
+            }
             None => return,
         }
     };
@@ -94,7 +96,7 @@ pub fn exception() {
     let cur_id = super::switching::get_current_id();
     crate::kprint!("EXCEPTION! {:?}\n", cur_id);
     // TODO: implement exception handling
-    
+
     terminate_id(cur_id, 255);
     yield_coop();
 }
