@@ -5,7 +5,6 @@
 pub mod devices;
 pub mod error;
 pub mod execution;
-pub mod io;
 pub mod memory;
 pub mod syscall;
 pub mod system;

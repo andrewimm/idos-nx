@@ -3,7 +3,6 @@
 //! actions that can be executed by the current task.
 
 pub mod handle;
-pub mod io;
 pub mod lifecycle;
 pub mod memory;
 
@@ -23,7 +22,9 @@ pub fn sleep(ms: u32) {
 pub fn read_message_blocking(timeout: Option<u32>) -> (Option<messaging::MessagePacket>, bool) {
     let mut current_ticks = crate::time::system::get_system_ticks();
     let current_lock = switching::get_current_task();
-    let (message, remaining) = current_lock.write().read_message_blocking(current_ticks, timeout);
+    let (message, remaining) = current_lock
+        .write()
+        .read_message_blocking(current_ticks, timeout);
     if message.is_some() {
         return (message, remaining);
     }
@@ -40,6 +41,8 @@ pub fn send_message(to_id: id::TaskID, message: messaging::Message, expiration: 
     let current_ticks = crate::time::system::get_system_ticks();
     let recipient_lock = switching::get_task(to_id);
     if let Some(recipient) = recipient_lock {
-        recipient.write().receive_message(current_ticks, current_id, message, expiration);
+        recipient
+            .write()
+            .receive_message(current_ticks, current_id, message, expiration);
     }
 }

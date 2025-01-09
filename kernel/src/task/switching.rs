@@ -1,12 +1,10 @@
-use alloc::vec::Vec;
+use crate::memory::address::PhysicalAddress;
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::arch::{asm, global_asm};
 use spin::RwLock;
-use crate::filesystem::get_driver_by_id;
-use crate::memory::address::PhysicalAddress;
 
-use super::id::{TaskID, IdGenerator};
-use super::state::{Task, RunState};
+use super::id::{IdGenerator, TaskID};
+use super::state::{RunState, Task};
 
 /// A TaskMap makes it easy to look up a Task by its ID number
 pub type TaskMap = BTreeMap<TaskID, Arc<RwLock<Task>>>;
@@ -44,10 +42,7 @@ pub fn get_current_task() -> Arc<RwLock<Task>> {
 
 pub fn get_task(id: TaskID) -> Option<Arc<RwLock<Task>>> {
     let map = TASK_MAP.read();
-    map
-        .get(&id)
-        .as_deref()
-        .map(|inner| inner.clone())
+    map.get(&id).as_deref().map(|inner| inner.clone())
 }
 
 pub fn get_next_id() -> TaskID {
@@ -108,54 +103,34 @@ pub fn update_timeouts(ms: u32) {
 }
 
 pub fn for_each_task<F>(f: F)
-    where F: Fn(Arc<RwLock<Task>>) -> () {
+where
+    F: Fn(Arc<RwLock<Task>>) -> (),
+{
     for (_, task) in TASK_MAP.read().iter() {
         f(task.clone());
     }
 }
 
 pub fn for_each_task_mut<F>(mut f: F)
-    where F: FnMut(Arc<RwLock<Task>>) -> () {
+where
+    F: FnMut(Arc<RwLock<Task>>) -> (),
+{
     for (_, task) in TASK_MAP.read().iter() {
         f(task.clone());
     }
 }
 
 pub fn for_each_task_id<F>(mut f: F)
-    where F: FnMut(TaskID) -> () {
+where
+    F: FnMut(TaskID) -> (),
+{
     for (id, _) in TASK_MAP.read().iter() {
         f(*id);
     }
 }
 
-pub fn clean_up_task(id: TaskID) {
-    let task_lock = {
-        let mut task_map = TASK_MAP.write();
-        match task_map.remove(&id) {
-            Some(t) => t,
-            None => return,
-        }
-    };
-
-    let mut files_to_close = Vec::new();
-    {
-        let mut task = task_lock.write();
-        if let Some(file) = task.current_executable.take() {
-            files_to_close.push(file);
-        }
-        for i in 0..task.open_files.len() {
-            let removed = task.open_files.remove(i);
-            if let Some(file) = removed {
-                files_to_close.push(file);
-            }
-        }
-    }
-    crate::kprint!("Clean up {:?}\n", id);
-    for file in files_to_close {
-        crate::kprint!("  Closing {}\n", file.filename.as_str());
-        let _result = get_driver_by_id(file.drive)
-            .and_then(|driver| driver.close(file.driver_handle).map_err(|_| ()));
-    }
+pub fn clean_up_task(_id: TaskID) {
+    // iterate over open handles and close them
 
     // TODO: add cleanup actions here (free remaining memory, etc)
 
@@ -168,7 +143,7 @@ pub fn clean_up_task(id: TaskID) {
 /// In addition to updating relevant pointers to the new Task's ID, the actual
 /// switch involves:
 ///   * Pushing all state onto the current task's kernel stack
-///   * Executing `call` to push 
+///   * Executing `call` to push
 ///   * Saving the current stack pointer to
 ///   * Changing the stack pointer to the next Task's $esp
 ///   * Executing `ret` to pop from the next Task's stack
@@ -180,7 +155,7 @@ pub fn clean_up_task(id: TaskID) {
 pub fn switch_to(id: TaskID) {
     // Uncomment this to debug switching:
     //crate::kprint!("    SWITCH TO {:?}\r\n", id);
-    
+
     let current_sp_addr: u32 = {
         let current_lock = get_current_task();
         let current = current_lock.read();
@@ -189,12 +164,16 @@ pub fn switch_to(id: TaskID) {
     let next_task_lock = get_task(id).expect("Switching to task that does not exist");
     let (next_sp, pagedir_addr, stack_top) = {
         let next = next_task_lock.read();
-        (next.stack_pointer as u32, next.page_directory.as_u32(), next.get_stack_top())
+        (
+            next.stack_pointer as u32,
+            next.page_directory.as_u32(),
+            next.get_stack_top(),
+        )
     };
     let next_task_state = next_task_lock.read().state;
 
     crate::arch::gdt::set_tss_stack_pointer(stack_top as u32);
-    
+
     {
         *CURRENT_ID.write() = id;
     }
@@ -257,7 +236,8 @@ pub fn switch_to(id: TaskID) {
     }
 }
 
-global_asm!(r#"
+global_asm!(
+    r#"
 .global switch_inner
 
 switch_inner:
@@ -265,9 +245,11 @@ switch_inner:
     mov [ecx], esp
     mov esp, edx
     ret
-"#);
+"#
+);
 
-global_asm!(r#"
+global_asm!(
+    r#"
 .global switch_init_inner
 
 switch_init_inner:
@@ -283,5 +265,5 @@ switch_init_inner:
     pop esi
     pop edi
     iretd
-"#);
-
+"#
+);

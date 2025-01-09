@@ -28,7 +28,7 @@ impl GdtEntry {
         let base_low = (base & 0xffff) as u16;
         let base_middle = ((base >> 16) & 0xff) as u8;
         let base_high = ((base >> 24) & 0xff) as u8;
-        
+
         Self {
             limit_low,
             base_low,
@@ -67,10 +67,7 @@ pub struct GdtDescriptor {
 
 impl GdtDescriptor {
     pub const fn new() -> Self {
-        Self {
-            size: 0,
-            offset: 0,
-        }
+        Self { size: 0, offset: 0 }
     }
 
     pub fn point_to(&mut self, gdt: &[GdtEntry]) {
@@ -122,33 +119,33 @@ pub struct TaskStateSegment {
 
 impl TaskStateSegment {
     pub fn zero(&mut self) {
-      self.prev_tss = 0;
-      self.esp0 = 0;
-      self.ss0 = 0;
-      self.esp1 = 0;
-      self.ss1 = 0;
-      self.esp2 = 0;
-      self.ss2 = 0;
-      self.cr3 = 0;
-      self.eip = 0;
-      self.eflags = 0;
-      self.eax = 0;
-      self.ecx = 0;
-      self.edx = 0;
-      self.ebx = 0;
-      self.esp = 0;
-      self.ebp = 0;
-      self.esi = 0;
-      self.edi = 0;
-      self.es = 0;
-      self.cs = 0;
-      self.ss = 0;
-      self.ds = 0;
-      self.fs = 0;
-      self.gs = 0;
-      self.ldt = 0;
-      self.trap = 0;
-      self.iomap_base = 0;
+        self.prev_tss = 0;
+        self.esp0 = 0;
+        self.ss0 = 0;
+        self.esp1 = 0;
+        self.ss1 = 0;
+        self.esp2 = 0;
+        self.ss2 = 0;
+        self.cr3 = 0;
+        self.eip = 0;
+        self.eflags = 0;
+        self.eax = 0;
+        self.ecx = 0;
+        self.edx = 0;
+        self.ebx = 0;
+        self.esp = 0;
+        self.ebp = 0;
+        self.esi = 0;
+        self.edi = 0;
+        self.es = 0;
+        self.cs = 0;
+        self.ss = 0;
+        self.ds = 0;
+        self.fs = 0;
+        self.gs = 0;
+        self.ldt = 0;
+        self.trap = 0;
+        self.iomap_base = 0;
     }
 }
 
@@ -165,15 +162,17 @@ pub static mut GDTR: GdtDescriptor = GdtDescriptor::new();
 pub static mut GDT: [GdtEntry; 6] = [
     // 0x00: Null entry
     GdtEntry::new(0, 0, 0, 0),
-
     // 0x08: Kernel code
     GdtEntry::new(
         0,
         0xffffffff,
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING_0 | GDT_ACCESS_CODE_DATA_DESCRIPTOR | GDT_ACCESS_EXECUTABLE | GDT_ACCESS_RW,
+        GDT_ACCESS_PRESENT
+            | GDT_ACCESS_RING_0
+            | GDT_ACCESS_CODE_DATA_DESCRIPTOR
+            | GDT_ACCESS_EXECUTABLE
+            | GDT_ACCESS_RW,
         GDT_FLAG_GRANULARITY_4KB | GDT_FLAG_SIZE_32_BIT,
     ),
-
     // 0x10: Kernel data
     GdtEntry::new(
         0,
@@ -181,15 +180,17 @@ pub static mut GDT: [GdtEntry; 6] = [
         GDT_ACCESS_PRESENT | GDT_ACCESS_RING_0 | GDT_ACCESS_CODE_DATA_DESCRIPTOR | GDT_ACCESS_RW,
         GDT_FLAG_GRANULARITY_4KB | GDT_FLAG_SIZE_32_BIT,
     ),
-
     // 0x18: Userspace code
     GdtEntry::new(
         0,
         0xffffffff,
-        GDT_ACCESS_PRESENT | GDT_ACCESS_RING_3 | GDT_ACCESS_CODE_DATA_DESCRIPTOR | GDT_ACCESS_EXECUTABLE | GDT_ACCESS_RW,
+        GDT_ACCESS_PRESENT
+            | GDT_ACCESS_RING_3
+            | GDT_ACCESS_CODE_DATA_DESCRIPTOR
+            | GDT_ACCESS_EXECUTABLE
+            | GDT_ACCESS_RW,
         GDT_FLAG_GRANULARITY_4KB | GDT_FLAG_SIZE_32_BIT,
     ),
-
     // 0x20: Userspace data
     GdtEntry::new(
         0,
@@ -197,7 +198,6 @@ pub static mut GDT: [GdtEntry; 6] = [
         GDT_ACCESS_PRESENT | GDT_ACCESS_RING_3 | GDT_ACCESS_CODE_DATA_DESCRIPTOR | GDT_ACCESS_RW,
         GDT_FLAG_GRANULARITY_4KB | GDT_FLAG_SIZE_32_BIT,
     ),
-
     // 0x28: TSS
     GdtEntry::new(
         0,
@@ -250,7 +250,7 @@ pub fn init_tss() {
     unsafe {
         TSS.tss.ss0 = 0x10;
         TSS.bitmap[127] = 0xff;
-        GDT[5].set_base(&TSS as *const TssWithBitmap as u32);
+        GDT[5].set_base(&raw const TSS as u32);
         GDT[5].set_limit(core::mem::size_of::<TssWithBitmap>() as u32 - 1);
     }
 }
@@ -264,4 +264,3 @@ pub fn ltr(index: u16) {
         );
     }
 }
-

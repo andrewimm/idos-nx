@@ -1,4 +1,3 @@
-use crate::files::path::Path;
 use crate::io::async_io::{AsyncIOTable, AsyncOpID, IOType};
 use crate::io::driver::comms::IOResult;
 use crate::io::handle::{Handle, HandleTable};
@@ -11,7 +10,6 @@ use alloc::boxed::Box;
 use alloc::string::String;
 
 use super::args::ExecArgs;
-use super::files::{CurrentDrive, OpenFile, OpenFileMap};
 use super::id::TaskID;
 use super::memory::TaskMemory;
 use super::messaging::{Message, MessagePacket, MessageQueue};
@@ -48,20 +46,12 @@ pub struct Task {
     /// Store Messages that have been sent to this task
     pub message_queue: MessageQueue,
 
-    /// Store a reference to the current drive for the task
-    pub current_drive: CurrentDrive,
-    /// Store the path of the current working directory
-    pub working_dir: Path,
-    /// Store references to all currently open files
-    pub open_files: OpenFileMap,
-    /// Store references to all open handles (will eventually replace open_files)
+    /// Store references to all open handles
     pub open_handles: HandleTable<u32>,
     /// Stores the actual active async IO objects
     pub async_io_table: AsyncIOTable,
     /// The set of active notify queues, which can be used to wait on handles
     pub notify_queues: HandleTable<NotifyQueue>,
-    /// Store the open handle to the currently executing binary, if one exists
-    pub current_executable: Option<OpenFile>,
     /// The name of the executable file running in the thread
     pub filename: String,
     /// The arguments passed to the executable
@@ -81,13 +71,9 @@ impl Task {
             page_directory: PhysicalAddress::new(0),
             memory_mapping: TaskMemory::new(),
             message_queue: MessageQueue::new(),
-            current_drive: CurrentDrive::empty(),
-            working_dir: Path::from_str(""),
-            open_files: OpenFileMap::new(),
             open_handles: HandleTable::new(),
             async_io_table: AsyncIOTable::new(),
             notify_queues: HandleTable::new(),
-            current_executable: None,
             filename: String::new(),
             args: ExecArgs::new(),
         }
@@ -403,7 +389,7 @@ impl Task {
         }
     }
 
-    pub fn attach_executable(&mut self, file: OpenFile, env: ExecutionEnvironment) {
+    pub fn attach_executable(&mut self, env: ExecutionEnvironment) {
         let ExecutionEnvironment {
             registers,
             relocations,
@@ -412,8 +398,6 @@ impl Task {
         } = env;
         self.memory_mapping.set_execution_segments(segments);
         self.memory_mapping.set_relocations(relocations);
-        self.filename = file.filename.clone().into();
-        self.current_executable.replace(file);
 
         let mut flags = 0;
 
@@ -464,7 +448,7 @@ impl Task {
     }
 
     pub fn has_executable(&self) -> bool {
-        self.current_executable.is_some()
+        false
     }
 }
 

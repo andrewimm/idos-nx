@@ -10,10 +10,7 @@ use crate::{
             get_driver_id_by_name,
         },
     },
-    task::{
-        id::{AtomicTaskID, TaskID},
-        switching::get_current_task,
-    },
+    task::id::{AtomicTaskID, TaskID},
 };
 use idos_api::io::error::IOError;
 use spin::Mutex;
@@ -191,13 +188,6 @@ fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), ()> {
 
         Ok((driver_id, Path::from_str(path_portion)))
     } else {
-        crate::kprintln!("  >>>> DONT USE RELATIVE PATH! <<<<");
-        let (current_drive_id, mut working_dir): (DriverID, Path) = {
-            let task_lock = get_current_task();
-            let task = task_lock.read();
-            (task.current_drive.driver_id, task.working_dir.clone())
-        };
-        working_dir.push(raw_path);
-        Ok((current_drive_id, working_dir))
+        panic!("DONT USE RELATIVE PATH!");
     }
 }

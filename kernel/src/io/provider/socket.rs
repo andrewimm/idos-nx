@@ -98,4 +98,8 @@ impl IOProvider for SocketIOProvider {
     fn write(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<IOResult> {
         panic!("Not implemented");
     }
+
+    fn extended_op(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<IOResult> {
+        panic!("Not implemented");
+    }
 }

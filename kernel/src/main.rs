@@ -21,7 +21,6 @@ pub mod console;
 pub mod devices;
 pub mod dos;
 pub mod files;
-pub mod filesystem;
 pub mod hardware;
 pub mod init;
 pub mod interrupts;
@@ -51,8 +50,6 @@ pub extern "C" fn _start() -> ! {
     task::switching::init(initial_pagedir);
 
     task::actions::lifecycle::create_kernel_task(cleanup::cleanup_task, Some("CLEANUP"));
-
-    filesystem::init_fs();
 
     init::init_device_drivers();
 
