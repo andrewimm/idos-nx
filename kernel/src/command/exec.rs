@@ -60,7 +60,8 @@ pub fn exec(stdin: Handle, stdout: Handle, tree: CommandTree, env: &mut Environm
                         cd(stdout, &cd_args, env);
                     } else if try_exec(stdin, stdout, name, args, env) {
                     } else {
-                        handle_op_write(stdout, "Unknown command!\n".as_bytes());
+                        handle_op_write(stdout, "Unknown command!\n".as_bytes())
+                            .wait_for_completion();
                     }
                 }
             }
@@ -93,7 +94,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
     );
     output.push_str(env.cwd.as_str());
     output.push_str("\n\n");
-    handle_op_write(stdout, output.as_bytes());
+    handle_op_write(stdout, output.as_bytes()).wait_for_completion();
 
     let dir_handle = create_file_handle();
     handle_op_open(dir_handle, env.cwd.as_str()).wait_for_completion();
@@ -120,7 +121,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
             break;
         }
     }
-    handle_op_close(dir_handle);
+    handle_op_close(dir_handle).wait_for_completion();
     for entry in entries.iter_mut() {
         let stat_handle = create_file_handle();
         let mut file_status = FileStatus::new();
@@ -166,7 +167,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
         row.push_str(&datetime.time.to_string());
         row.push('\n');
 
-        handle_op_write(stdout, row.as_bytes());
+        handle_op_write(stdout, row.as_bytes()).wait_for_completion();
     }
 
     let mut summary = String::new();
@@ -174,7 +175,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
         summary.push(' ');
     }
     summary.push_str(&alloc::format!("{} file(s)\n", entries.len()));
-    handle_op_write(stdout, summary.as_bytes());
+    handle_op_write(stdout, summary.as_bytes()).wait_for_completion();
 }
 
 fn drives(stdout: Handle) {
@@ -185,7 +186,7 @@ fn drives(stdout: Handle) {
         output.push_str(&name);
         output.push('\n');
     }
-    handle_op_write(stdout, output.as_bytes());
+    handle_op_write(stdout, output.as_bytes()).wait_for_completion();
 }
 
 fn try_exec(
@@ -240,7 +241,8 @@ fn type_file(stdout: Handle, args: &Vec<String>, env: &Environment) {
                     let len = match handle_op_read(handle, buffer, read_offset).wait_for_result() {
                         Ok(len) => len as usize,
                         Err(_) => {
-                            handle_op_write(stdout, "Error reading file\n".as_bytes());
+                            handle_op_write(stdout, "Error reading file\n".as_bytes())
+                                .wait_for_completion();
                             return;
                         }
                     };
@@ -251,12 +253,12 @@ fn type_file(stdout: Handle, args: &Vec<String>, env: &Environment) {
                         break;
                     }
                 }
-                handle_op_write(stdout, &[b'\n']);
-                handle_op_close(handle);
+                handle_op_write(stdout, &[b'\n']).wait_for_completion();
+                handle_op_close(handle).wait_for_completion();
             }
             Err(_) => {
                 let output = alloc::format!("File not found: \"{}\"\n", arg);
-                handle_op_write(stdout, output.as_bytes());
+                handle_op_write(stdout, output.as_bytes()).wait_for_completion();
                 return;
             }
         }

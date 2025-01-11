@@ -56,7 +56,7 @@ impl RegisteredNetDevice {
 
     pub fn init_dhcp(&mut self) {
         if let Some(packet) = self.dhcp_state.start_transaction() {
-            self.dhcp_broadcast(&packet);
+            self.current_writes.push_back(self.dhcp_broadcast(&packet));
         }
     }
 
