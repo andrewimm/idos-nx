@@ -48,7 +48,7 @@ pub fn run_driver() -> ! {
     let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
     loop {
         if interrupt_read.is_complete() {
-            handle_op_write(interrupt, &[1]);
+            handle_op_write(interrupt, &[1]).wait_for_completion();
 
             driver_impl.init_read();
 

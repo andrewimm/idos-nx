@@ -78,6 +78,7 @@ impl<T> HandleTable<T> {
     }
 }
 
+#[must_use]
 pub struct PendingHandleOp {
     semaphore: Box<AtomicU32>,
     return_value: Box<u32>,
@@ -147,6 +148,14 @@ impl core::fmt::Debug for PendingHandleOp {
             .field("semaphore", &sem_value)
             .field("return_value", &self.return_value)
             .finish()
+    }
+}
+
+impl Drop for PendingHandleOp {
+    fn drop(&mut self) {
+        if !self.is_complete() {
+            panic!("Dropping incomplete PendingHandleOp is unsafe. It must be consumed");
+        }
     }
 }
 

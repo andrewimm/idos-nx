@@ -20,9 +20,9 @@ use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::shared::release_buffer;
 use crate::net::resident::register_network_device;
 use crate::task::actions::handle::{
-    add_handle_to_notify_queue, create_notify_queue, create_pipe_handles, handle_op_read,
-    handle_op_read_struct, handle_op_write, open_interrupt_handle, open_message_queue,
-    transfer_handle, wait_on_notify,
+    add_handle_to_notify_queue, create_notify_queue, create_pipe_handles, handle_op_close,
+    handle_op_read, handle_op_read_struct, handle_op_write, open_interrupt_handle,
+    open_message_queue, transfer_handle, wait_on_notify,
 };
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
@@ -157,7 +157,8 @@ fn run_driver() -> ! {
     let mut interrupt_read = handle_op_read(interrupt_handle, &mut interrupt_ready, 0);
 
     register_network_device("DEV:\\ETH", mac);
-    handle_op_write(response_writer, &[0]);
+    handle_op_write(response_writer, &[0]).wait_for_completion();
+    handle_op_close(response_writer).wait_for_completion();
 
     loop {
         if interrupt_read.is_complete() {
@@ -177,7 +178,7 @@ fn run_driver() -> ! {
                     }
                 }
             }
-            handle_op_write(interrupt_handle, &[]);
+            handle_op_write(interrupt_handle, &[]).wait_for_completion();
             interrupt_read = handle_op_read(interrupt_handle, &mut interrupt_ready, 0);
         } else if let Some(sender) = message_read.get_result() {
             let sender_id = TaskID::new(sender);

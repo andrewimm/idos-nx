@@ -1,10 +1,9 @@
 use alloc::string::String;
 
-use crate::cleanup::get_cleanup_task_id;
+use crate::cleanup::wake_cleanup_resident;
 
 use super::super::id::TaskID;
-use super::super::messaging::Message;
-use super::{send_message, yield_coop};
+use super::yield_coop;
 
 pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> TaskID {
     let task_id = create_task();
@@ -27,16 +26,6 @@ pub fn create_task() -> TaskID {
     task_state.page_directory = super::super::paging::create_page_directory();
     super::switching::insert_task(task_state);
     task_id
-}
-
-/// The current task will load an executable file, interpret it with the
-/// loader, and assign the executable segments to
-pub fn attach_executable_to_task(id: TaskID, exec_path: &str) {
-    let task_lock = super::super::switching::get_task(id).unwrap();
-    let env = crate::loader::load_executable(exec_path).unwrap();
-
-    task_lock.write().attach_executable(env);
-    task_lock.write().make_runnable();
 }
 
 pub fn add_args<I, A>(id: TaskID, args: I)
@@ -67,8 +56,7 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
     }
 
     // notify the cleanup task
-    let cleanup_task_id = get_cleanup_task_id();
-    send_message(cleanup_task_id, Message::empty(), 0xffffffff);
+    wake_cleanup_resident();
 }
 
 pub fn terminate(exit_code: u32) -> ! {

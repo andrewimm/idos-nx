@@ -11,6 +11,8 @@
 
 use core::arch::asm;
 
+use io::handle::Handle;
+
 extern crate alloc;
 
 pub mod arch;
@@ -49,7 +51,7 @@ pub extern "C" fn _start() -> ! {
     let initial_pagedir = memory::virt::page_table::get_current_pagedir();
     task::switching::init(initial_pagedir);
 
-    task::actions::lifecycle::create_kernel_task(cleanup::cleanup_task, Some("CLEANUP"));
+    task::actions::lifecycle::create_kernel_task(cleanup::cleanup_resident, Some("CLEANUPR"));
 
     init::init_device_drivers();
 
@@ -74,6 +76,11 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
+fn system_log(console_handle: Handle, message: &str) {
+    task::actions::handle::handle_op_write(console_handle, message.as_bytes())
+        .wait_for_completion();
+}
+
 fn init_system() -> ! {
     let id = task::switching::get_current_id();
     crate::kprintln!("INIT task: {:?}", id);
@@ -82,29 +89,26 @@ fn init_system() -> ! {
         console::init_console();
 
         let con = task::actions::handle::create_file_handle();
-        task::actions::handle::handle_op_open(con, "DEV:\\CON1");
+        task::actions::handle::handle_op_open(con, "DEV:\\CON1").wait_for_completion();
 
         hardware::ps2::install_drivers();
 
-        task::actions::handle::handle_op_write(con, "Installing ATA Drivers...\n".as_bytes());
+        system_log(con, "Installing ATA Drivers...\n");
         hardware::ata::install();
 
-        task::actions::handle::handle_op_write(con, "Installing Floppy Drivers...\n".as_bytes());
+        system_log(con, "Installing Floppy Drivers...\n");
         hardware::floppy::install();
 
-        task::actions::handle::handle_op_write(
-            con,
-            "Installing Network Device Drivers...\n".as_bytes(),
-        );
+        system_log(con, "Installing Network Device Drivers...\n");
         hardware::ethernet::dev::install_driver();
 
-        task::actions::handle::handle_op_write(con, "Initializing Net Stack...\n".as_bytes());
+        system_log(con, "Initializing Net Stack...\n");
         net::start_net_stack();
 
-        task::actions::handle::handle_op_write(con, "Mounting FAT FS...\n".as_bytes());
+        system_log(con, "Mounting FAT FS...\n");
         io::filesystem::fatfs::mount_fat_fs();
 
-        task::actions::handle::handle_op_write(con, "System ready! Welcome to IDOS\n\n".as_bytes());
+        system_log(con, "System ready! Welcome to IDOS\n\n");
         console::console_ready();
     }
 

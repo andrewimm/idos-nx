@@ -108,8 +108,6 @@ impl Task {
     }
 
     pub fn reset_stack_pointer(&mut self) {
-        //let stack = self.get_kernel_stack_mut();
-        //let pointer = (stack.as_ptr() as usize) + stack.len() - core::mem::size_of::<u32>();
         self.stack_pointer = self.get_stack_top();
     }
 
@@ -406,7 +404,7 @@ impl Task {
         }
 
         let esp_start = registers.esp.unwrap_or(0xc0000000);
-        let esp = esp_start - self.args.stack_size();
+        let esp = esp_start - self.args.stack_size() as u32;
 
         let registers = EnvironmentRegisters {
             eax: registers.eax.unwrap_or(0),

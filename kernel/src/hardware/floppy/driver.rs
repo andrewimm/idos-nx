@@ -390,8 +390,8 @@ pub fn run_driver() -> ! {
         }
     };
 
-    handle_op_write(Handle::new(0), &[fd_count as u8]);
-    handle_op_close(Handle::new(0));
+    handle_op_write(Handle::new(0), &[fd_count as u8]).wait_for_completion();
+    handle_op_close(Handle::new(0)).wait_for_completion();
 
     // The first async action to run on the floppy controller should be
     // initialization
@@ -401,7 +401,7 @@ pub fn run_driver() -> ! {
 
     loop {
         if interrupt_read.is_complete() {
-            handle_op_write(interrupt, &[]);
+            handle_op_write(interrupt, &[]).wait_for_completion();
             interrupt_flag.store(true, Ordering::SeqCst);
             interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
         } else if let Some(sender) = message_read.get_result() {
