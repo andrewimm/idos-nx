@@ -119,7 +119,12 @@ fn init_system() -> ! {
 
         let loader_id = loader::task::get_loader_id();
 
-        let req = Message::empty();
+        let load_path = "A:\\TEST.ELF";
+        let shared_addr = memory::shared::share_string(loader_id, load_path);
+
+        let mut req = Message::empty();
+        req.args[0] = shared_addr.as_u32();
+        req.args[1] = load_path.len() as u32;
         send_message(loader_id, req, 0xffffffff);
     }
 

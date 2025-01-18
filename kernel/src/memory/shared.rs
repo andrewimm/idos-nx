@@ -210,6 +210,14 @@ pub fn share_buffer(task: TaskID, vaddr: VirtualAddress, byte_size: usize) -> Vi
     mapping_start + mapping_offset
 }
 
+/// helper function for sharing a string between tasks, fetching the buffer
+/// location and size and passing it to share_buffer
+pub fn share_string(task_id: TaskID, s: &str) -> VirtualAddress {
+    let string_addr = VirtualAddress::new(s.as_ptr() as u32);
+    let string_len = s.len();
+    share_buffer(task_id, string_addr, string_len)
+}
+
 pub fn release_buffer(vaddr: VirtualAddress, byte_size: usize) {
     let cur_task = get_current_id();
     crate::kprintln!("SHARE: Release buffer at {:?} for {:?}", vaddr, cur_task);
