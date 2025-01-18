@@ -6,6 +6,8 @@
 
 use spin::Once;
 
+use crate::memory::address::VirtualAddress;
+use crate::memory::shared::release_buffer;
 use crate::task::actions::handle::{
     add_handle_to_notify_queue, create_kernel_task, create_notify_queue, handle_op_read_struct,
     open_message_queue, wait_on_notify,
@@ -24,7 +26,14 @@ fn loader_resident() -> ! {
     crate::kprintln!("Loader task ready to receive");
     loop {
         if let Some(_sender) = message_read.get_result() {
-            crate::kprintln!("LOADER REQUEST");
+            let path_addr = VirtualAddress::new(incoming_message.args[0]);
+            let path_len = incoming_message.args[1] as usize;
+            let path = unsafe {
+                let slice = core::slice::from_raw_parts(path_addr.as_ptr::<u8>(), path_len);
+                core::str::from_utf8_unchecked(slice)
+            };
+            crate::kprintln!("Loader Request - Load \"{}\"", path);
+            release_buffer(path_addr, path_len);
 
             message_read = handle_op_read_struct(messages, &mut incoming_message);
         } else {
@@ -32,6 +41,10 @@ fn loader_resident() -> ! {
         }
     }
 }
+
+struct Loader {}
+
+impl Loader {}
 
 pub static LOADER_ID: Once<TaskID> = Once::new();
 
