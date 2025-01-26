@@ -3,7 +3,10 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use alloc::boxed::Box;
 use idos_api::io::error::IOError;
 
-use crate::{collections::SlotList, memory::address::VirtualAddress};
+use crate::{
+    collections::SlotList,
+    memory::{address::VirtualAddress, signal::Signal},
+};
 
 use super::async_io::AsyncOp;
 
@@ -80,20 +83,19 @@ impl<T> HandleTable<T> {
 
 #[must_use]
 pub struct PendingHandleOp {
-    semaphore: Box<AtomicU32>,
+    signal: Option<Signal>,
     return_value: Box<u32>,
 }
 
 impl PendingHandleOp {
     pub fn new(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) -> Self {
-        let semaphore = Box::new(AtomicU32::new(0));
+        let signal = Signal::new();
         let return_value = Box::new(0);
 
-        let semaphore_ptr: *mut u32 = semaphore.as_ptr();
         let return_value_ptr = return_value.as_ref() as *const u32;
         let op = AsyncOp::new(
             op_code,
-            VirtualAddress::new(semaphore_ptr as u32),
+            signal.get_address(),
             VirtualAddress::new(return_value_ptr as u32),
             arg0,
             arg1,
@@ -103,14 +105,13 @@ impl PendingHandleOp {
         crate::task::actions::handle::add_io_op(handle, op).unwrap();
 
         Self {
-            semaphore,
+            signal: Some(signal),
             return_value,
         }
     }
 
     pub fn is_complete(&self) -> bool {
-        let semaphore = self.semaphore.load(Ordering::SeqCst);
-        semaphore != 0
+        self.signal.as_ref().unwrap().is_complete()
     }
 
     pub fn get_result(&self) -> Option<u32> {
@@ -122,8 +123,7 @@ impl PendingHandleOp {
 
     pub fn wait_for_completion(&self) -> u32 {
         loop {
-            let semaphore = self.semaphore.load(Ordering::SeqCst);
-            if semaphore != 0 {
+            if self.signal.as_ref().unwrap().is_complete() {
                 return *self.return_value;
             }
             crate::task::actions::yield_coop();
@@ -141,21 +141,19 @@ impl PendingHandleOp {
     }
 }
 
-impl core::fmt::Debug for PendingHandleOp {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let sem_value = self.semaphore.load(Ordering::SeqCst);
-        f.debug_struct("PendingHandleOp")
-            .field("semaphore", &sem_value)
-            .field("return_value", &self.return_value)
-            .finish()
+impl Drop for PendingHandleOp {
+    fn drop(&mut self) {
+        let signal = self.signal.take().unwrap();
+        let _ = signal.get_value();
     }
 }
 
-impl Drop for PendingHandleOp {
-    fn drop(&mut self) {
-        if !self.is_complete() {
-            panic!("Dropping incomplete PendingHandleOp is unsafe. It must be consumed");
-        }
+impl core::fmt::Debug for PendingHandleOp {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("PendingHandleOp")
+            .field("signal", self.signal.as_ref().unwrap())
+            .field("return_value", &self.return_value)
+            .finish()
     }
 }
 
