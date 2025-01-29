@@ -2,7 +2,6 @@ use alloc::vec::Vec;
 use spin::RwLock;
 
 use crate::collections::SlotList;
-use crate::devices::SyncDriver;
 use crate::io::IOError;
 use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::id::TaskID;
@@ -50,9 +49,7 @@ impl KeyboardDriver {
         handle.unread.clear();
         Ok(to_write)
     }
-}
 
-impl SyncDriver for KeyboardDriver {
     fn open(&self) -> Result<u32, IOError> {
         let handle = OpenHandle {
             reader_id: get_current_id(),
