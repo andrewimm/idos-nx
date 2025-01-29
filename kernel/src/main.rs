@@ -20,7 +20,6 @@ pub mod cleanup;
 pub mod collections;
 pub mod command;
 pub mod console;
-pub mod devices;
 pub mod dos;
 pub mod files;
 pub mod hardware;
