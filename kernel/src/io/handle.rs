@@ -1,5 +1,3 @@
-use core::sync::atomic::{AtomicU32, Ordering};
-
 use alloc::boxed::Box;
 use idos_api::io::error::IOError;
 

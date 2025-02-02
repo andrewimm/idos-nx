@@ -131,12 +131,10 @@ impl AsyncOp {
             unmapped_phys = PhysicalAddress::new(phys_frame_start);
             unmapped_for_dir = UnmappedPage::map(unmapped_phys);
         }
-        unsafe {
-            let signal_addr = unmapped_for_dir.virtual_address() + signal_offset;
-            let prev = Signal::complete(signal_addr, 0);
-            if prev != 0 {
-                crate::kprintln!("WARN: Signal was not zero");
-            }
+        let signal_addr = unmapped_for_dir.virtual_address() + signal_offset;
+        let prev = Signal::complete(signal_addr, 0);
+        if prev != 0 {
+            crate::kprintln!("WARN: Signal was not zero");
         }
     }
 }
