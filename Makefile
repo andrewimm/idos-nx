@@ -40,13 +40,13 @@ $(bootsector):
 	@mkdir -p $(shell dirname $@)
 	@cd bootloader/mbr && \
 	cargo build --release -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-mbr.json
-	@objcopy -I elf32-i386 -O binary bootloader/mbr/target/i386-mbr/release/idos-mbr $(bootsector)
+	@objcopy -I elf32-i386 -O binary target/i386-mbr/release/idos-mbr $(bootsector)
 
 $(bootbin):
 	@mkdir -p $(shell dirname $@)
 	@cd bootloader/bootbin && \
 	cargo build --release -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-bootbin.json
-	@objcopy -I elf32-i386 -O binary bootloader/bootbin/target/i386-bootbin/release/idos-bootbin $(bootbin)
+	@objcopy -I elf32-i386 -O binary target/i386-bootbin/release/idos-bootbin $(bootbin)
 
 $(kernel):
 	@mkdir -p $(shell dirname $@)

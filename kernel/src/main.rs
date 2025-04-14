@@ -38,7 +38,6 @@ pub mod time;
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     unsafe {
-        init::zero_bss();
         init::init_cpu_tables();
         init::init_memory();
     }
