@@ -1,6 +1,7 @@
 use crate::hardware::{pic::PIC, pit::PIT};
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::heap;
+use crate::memory::physical::bios::BIOS_MEMORY_MAP_LOCATION;
 use crate::memory::physical::init_allocator;
 use crate::memory::physical::range::FrameRange;
 use crate::task::stack::get_kernel_stack_virtual_offset;
@@ -41,10 +42,9 @@ pub unsafe fn init_memory() {
         PhysicalAddress::new(kernel_start_addr),
         kernel_end_addr - kernel_start_addr,
     );
-    let bios_memmap = PhysicalAddress::new(0x1000);
     init_allocator(
         PhysicalAddress::new(kernel_end_addr),
-        bios_memmap,
+        BIOS_MEMORY_MAP_LOCATION,
         kernel_range,
     );
     crate::kprint!("KERNEL RANGE: {:?}\n", kernel_range);
@@ -56,7 +56,8 @@ pub unsafe fn init_memory() {
     // activate paging and virtual memory
     let initial_mapped_range =
         VirtualAddress::new(kernel_start_addr)..VirtualAddress::new(allocator_end);
-    let initial_pagedir = crate::memory::virt::create_initial_pagedir(initial_mapped_range);
+    let initial_pagedir =
+        crate::memory::virt::create_initial_pagedir(initial_mapped_range, BIOS_MEMORY_MAP_LOCATION);
     initial_pagedir.make_active();
     crate::memory::virt::enable_paging();
 

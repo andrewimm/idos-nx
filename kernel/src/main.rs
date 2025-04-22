@@ -5,6 +5,7 @@
 #![feature(custom_test_frameworks)]
 #![feature(map_try_insert)]
 #![feature(naked_functions)]
+#![feature(new_range_api)]
 #![feature(vec_into_raw_parts)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
@@ -15,6 +16,7 @@ use io::handle::Handle;
 
 extern crate alloc;
 
+pub mod acpi;
 pub mod arch;
 pub mod cleanup;
 pub mod collections;
@@ -43,6 +45,8 @@ pub extern "C" fn _start() -> ! {
     }
 
     kprint!("\nKernel Memory initialized.\n");
+
+    acpi::init();
 
     init::init_hardware();
 

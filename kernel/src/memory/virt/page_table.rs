@@ -1,6 +1,6 @@
-use core::arch::asm;
-use super::page_entry::PageTableEntry;
 use super::super::address::{PhysicalAddress, VirtualAddress};
+use super::page_entry::PageTableEntry;
+use core::arch::asm;
 
 pub const TABLE_ENTRY_COUNT: usize = 1024;
 
@@ -29,22 +29,24 @@ impl PageTable {
     }
 }
 
-/// A reference to a valid page table located in physical memory, that can be
+/// A reference to a valid page dir located in physical memory, that can be
 /// passed around and activated
 #[derive(Copy, Clone)]
-pub struct PageTableReference {
+pub struct PageDirectoryReference {
     address: PhysicalAddress,
 }
 
-impl PageTableReference {
+impl PageDirectoryReference {
     pub fn new(address: PhysicalAddress) -> Self {
-        Self {
-            address,
-        }
+        Self { address }
     }
 
     pub fn make_active(&self) {
         set_current_pagedir(self.address);
+    }
+
+    pub fn get_address_location(&self) -> PhysicalAddress {
+        self.address
     }
 }
 
@@ -68,4 +70,3 @@ pub fn get_current_pagedir() -> PhysicalAddress {
     }
     PhysicalAddress::new(addr)
 }
-

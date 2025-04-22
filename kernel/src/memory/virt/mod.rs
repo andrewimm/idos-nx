@@ -34,10 +34,10 @@ pub mod page_iter;
 pub mod page_table;
 pub mod scratch;
 
+use crate::task::stack::get_initial_kernel_stack_location;
 use core::arch::asm;
 use core::ops::Range;
-use page_table::{PageTable, PageTableReference};
-use crate::task::stack::get_initial_kernel_stack_location;
+use page_table::{PageDirectoryReference, PageTable};
 
 use self::scratch::SCRATCH_PAGE_COUNT;
 
@@ -45,7 +45,10 @@ use super::address::{PhysicalAddress, VirtualAddress};
 use super::physical::allocate_frame;
 
 /// Create the initial page directory need to enable paging.
-pub fn create_initial_pagedir(initial_range: Range<VirtualAddress>) -> PageTableReference {
+pub fn create_initial_pagedir(
+    kernel_range: Range<VirtualAddress>,
+    bios_memmap_address: PhysicalAddress,
+) -> PageDirectoryReference {
     let dir_address = allocate_frame().unwrap().to_physical_address();
     zero_frame(dir_address);
 
@@ -56,8 +59,8 @@ pub fn create_initial_pagedir(initial_range: Range<VirtualAddress>) -> PageTable
 
     // Identity-map the kernel
     {
-        let first_dir_index = initial_range.start.get_page_directory_index();
-        let last_dir_index = initial_range.end.get_page_directory_index();
+        let first_dir_index = kernel_range.start.get_page_directory_index();
+        let last_dir_index = kernel_range.end.get_page_directory_index();
         for dir_index in first_dir_index..=last_dir_index {
             let table_frame = allocate_frame().unwrap().to_physical_address();
             zero_frame(table_frame);
@@ -65,20 +68,22 @@ pub fn create_initial_pagedir(initial_range: Range<VirtualAddress>) -> PageTable
             dir.get_mut(dir_index).set_present();
 
             let table = PageTable::at_address(VirtualAddress::new(table_frame.into()));
+            /*
             let first_table_index = if dir_index == first_dir_index {
                 initial_range.start.get_page_table_index()
             } else {
                 0
             };
+            */
+            let first_table_index = 0;
             let last_table_index = if dir_index == last_dir_index {
-                initial_range.end.get_page_table_index()
+                kernel_range.end.get_page_table_index()
             } else {
                 1023
             };
             for table_index in first_table_index..=last_table_index {
                 let identity_map = PhysicalAddress::new(
-                    dir_index as u32 * 0x400 * 0x1000 +
-                    table_index as u32 * 0x1000
+                    dir_index as u32 * 0x400 * 0x1000 + table_index as u32 * 0x1000,
                 );
                 table.get_mut(table_index).set_address(identity_map);
                 table.get_mut(table_index).set_present();
@@ -88,6 +93,52 @@ pub fn create_initial_pagedir(initial_range: Range<VirtualAddress>) -> PageTable
             // accessible above 0xc0000000
             dir.get_mut(dir_index + 0x300).set_address(table_frame);
             dir.get_mut(dir_index + 0x300).set_present();
+        }
+    }
+
+    // Iterate over the BIOS memory map and map all of the Reserved sections.
+    // These are used for BIOS values or ACPI tables, and the init process needs
+    // to be able to read them in order to extract data about system hardware
+    {
+        // This only works because we previously marked the frame with the memory
+        // map as occupied, so it shouldn't have been overwritten.
+        // Once we're done reading it, we can free the frame. It's no longer
+        // ncecessary.
+        let memory_map = super::physical::bios::load_memory_map(bios_memmap_address);
+        for entry in memory_map.iter() {
+            if !entry.is_reserved() {
+                continue;
+            }
+            let start = VirtualAddress::new(entry.get_base());
+            let end = start + entry.get_length() - 1;
+
+            let first_page = start.prev_page_barrier();
+            let last_page = end.prev_page_barrier();
+            crate::kprintln!("MAP FROM {:?} TO {:?}", first_page, last_page);
+            let mut page_start = first_page;
+            while page_start <= last_page {
+                let dir_index = page_start.get_page_directory_index();
+                let table_index = page_start.get_page_table_index();
+                let table_address = if dir.get(dir_index).is_present() {
+                    dir.get(dir_index).get_address()
+                } else {
+                    let table_frame = allocate_frame().unwrap().to_physical_address();
+                    zero_frame(table_frame);
+                    dir.get_mut(dir_index).set_address(table_frame);
+                    dir.get_mut(dir_index).set_present();
+                    table_frame
+                };
+
+                let table = PageTable::at_address(VirtualAddress::new(table_address.into()));
+                if !table.get(table_index).is_present() {
+                    table
+                        .get_mut(table_index)
+                        .set_address(PhysicalAddress::new(page_start.into()));
+                    table.get_mut(table_index).set_present();
+                }
+
+                page_start = page_start + 0x1000;
+            }
         }
     }
 
@@ -112,14 +163,15 @@ pub fn create_initial_pagedir(initial_range: Range<VirtualAddress>) -> PageTable
         }
     }
 
-    PageTableReference::new(dir_address)
+    PageDirectoryReference::new(dir_address)
 }
 
 /// Zero out an allocated frame, does not work once paging is enabled
 fn zero_frame(start: PhysicalAddress) {
     unsafe {
         let frame_start = start.as_u32() as *mut u8;
-        let frame_slice = core::slice::from_raw_parts_mut(frame_start, super::physical::FRAME_SIZE as usize);
+        let frame_slice =
+            core::slice::from_raw_parts_mut(frame_start, super::physical::FRAME_SIZE as usize);
         for i in 0..frame_slice.len() {
             frame_slice[i] = 0;
         }

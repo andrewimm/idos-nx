@@ -3,6 +3,8 @@ pub mod bios;
 pub mod bitmap;
 pub mod range;
 
+use crate::memory::physical::bios::BIOS_MEMORY_MAP_LOCATION;
+
 use super::address::PhysicalAddress;
 use allocated_frame::AllocatedFrame;
 use bios::load_memory_map;
@@ -45,6 +47,11 @@ pub fn init_allocator(
     // Mark the first 0x1000 bytes as occupied, too. We may need the BIOS data
     bitmap
         .allocate_range(FrameRange::new(PhysicalAddress::new(0), 0x1000))
+        .unwrap();
+    // Mark the BIOS memory map as occupied. We need to reserve this frame until
+    // it's consumed by the first page directory
+    bitmap
+        .allocate_range(FrameRange::new(BIOS_MEMORY_MAP_LOCATION, 0x1000))
         .unwrap();
 
     crate::kprint!(

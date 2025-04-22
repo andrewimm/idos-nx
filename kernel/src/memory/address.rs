@@ -1,3 +1,14 @@
+use core::{
+    ops::{Add, Range, RangeInclusive, Sub},
+    range::{Bound, RangeBounds},
+};
+
+/// Physical and Virtual addresses have a lot of common behaviors that should be
+/// unified into a single trait, so that other types can depend on those features
+pub trait MemoryAddress:
+    Copy + Into<u32> + From<u32> + Add<u32, Output = Self> + Sub<u32, Output = Self>
+{
+}
 
 #[derive(Copy, Clone, Eq)]
 #[repr(transparent)]
@@ -13,10 +24,18 @@ impl PhysicalAddress {
     }
 }
 
+impl MemoryAddress for PhysicalAddress {}
+
 impl From<PhysicalAddress> for u32 {
     fn from(addr: PhysicalAddress) -> Self {
         let value: u32 = addr.as_u32();
         value
+    }
+}
+
+impl From<u32> for PhysicalAddress {
+    fn from(value: u32) -> Self {
+        Self(value)
     }
 }
 
@@ -38,12 +57,21 @@ impl core::cmp::Ord for PhysicalAddress {
     }
 }
 
-impl core::ops::Add<u32> for PhysicalAddress {
+impl Add<u32> for PhysicalAddress {
     type Output = PhysicalAddress;
 
     fn add(self, rhs: u32) -> Self::Output {
         let new_addr = self.0.wrapping_add(rhs);
-        PhysicalAddress::new(new_addr)
+        Self::new(new_addr)
+    }
+}
+
+impl Sub<u32> for PhysicalAddress {
+    type Output = PhysicalAddress;
+
+    fn sub(self, rhs: u32) -> Self::Output {
+        let new_addr = self.0.saturating_sub(rhs);
+        Self::new(new_addr)
     }
 }
 
@@ -100,10 +128,18 @@ impl VirtualAddress {
     }
 }
 
+impl MemoryAddress for VirtualAddress {}
+
 impl From<VirtualAddress> for u32 {
     fn from(addr: VirtualAddress) -> Self {
         let value: u32 = addr.as_u32();
         value
+    }
+}
+
+impl From<u32> for VirtualAddress {
+    fn from(value: u32) -> Self {
+        Self(value)
     }
 }
 
@@ -125,16 +161,16 @@ impl core::cmp::Ord for VirtualAddress {
     }
 }
 
-impl core::ops::Add<u32> for VirtualAddress {
-    type Output = VirtualAddress;
+impl Add<u32> for VirtualAddress {
+    type Output = Self;
 
     fn add(self, rhs: u32) -> Self::Output {
         let new_addr = self.0.wrapping_add(rhs);
-        VirtualAddress::new(new_addr)
+        Self::new(new_addr)
     }
 }
 
-impl core::ops::Sub<VirtualAddress> for VirtualAddress {
+impl Sub<VirtualAddress> for VirtualAddress {
     type Output = u32;
 
     fn sub(self, rhs: VirtualAddress) -> Self::Output {
@@ -142,12 +178,12 @@ impl core::ops::Sub<VirtualAddress> for VirtualAddress {
     }
 }
 
-impl core::ops::Sub<u32> for VirtualAddress {
-    type Output = VirtualAddress;
+impl Sub<u32> for VirtualAddress {
+    type Output = Self;
 
     fn sub(self, rhs: u32) -> Self::Output {
         let new_addr = self.0.saturating_sub(rhs);
-        VirtualAddress::new(new_addr)
+        Self::new(new_addr)
     }
 }
 
@@ -157,3 +193,26 @@ impl core::fmt::Debug for VirtualAddress {
     }
 }
 
+pub trait AddressRange<T>: RangeBounds<T>
+where
+    T: MemoryAddress,
+{
+    fn get_first(&self) -> T {
+        match self.start_bound() {
+            Bound::Unbounded => T::from(0u32),
+            Bound::Included(addr) => *addr,
+            Bound::Excluded(addr) => *addr + 1,
+        }
+    }
+
+    fn get_last(&self) -> T {
+        match self.end_bound() {
+            Bound::Unbounded => T::from(0xffffffffu32),
+            Bound::Included(addr) => *addr,
+            Bound::Excluded(addr) => *addr - 1,
+        }
+    }
+}
+
+impl<T> AddressRange<T> for Range<T> where T: MemoryAddress {}
+impl<T> AddressRange<T> for RangeInclusive<T> where T: MemoryAddress {}
