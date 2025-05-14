@@ -5,6 +5,7 @@ use crate::io::notify::NotifyQueue;
 use crate::io::provider::IOProvider;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
+use crate::sync::wake_set::WakeSet;
 use crate::time::system::{get_system_time, Timestamp};
 use alloc::boxed::Box;
 use alloc::string::String;
@@ -45,6 +46,13 @@ pub struct Task {
 
     /// Store Messages that have been sent to this task
     pub message_queue: MessageQueue,
+    /// Store Wake Sets that have been allocated to this task
+    pub wake_sets: HandleTable<WakeSet>,
+
+    /// The name of the executable file running in the thread
+    pub filename: String,
+    /// The arguments passed to the executable
+    pub args: ExecArgs,
 
     /// Store references to all open handles
     pub open_handles: HandleTable<u32>,
@@ -52,10 +60,6 @@ pub struct Task {
     pub async_io_table: AsyncIOTable,
     /// The set of active notify queues, which can be used to wait on handles
     pub notify_queues: HandleTable<NotifyQueue>,
-    /// The name of the executable file running in the thread
-    pub filename: String,
-    /// The arguments passed to the executable
-    pub args: ExecArgs,
 }
 
 impl Task {
@@ -71,11 +75,12 @@ impl Task {
             page_directory: PhysicalAddress::new(0),
             memory_mapping: TaskMemory::new(),
             message_queue: MessageQueue::new(),
+            wake_sets: HandleTable::new(),
+            filename: String::new(),
+            args: ExecArgs::new(),
             open_handles: HandleTable::new(),
             async_io_table: AsyncIOTable::new(),
             notify_queues: HandleTable::new(),
-            filename: String::new(),
-            args: ExecArgs::new(),
         }
     }
 
@@ -293,6 +298,10 @@ impl Task {
             None => return,
         }
         self.state = RunState::Blocked(timeout, BlockType::Notify(handle));
+    }
+
+    pub fn get_wake_set(&self, handle: Handle) -> Option<&WakeSet> {
+        self.wake_sets.get(handle)
     }
 
     pub fn io_action_notify(&mut self, io_index: u32) {
