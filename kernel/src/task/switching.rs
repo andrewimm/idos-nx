@@ -3,7 +3,7 @@ use alloc::{collections::BTreeMap, sync::Arc};
 use core::arch::{asm, global_asm};
 use spin::RwLock;
 
-use super::id::{IdGenerator, TaskID};
+use super::id::{AtomicTaskID, IdGenerator, TaskID};
 use super::state::{RunState, Task};
 
 /// A TaskMap makes it easy to look up a Task by its ID number
@@ -15,7 +15,7 @@ pub static TASK_MAP: RwLock<TaskMap> = RwLock::new(BTreeMap::new());
 pub static NEXT_ID: IdGenerator = IdGenerator::new();
 
 /// All kernel code referring to the "current" task will use this TaskID
-pub static CURRENT_ID: RwLock<TaskID> = RwLock::new(TaskID::new(0));
+static CURRENT_ID: AtomicTaskID = AtomicTaskID::new(0);
 
 pub fn init(page_directory: PhysicalAddress) {
     let mut idle_task = Task::create_initial_task();
@@ -30,7 +30,7 @@ pub fn init(page_directory: PhysicalAddress) {
 }
 
 pub fn get_current_id() -> TaskID {
-    *CURRENT_ID.read()
+    CURRENT_ID.load(core::sync::atomic::Ordering::SeqCst)
 }
 
 pub fn get_current_task() -> Arc<RwLock<Task>> {
@@ -174,9 +174,7 @@ pub fn switch_to(id: TaskID) {
 
     crate::arch::gdt::set_tss_stack_pointer(stack_top as u32);
 
-    {
-        *CURRENT_ID.write() = id;
-    }
+    let _ = CURRENT_ID.swap(id, core::sync::atomic::Ordering::SeqCst);
 
     if let RunState::Initialized = next_task_state {
         {

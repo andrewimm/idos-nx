@@ -1,6 +1,4 @@
 pub mod exec;
-pub mod io;
-pub mod net;
 
 use core::arch::asm;
 

@@ -27,7 +27,7 @@ impl FileIOProvider {
     pub fn new(source_id: TaskID) -> Self {
         Self {
             pending_ops: AsyncOpQueue::new(),
-            source_id: AtomicTaskID::new(source_id),
+            source_id: AtomicTaskID::new(source_id.into()),
             driver_id: Mutex::new(None),
             bound_instance: Mutex::new(None),
         }
@@ -36,7 +36,7 @@ impl FileIOProvider {
     pub fn bound(source_id: TaskID, driver_id: DriverID, bound_instance: u32) -> Self {
         Self {
             pending_ops: AsyncOpQueue::new(),
-            source_id: AtomicTaskID::new(source_id),
+            source_id: AtomicTaskID::new(source_id.into()),
             driver_id: Mutex::new(Some(driver_id)),
             bound_instance: Mutex::new(Some(bound_instance)),
         }

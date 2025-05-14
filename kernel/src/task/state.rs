@@ -354,6 +354,19 @@ impl Task {
         }
     }
 
+    pub fn futex_wait(&mut self, timeout: Option<u32>) {
+        self.state = RunState::Blocked(timeout, BlockType::Futex);
+    }
+
+    pub fn futex_wake(&mut self) {
+        match self.state {
+            RunState::Blocked(_, BlockType::Futex) => {
+                self.state = RunState::Running;
+            }
+            _ => (),
+        }
+    }
+
     pub fn resume_from_wait(&mut self) -> u32 {
         match self.state {
             RunState::Resuming(code) => {
@@ -512,6 +525,7 @@ impl core::fmt::Display for RunState {
             Self::Blocked(_, BlockType::WaitForChild(_)) => f.write_str("WaitTask"),
             Self::Blocked(_, BlockType::IO) => f.write_str("WaitIO"),
             Self::Blocked(_, BlockType::Notify(_)) => f.write_str("NotifyQueue"),
+            Self::Blocked(_, BlockType::Futex) => f.write_str("FutexWait"),
         }
     }
 }
@@ -531,4 +545,7 @@ pub enum BlockType {
 
     /// The task is blocked on a notify queue
     Notify(Handle),
+
+    /// The task is blocked on a futex
+    Futex,
 }
