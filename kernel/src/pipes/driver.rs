@@ -306,9 +306,12 @@ impl PipeDriver {
                 Some(lock) => lock,
                 None => return Some(Ok(written as u32)),
             };
-            task_lock
-                .write()
-                .async_io_complete(io_index, op_id, Ok(read as u32));
+            let io_entry = task_lock.read().async_io_complete(io_index);
+            if let Some(entry) = io_entry {
+                entry
+                    .inner()
+                    .async_complete(io_index, op_id, Ok(read as u32));
+            }
         }
         Some(Ok(written as u32))
     }
@@ -510,9 +513,11 @@ mod tests {
     fn same_task_write_then_read() {
         let (reader, writer) = create_pipe_handles();
         let write_op = handle_op_write(writer, &[1, 3, 5]);
+        write_op.submit_io();
         assert_eq!(write_op.wait_for_completion(), 3);
         let mut read_buffer: [u8; 3] = [0; 3];
         let read_op = handle_op_read(reader, &mut read_buffer, 0);
+        read_op.submit_io();
         assert_eq!(read_op.wait_for_completion(), 3);
         assert_eq!(read_buffer, [1, 3, 5]);
     }
@@ -523,8 +528,10 @@ mod tests {
         let (reader, writer) = create_pipe_handles();
         let mut read_buffer: [u8; 3] = [0; 3];
         let read_op = handle_op_read(reader, &mut read_buffer, 0);
+        read_op.submit_io();
 
         let write_op = handle_op_write(writer, &[2, 4, 6]);
+        write_op.submit_io();
         assert_eq!(write_op.wait_for_completion(), 3);
         assert_eq!(read_op.wait_for_completion(), 3);
         assert_eq!(read_buffer, [2, 4, 6]);
@@ -534,12 +541,14 @@ mod tests {
     fn write_then_read() {
         let (reader, writer) = create_pipe_handles();
         let write_op = handle_op_write(writer, &[12, 8]);
+        write_op.submit_io();
         assert_eq!(write_op.wait_for_completion(), 2);
 
         fn child_task_body() -> ! {
             let reader = Handle::new(0);
             let mut read_buffer: [u8; 2] = [0; 2];
             let read_op = handle_op_read(reader, &mut read_buffer, 0);
+            read_op.submit_io();
             assert_eq!(read_op.wait_for_completion(), 2);
             assert_eq!(read_buffer, [12, 8]);
             terminate(1);
@@ -549,6 +558,7 @@ mod tests {
         transfer_handle(reader, child_id);
 
         let op = PendingHandleOp::new(child_handle, ASYNC_OP_READ, 0, 0, 0);
+        op.submit_io();
         op.wait_for_completion();
     }
 
@@ -559,6 +569,7 @@ mod tests {
             let reader = Handle::new(0);
             let mut read_buffer: [u8; 2] = [0; 2];
             let read_op = handle_op_read(reader, &mut read_buffer, 0);
+            read_op.submit_io();
             assert_eq!(read_op.wait_for_completion(), 2);
             assert_eq!(read_buffer, [22, 80]);
             terminate(1);
@@ -568,22 +579,28 @@ mod tests {
         transfer_handle(reader, child_id);
         yield_coop();
         let write_op = handle_op_write(writer, &[22, 80]);
+        write_op.submit_io();
         assert_eq!(write_op.wait_for_completion(), 2);
 
         let op = PendingHandleOp::new(child_handle, ASYNC_OP_READ, 0, 0, 0);
+        op.submit_io();
         op.wait_for_completion();
     }
 
     #[test_case]
     fn read_when_write_closed() {
         let (reader, writer) = create_pipe_handles();
-        handle_op_write(writer, &[1, 2, 3, 4]).wait_for_completion();
-        handle_op_close(writer).wait_for_completion();
+        handle_op_write(writer, &[1, 2, 3, 4])
+            .submit_io()
+            .wait_for_completion();
+        handle_op_close(writer).submit_io().wait_for_completion();
         let mut read_buffer: [u8; 4] = [0; 4];
         let mut read_op = handle_op_read(reader, &mut read_buffer, 0);
+        read_op.submit_io();
         assert_eq!(read_op.wait_for_completion(), 4);
         assert_eq!(read_buffer, [1, 2, 3, 4]);
         read_op = handle_op_read(reader, &mut read_buffer, 0);
+        read_op.submit_io();
         // does not block, immediately returns zero length / EOF
         assert_eq!(read_op.wait_for_completion(), 0);
     }
@@ -591,9 +608,10 @@ mod tests {
     #[test_case]
     fn write_when_read_closed() {
         let (reader, writer) = create_pipe_handles();
-        handle_op_close(reader).wait_for_completion();
+        handle_op_close(reader).submit_io().wait_for_completion();
         let write_buffer: [u8; 3] = [12, 14, 18];
         let write_op = handle_op_write(writer, &[12, 14, 18]);
+        write_op.submit_io();
         assert_eq!(
             write_op.wait_for_completion(),
             0x80000000 | IOError::WriteToClosedIO as u32

@@ -8,20 +8,17 @@ use spin::Once;
 
 use crate::memory::address::VirtualAddress;
 use crate::memory::shared::release_buffer;
-use crate::task::actions::handle::{
-    add_handle_to_notify_queue, create_kernel_task, create_notify_queue, handle_op_read_struct,
-    open_message_queue, wait_on_notify,
-};
+use crate::sync::futex::futex_wait;
+use crate::task::actions::handle::{create_kernel_task, handle_op_read_struct, open_message_queue};
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;
 
 fn loader_resident() -> ! {
     let messages = open_message_queue();
     let mut incoming_message = Message::empty();
-    let notify = create_notify_queue();
-    add_handle_to_notify_queue(notify, messages);
 
     let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
+    message_read.submit_io();
 
     crate::kprintln!("Loader task ready to receive");
     loop {
@@ -36,8 +33,9 @@ fn loader_resident() -> ! {
             release_buffer(path_addr, path_len);
 
             message_read = handle_op_read_struct(messages, &mut incoming_message);
+            message_read.submit_io();
         } else {
-            wait_on_notify(notify, None);
+            futex_wait(VirtualAddress::new(message_read.op.signal_address()), 0);
         }
     }
 }

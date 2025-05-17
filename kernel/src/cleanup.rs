@@ -28,9 +28,7 @@ pub fn cleanup_resident() -> ! {
 
     *(CLEANUP_ID.write()) = own_id;
 
-    let notify = create_notify_queue();
     let messages = open_message_queue();
-    add_handle_to_notify_queue(notify, messages);
 
     crate::kprint!("Cleanup Task ready\n");
 
@@ -52,8 +50,6 @@ pub fn cleanup_resident() -> ! {
                 crate::task::switching::clean_up_task(id);
             }
         }
-
-        wait_on_notify(notify, None);
     }
 }
 

@@ -1,6 +1,7 @@
 use alloc::string::String;
 
 use crate::cleanup::wake_cleanup_resident;
+use crate::io::async_io::IOType;
 
 use super::super::id::TaskID;
 use super::yield_coop;
@@ -52,7 +53,15 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
 
     let parent_task = super::switching::get_task(parent_id);
     if let Some(parent_lock) = parent_task {
+        // TODO: delete this once all uses of blocking on child are deleted
         parent_lock.write().child_terminated(id, exit_code);
+
+        let io_provider = parent_lock.read().async_io_table.get_task_io(id).clone();
+        if let Some((io_index, provider)) = io_provider {
+            if let IOType::ChildTask(ref io) = *provider {
+                io.task_exited(io_index, exit_code);
+            }
+        }
     }
 
     // notify the cleanup task

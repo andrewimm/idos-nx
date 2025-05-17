@@ -1,7 +1,10 @@
+use core::sync::atomic::Ordering;
+
+use idos_api::io::AsyncOp;
 use spin::RwLock;
 
-use super::IOProvider;
-use crate::io::async_io::{AsyncOp, AsyncOpID, AsyncOpQueue};
+use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
+use crate::io::async_io::AsyncOpID;
 use crate::task::id::TaskID;
 
 /// Inner contents of the handle generated when a child task is spawned. This
@@ -11,6 +14,8 @@ pub struct TaskIOProvider {
     child_id: TaskID,
     exit_code: RwLock<Option<u32>>,
 
+    active: RwLock<Option<(AsyncOpID, UnmappedAsyncOp)>>,
+    id_gen: OpIdGenerator,
     pending_ops: AsyncOpQueue,
 }
 
@@ -19,6 +24,9 @@ impl TaskIOProvider {
         Self {
             child_id: id,
             exit_code: RwLock::new(None),
+
+            active: RwLock::new(None),
+            id_gen: OpIdGenerator::new(),
             pending_ops: AsyncOpQueue::new(),
         }
     }
@@ -27,33 +35,57 @@ impl TaskIOProvider {
         self.child_id == id
     }
 
-    pub fn task_exited(&self, code: u32) {
+    pub fn task_exited(&self, provider_index: u32, code: u32) {
         self.exit_code.write().replace(code);
-        loop {
-            match self.pending_ops.pop() {
-                Some((_, op)) => op.complete(code),
-                None => break,
-            }
-        }
+        let id = match *self.active.read() {
+            Some((id, _)) => id,
+            None => return,
+        };
+        self.async_complete(provider_index, id, Ok(code));
     }
 }
 
 impl IOProvider for TaskIOProvider {
-    fn enqueue_op(&self, op: AsyncOp) -> (AsyncOpID, bool) {
-        let id = self.pending_ops.push(op);
-        let should_run = self.pending_ops.len() < 2;
-        (id, should_run)
+    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp) -> AsyncOpID {
+        let id = self.id_gen.next_id();
+        let unmapped = UnmappedAsyncOp::from_op(op);
+        if self.active.read().is_some() {
+            self.pending_ops.push(id, unmapped);
+            return id;
+        }
+
+        *self.active.write() = Some((id, unmapped));
+        match self.run_active_op(provider_index) {
+            Some(result) => {
+                *self.active.write() = None;
+                let return_value = self.transform_result(op.op_code, result);
+                op.return_value.store(return_value, Ordering::SeqCst);
+                op.signal.store(1, Ordering::SeqCst);
+            }
+            None => (),
+        }
+        id
     }
 
-    fn peek_op(&self) -> Option<(AsyncOpID, AsyncOp)> {
-        self.pending_ops.peek()
+    fn get_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
+        self.active.read().clone()
     }
 
-    fn remove_op(&self, id: AsyncOpID) -> Option<AsyncOp> {
-        self.pending_ops.remove(id)
+    fn take_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
+        self.active.write().take()
     }
 
-    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<super::IOResult> {
+    fn pop_queued_op(&self) {
+        let next = self.pending_ops.pop();
+        *self.active.write() = next;
+    }
+
+    fn read(
+        &self,
+        _provider_index: u32,
+        _id: AsyncOpID,
+        _op: UnmappedAsyncOp,
+    ) -> Option<super::IOResult> {
         if let Some(code) = *self.exit_code.read() {
             return Some(Ok(code));
         }

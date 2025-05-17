@@ -72,10 +72,7 @@ pub fn driver_io_task() -> ! {
     let id = get_current_id();
     *DRIVER_IO_TASK_ID.write() = id;
 
-    let notify = create_notify_queue();
-
     let message_handle = open_message_queue();
-    add_handle_to_notify_queue(notify, message_handle);
 
     let mut message = Message::empty();
 
@@ -83,9 +80,10 @@ pub fn driver_io_task() -> ! {
 
     loop {
         let op = handle_op_read_struct(message_handle, &mut message);
-        while !op.is_complete() {
-            wait_on_notify(notify, None);
-        }
+        op.submit_io();
+        //while !op.is_complete() {
+        //    wait_on_notify(notify, None);
+        //}
         let sender = op.wait_for_completion();
 
         if message.message_type == DRIVER_RESPONSE_MAGIC {
@@ -105,8 +103,14 @@ pub fn driver_io_task() -> ! {
                     }
 
                     if let Some(task_lock) = get_task(request.source_task) {
-                        let mut task = task_lock.write();
-                        task.async_io_complete(request.source_io, request.source_op, return_value);
+                        let io_entry = task_lock.read().async_io_complete(request.source_io);
+                        if let Some(entry) = io_entry {
+                            entry.inner().async_complete(
+                                request.source_io,
+                                request.source_op,
+                                return_value,
+                            );
+                        }
                     }
                 }
                 None => (),
@@ -117,7 +121,6 @@ pub fn driver_io_task() -> ! {
         {
             let mut incoming_queue = get_incoming_queue();
             // Once the task is awake, read all incoming requests.
-
             loop {
                 let head = incoming_queue.pop_front();
                 match head {

@@ -5,7 +5,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
 use super::stack::{SavedState, StackFrame};
-use crate::io::async_io::AsyncOpID;
+use crate::io::async_io::{AsyncOpID, IOType};
+use crate::io::provider::IOProvider;
 use crate::{
     hardware::pic::PIC,
     task::{id::TaskID, switching::get_task},
@@ -200,9 +201,22 @@ pub fn notify_interrupt_listeners(irq: u8) {
                 Some(lock) => lock,
                 None => continue,
             };
-            task_lock
-                .write()
-                .async_io_complete(*io_index, AsyncOpID::new(0), Ok(1));
+            let io_provider = task_lock
+                .read()
+                .async_io_table
+                .get(*io_index)
+                .map(|entry| entry.io_type.clone());
+            match io_provider {
+                Some(iotype) => match *iotype {
+                    IOType::Interrupt(ref provider) => {
+                        if let Some((op_id, _)) = provider.get_active_op() {
+                            provider.async_complete(*io_index, op_id, Ok(1));
+                        }
+                    }
+                    _ => continue,
+                },
+                None => continue,
+            }
         }
     }
 }

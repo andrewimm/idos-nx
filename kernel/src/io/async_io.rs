@@ -4,6 +4,7 @@ use alloc::{
     collections::{BTreeMap, VecDeque},
     sync::Arc,
 };
+use idos_api::io::AsyncOp;
 use spin::RwLock;
 
 use crate::{
@@ -29,15 +30,19 @@ pub enum IOType {
 }
 
 impl IOType {
-    pub fn op_request(&self, index: u32, op: AsyncOp) -> Result<AsyncOpID, ()> {
-        let provider: &dyn IOProvider = match self {
+    pub fn inner(&self) -> &dyn IOProvider {
+        match self {
             Self::ChildTask(io) => io,
             Self::MessageQueue(io) => io,
             Self::File(io) => io,
             Self::Interrupt(io) => io,
             Self::Socket(io) => io,
-        };
-        provider.op_request(index, op)
+        }
+    }
+
+    pub fn op_request(&self, index: u32, op: &AsyncOp) -> AsyncOpID {
+        let provider = self.inner();
+        provider.enqueue_op(index, op)
     }
 
     pub fn set_task(&self, task: TaskID) {
@@ -67,78 +72,6 @@ pub const SOCKET_OP_BROADCAST: u32 = 6;
 pub const SOCKET_OP_MULTICAST: u32 = 7;
 pub const SOCKET_OP_ACCEPT: u32 = 8;
 
-/// All async operations on handles are performed by passing an AsyncOp object
-/// to the kernel. The fields are used to determine which action to take.
-#[derive(Clone)]
-pub struct AsyncOp {
-    /// A field containing a type flag and an operation identifier
-    pub op_code: u32,
-    /// Address of an atomic u32 that is used to indicate when the operation
-    /// has completed.
-    pub signal: PhysicalAddress,
-    /// Address of a u32 that is used to write the return value
-    pub return_value: PhysicalAddress,
-    pub arg0: u32,
-    pub arg1: u32,
-    pub arg2: u32,
-}
-
-impl AsyncOp {
-    pub fn new(
-        op_code: u32,
-        signal_addr: VirtualAddress,
-        return_value_addr: VirtualAddress,
-        arg0: u32,
-        arg1: u32,
-        arg2: u32,
-    ) -> Self {
-        let signal = crate::task::paging::get_current_physical_address(signal_addr).unwrap();
-        let return_value =
-            crate::task::paging::get_current_physical_address(return_value_addr).unwrap();
-
-        Self {
-            op_code,
-            signal,
-            return_value,
-            arg0,
-            arg1,
-            arg2,
-        }
-    }
-
-    pub fn complete_with_result<E: Into<u32>>(&self, result: Result<u32, E>) {
-        let value = match result {
-            Ok(inner) => inner & 0x7fffffff,
-            Err(inner) => Into::<u32>::into(inner) | 0x80000000,
-        };
-        self.complete(value);
-    }
-
-    pub fn complete(&self, return_value: u32) {
-        let mut phys_frame_start = self.return_value.as_u32() & 0xfffff000;
-        let mut unmapped_phys = PhysicalAddress::new(phys_frame_start);
-        let mut unmapped_for_dir = UnmappedPage::map(unmapped_phys);
-        let return_value_offset = self.return_value.as_u32() & 0xfff;
-        unsafe {
-            let ptr =
-                (unmapped_for_dir.virtual_address() + return_value_offset).as_ptr_mut::<u32>();
-            core::ptr::write_volatile(ptr, return_value);
-        }
-
-        phys_frame_start = self.signal.as_u32() & 0xfffff000;
-        let signal_offset = self.signal.as_u32() & 0xfff;
-        if unmapped_phys.as_u32() != phys_frame_start {
-            unmapped_phys = PhysicalAddress::new(phys_frame_start);
-            unmapped_for_dir = UnmappedPage::map(unmapped_phys);
-        }
-        let signal_addr = unmapped_for_dir.virtual_address() + signal_offset;
-        let prev = Signal::complete(signal_addr, 0);
-        if prev != 0 {
-            crate::kprintln!("WARN: Signal was not zero");
-        }
-    }
-}
-
 /// When an op is added to an open IO instance, it is given a unique identifier
 /// This can be used to cancel or complete the operation from an outside source
 /// like an async driver.
@@ -156,71 +89,6 @@ impl core::ops::Deref for AsyncOpID {
 
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-/// Convenience struct to generate new Op IDs
-pub struct OpIdGenerator(AtomicU32);
-
-impl OpIdGenerator {
-    pub fn new() -> Self {
-        Self(AtomicU32::new(1))
-    }
-
-    pub fn next_id(&self) -> AsyncOpID {
-        let next = self.0.fetch_add(1, Ordering::SeqCst);
-        AsyncOpID::new(next)
-    }
-}
-
-/// Stores a queue of pending Async Ops
-pub struct AsyncOpQueue {
-    id_gen: OpIdGenerator,
-    queue: RwLock<VecDeque<(AsyncOpID, AsyncOp)>>,
-}
-
-impl AsyncOpQueue {
-    pub fn new() -> Self {
-        Self {
-            id_gen: OpIdGenerator::new(),
-            queue: RwLock::new(VecDeque::new()),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.queue.read().is_empty()
-    }
-
-    pub fn len(&self) -> usize {
-        self.queue.read().len()
-    }
-
-    pub fn push(&self, op: AsyncOp) -> AsyncOpID {
-        let id = self.id_gen.next_id();
-        self.queue.write().push_back((id, op));
-        id
-    }
-
-    pub fn peek(&self) -> Option<(AsyncOpID, AsyncOp)> {
-        self.queue.read().get(0).cloned()
-    }
-
-    pub fn pop(&self) -> Option<(AsyncOpID, AsyncOp)> {
-        self.queue.write().pop_front()
-    }
-
-    pub fn find_by_id(&self, seek: AsyncOpID) -> Option<AsyncOp> {
-        for (id, op) in self.queue.read().iter() {
-            if *id == seek {
-                return Some(op.clone());
-            }
-        }
-        None
-    }
-
-    pub fn remove(&self, seek: AsyncOpID) -> Option<AsyncOp> {
-        let index = self.queue.read().iter().position(|pair| pair.0 == seek)?;
-        self.queue.write().remove(index).map(|pair| pair.1)
     }
 }
 

@@ -5,17 +5,17 @@
 //! connections from remote clients. It also allows special functionality like
 //! broadcasting and multicasting.
 
-use idos_api::io::error::IOError;
+use idos_api::io::{error::IOError, AsyncOp};
 
 use crate::{
-    io::async_io::{AsyncOp, AsyncOpID, AsyncOpQueue},
+    io::async_io::AsyncOpID,
     net::{
         ip::IPV4Address,
         socket::{bind_socket, create_socket, SocketHandle, SocketPort, SocketProtocol},
     },
 };
 
-use super::{IOProvider, IOResult};
+use super::{IOProvider, IOResult, UnmappedAsyncOp};
 
 #[repr(C, packed)]
 pub struct SocketBindingRequest {
@@ -27,7 +27,6 @@ pub struct SocketBindingRequest {
 
 pub struct SocketIOProvider {
     socket_handle: SocketHandle,
-    pending_ops: AsyncOpQueue,
 }
 
 impl SocketIOProvider {
@@ -41,34 +40,33 @@ impl SocketIOProvider {
 
     pub fn create_for_protocol(protocol: SocketProtocol) -> Self {
         let socket_handle = create_socket(protocol);
-        Self {
-            socket_handle,
-            pending_ops: AsyncOpQueue::new(),
-        }
+        Self { socket_handle }
     }
 }
 
 impl IOProvider for SocketIOProvider {
-    fn enqueue_op(&self, op: AsyncOp) -> (AsyncOpID, bool) {
-        let id = self.pending_ops.push(op);
-        let should_run = self.pending_ops.len() < 2;
-        (id, should_run)
+    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp) -> AsyncOpID {
+        unimplemented!()
     }
 
-    fn peek_op(&self) -> Option<(AsyncOpID, AsyncOp)> {
-        self.pending_ops.peek()
+    fn get_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
+        unimplemented!()
     }
 
-    fn remove_op(&self, id: AsyncOpID) -> Option<AsyncOp> {
-        self.pending_ops.remove(id)
+    fn take_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
+        unimplemented!()
+    }
+
+    fn pop_queued_op(&self) {
+        unimplemented!()
     }
 
     /// Opening a socket binds it to a local or remote port
     /// The format of the IP addresses in the struct attached to the Op will
     /// determine what kind of port is opened.
-    fn open(&self, _provider_index: u32, _id: AsyncOpID, op: AsyncOp) -> Option<IOResult> {
-        let binding_ptr = op.arg0 as *const SocketBindingRequest;
-        let binding_len = op.arg1 as usize;
+    fn open(&self, _provider_index: u32, _id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
+        let binding_ptr = op.args[0] as *const SocketBindingRequest;
+        let binding_len = op.args[1] as usize;
         if binding_len != core::mem::size_of::<SocketBindingRequest>() {
             return Some(Err(IOError::InvalidArgument));
         }
@@ -91,15 +89,25 @@ impl IOProvider for SocketIOProvider {
         )
     }
 
-    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<IOResult> {
+    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: UnmappedAsyncOp) -> Option<IOResult> {
         panic!("Not implemented");
     }
 
-    fn write(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<IOResult> {
+    fn write(
+        &self,
+        _provider_index: u32,
+        _id: AsyncOpID,
+        _op: UnmappedAsyncOp,
+    ) -> Option<IOResult> {
         panic!("Not implemented");
     }
 
-    fn extended_op(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<IOResult> {
+    fn extended_op(
+        &self,
+        _provider_index: u32,
+        _id: AsyncOpID,
+        _op: UnmappedAsyncOp,
+    ) -> Option<IOResult> {
         panic!("Not implemented");
     }
 }

@@ -9,6 +9,7 @@ use crate::sync::wake_set::WakeSet;
 use crate::time::system::{get_system_time, Timestamp};
 use alloc::boxed::Box;
 use alloc::string::String;
+use alloc::sync::Arc;
 
 use super::args::ExecArgs;
 use super::id::TaskID;
@@ -264,10 +265,10 @@ impl Task {
 
     /// Notify the task that a child task has terminated with an exit code
     pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
-        match self.async_io_table.get_task_io(id) {
+        /*match self.async_io_table.get_task_io(id) {
             Some((io_index, mutex)) => {
                 let notify = if let IOType::ChildTask(ref io) = *mutex {
-                    io.task_exited(exit_code);
+                    io.task_exited(io_index, exit_code);
                     true
                 } else {
                     false
@@ -277,7 +278,7 @@ impl Task {
                 }
             }
             _ => (),
-        }
+        }*/
 
         let waiting_on = match self.state {
             RunState::Blocked(_, BlockType::WaitForChild(wait_id)) => wait_id,
@@ -332,8 +333,20 @@ impl Task {
         }
     }
 
-    pub fn async_io_complete(&mut self, io_index: u32, op_id: AsyncOpID, return_value: IOResult) {
-        crate::kprintln!("IO COMPLETE {} {:?} {:?}", io_index, op_id, return_value);
+    pub fn async_io_complete(&self, io_index: u32) -> Option<Arc<IOType>> {
+        crate::kprintln!("IO COMPLETE {}", io_index);
+        self.async_io_table
+            .get(io_index)
+            .map(|entry| entry.io_type.clone())
+        /*
+        if let Some(async_io) = self.async_io_table.get(io_index) {
+            async_io
+                .io_type
+                .inner()
+                .async_complete(io_index, op_id, return_value);
+        }
+        */
+        /*
         let should_notify = match self.async_io_table.get(io_index) {
             Some(async_io) => match *async_io.io_type {
                 IOType::File(ref fp) => {
@@ -352,6 +365,7 @@ impl Task {
         if should_notify {
             self.io_action_notify(io_index);
         }
+        */
     }
 
     pub fn io_complete(&mut self) {

@@ -1,47 +1,66 @@
-use super::IOProvider;
+use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
 use crate::{
-    io::async_io::{AsyncOp, AsyncOpID, AsyncOpQueue},
+    io::async_io::AsyncOpID,
     memory::{
         address::{PhysicalAddress, VirtualAddress},
         virt::scratch::UnmappedPage,
     },
-    task::messaging::{Message, MessageQueue},
+    task::{
+        messaging::{Message, MessageQueue},
+        paging::get_current_physical_address,
+    },
 };
+use idos_api::io::AsyncOp;
+use spin::RwLock;
 
 /// Inner contents of the handle used to read IPC messages.
 pub struct MessageIOProvider {
+    active: RwLock<Option<(AsyncOpID, UnmappedAsyncOp)>>,
+    id_gen: OpIdGenerator,
     pending_ops: AsyncOpQueue,
 }
 
 impl MessageIOProvider {
     pub fn new() -> Self {
         Self {
+            active: RwLock::new(None),
+            id_gen: OpIdGenerator::new(),
             pending_ops: AsyncOpQueue::new(),
         }
     }
 
+    /// This is an ugly hack because we can't access the message queue from
+    /// within the provider -- they both require access to the Task. But from
+    /// within the Task, we can receive a Message AND access all providers. So
+    /// for this case only, we break out of the normal enqueue_op flow.
     pub fn check_message_queue(&self, current_ticks: u32, messages: &mut MessageQueue) {
-        while !self.pending_ops.is_empty() {
-            let (first_message, has_more) = messages.read(current_ticks);
-            match first_message {
-                Some(packet) => {
-                    let (sender, message) = packet.open();
-                    let (_op_id, op) = self.pending_ops.pop().unwrap();
-                    // arg0 is the address of the Message
-                    // return value is the ID of the sender
-                    let phys_frame_start = op.arg0 & 0xfffff000;
-                    let unmapped_phys = PhysicalAddress::new(phys_frame_start);
-                    let unmapped_for_dir = UnmappedPage::map(unmapped_phys);
-                    let message_offset = op.arg0 & 0xfff;
-                    unsafe {
-                        let ptr = (unmapped_for_dir.virtual_address() + message_offset)
-                            .as_ptr_mut::<Message>();
-                        core::ptr::write_volatile(ptr, message);
-                    }
-                    op.complete(sender.into());
-                }
-                None => return,
+        if self.active.read().is_none() {
+            return;
+        }
+        loop {
+            if self.active.read().is_none() {
+                return;
             }
+            let (first_message, has_more) = messages.read(current_ticks);
+            let packet = match first_message {
+                Some(packet) => packet,
+                None => return,
+            };
+            let (sender, message) = packet.open();
+            let (_, op) = self.active.read().clone().unwrap();
+            let message_paddr = op.args[0];
+            let phys_frame_start = message_paddr & 0xfffff000;
+            let unmapped_phys = PhysicalAddress::new(phys_frame_start);
+            let unmapped_page = UnmappedPage::map(unmapped_phys);
+            let message_offset = message_paddr & 0xfff;
+            unsafe {
+                let ptr =
+                    (unmapped_page.virtual_address() + message_offset).as_ptr_mut::<Message>();
+                core::ptr::write_volatile(ptr, message);
+            }
+            self.pop_queued_op();
+            op.complete(sender.into());
+
             if !has_more {
                 return;
             }
@@ -50,35 +69,64 @@ impl MessageIOProvider {
 }
 
 impl IOProvider for MessageIOProvider {
-    fn enqueue_op(&self, op: AsyncOp) -> (AsyncOpID, bool) {
+    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp) -> AsyncOpID {
         // convert the virtual address of the message pointer to a physical
         // address
         // TODO: if the message spans two physical pages, we're gonna have a problem!
         let message_size = core::mem::size_of::<Message>() as u32;
-        if (op.arg0 & 0xfffff000) != ((op.arg0 + message_size) & 0xfffff000) {
+        if (op.args[0] & 0xfffff000) != ((op.args[0] + message_size) & 0xfffff000) {
             panic!("Messages can't bridge multiple pages (yet)");
         }
-        let message_virt = VirtualAddress::new(op.arg0);
-        let message_phys = match crate::task::paging::get_current_physical_address(message_virt) {
-            Some(addr) => addr,
-            None => panic!("Tried to reference unmapped address"),
-        };
-        let mut op_clone = op.clone();
-        op_clone.arg0 = message_phys.as_u32();
+        let message_virt = VirtualAddress::new(op.args[0]);
+        let message_phys = get_current_physical_address(message_virt)
+            .expect("Tried to reference unmapped address");
 
-        let id = self.pending_ops.push(op_clone);
-        (id, true)
+        let id = self.id_gen.next_id();
+        let mut unmapped = UnmappedAsyncOp::from_op(op);
+        unmapped.args[0] = message_phys.as_u32();
+        if self.active.read().is_some() {
+            self.pending_ops.push(id, unmapped);
+            return id;
+        }
+
+        *self.active.write() = Some((id, unmapped));
+        /*
+        match self.run_active_op(provider_index) {
+            Some(result) => {
+                *self.active.write() = None;
+                let return_value = match result {
+                    Ok(inner) => inner & 0x7fffffff,
+                    Err(inner) => Into::<u32>::into(inner) | 0x80000000,
+                };
+                op.return_value.store(return_value, Ordering::SeqCst);
+                op.signal.store(1, Ordering::SeqCst);
+            }
+            None => (),
+        }
+        */
+
+        id
     }
 
-    fn peek_op(&self) -> Option<(AsyncOpID, AsyncOp)> {
-        self.pending_ops.peek()
+    fn get_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
+        self.active.read().clone()
     }
 
-    fn remove_op(&self, id: AsyncOpID) -> Option<AsyncOp> {
-        self.pending_ops.remove(id)
+    fn take_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
+        self.active.write().take()
     }
 
-    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: AsyncOp) -> Option<super::IOResult> {
+    fn pop_queued_op(&self) {
+        let next = self.pending_ops.pop();
+        *self.active.write() = next;
+    }
+
+    fn read(
+        &self,
+        _provider_index: u32,
+        _id: AsyncOpID,
+        _op: UnmappedAsyncOp,
+    ) -> Option<super::IOResult> {
         None
     }
 }

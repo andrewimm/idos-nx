@@ -1,12 +1,12 @@
+use core::sync::atomic::Ordering;
+
 use alloc::boxed::Box;
-use idos_api::io::error::IOError;
+use idos_api::io::{error::IOError, AsyncOp};
 
 use crate::{
     collections::SlotList,
     memory::{address::VirtualAddress, signal::Signal},
 };
-
-use super::async_io::AsyncOp;
 
 /// A Handle represents a reference to an object that can be passed back and
 /// forth across the syscall line. Internally, it's just a usize numeric value.
@@ -81,48 +81,37 @@ impl<T> HandleTable<T> {
 
 #[must_use]
 pub struct PendingHandleOp {
-    signal: Option<Signal>,
-    return_value: Box<u32>,
+    handle: Handle,
+    pub op: AsyncOp,
 }
 
 impl PendingHandleOp {
     pub fn new(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) -> Self {
-        let signal = Signal::new();
-        let return_value = Box::new(0);
+        let op = AsyncOp::new(op_code, arg0, arg1, arg2);
 
-        let return_value_ptr = return_value.as_ref() as *const u32;
-        let op = AsyncOp::new(
-            op_code,
-            signal.get_address(),
-            VirtualAddress::new(return_value_ptr as u32),
-            arg0,
-            arg1,
-            arg2,
-        );
+        Self { handle, op }
+    }
 
-        crate::task::actions::handle::add_io_op(handle, op).unwrap();
-
-        Self {
-            signal: Some(signal),
-            return_value,
-        }
+    pub fn submit_io(&self) -> &Self {
+        crate::task::actions::io::append_io_op(self.handle, &self.op, None).unwrap();
+        self
     }
 
     pub fn is_complete(&self) -> bool {
-        self.signal.as_ref().unwrap().is_complete()
+        self.op.signal.load(Ordering::SeqCst) != 0
     }
 
     pub fn get_result(&self) -> Option<u32> {
         if self.is_complete() {
-            return Some(*self.return_value);
+            return Some(self.op.return_value.load(Ordering::SeqCst));
         }
         None
     }
 
     pub fn wait_for_completion(&self) -> u32 {
         loop {
-            if self.signal.as_ref().unwrap().is_complete() {
-                return *self.return_value;
+            if self.is_complete() {
+                return self.op.return_value.load(Ordering::SeqCst);
             }
             crate::task::actions::yield_coop();
         }
@@ -141,17 +130,15 @@ impl PendingHandleOp {
 
 impl Drop for PendingHandleOp {
     fn drop(&mut self) {
-        let signal = self.signal.take().unwrap();
-        let _ = signal.get_value();
+        if !self.is_complete() {
+            panic!("Dropping an incomplete PendingHandleOp!");
+        }
     }
 }
 
 impl core::fmt::Debug for PendingHandleOp {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_struct("PendingHandleOp")
-            .field("signal", self.signal.as_ref().unwrap())
-            .field("return_value", &self.return_value)
-            .finish()
+        f.debug_struct("PendingHandleOp").finish()
     }
 }
 

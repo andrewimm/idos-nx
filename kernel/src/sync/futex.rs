@@ -92,16 +92,16 @@ fn futex_wait_inner(address: VirtualAddress, value: u32) {
 /// Wakes up to `count` number of Tasks that may be blocked by previous calls to
 /// `futex_wait` on the specific Physical Address backing `address`.
 pub fn futex_wake(address: VirtualAddress, count: u32) {
-    {
-        futex_wake_inner(address, count);
-    }
-}
-
-fn futex_wake_inner(address: VirtualAddress, count: u32) {
     let paddr = match get_current_physical_address(address) {
         Some(addr) => addr,
         None => return,
     };
+    {
+        futex_wake_inner(paddr, count);
+    }
+}
+
+pub fn futex_wake_inner(paddr: PhysicalAddress, count: u32) {
     if count == 0 {
         return;
     }
@@ -153,6 +153,7 @@ mod tests {
             let messages = open_message_queue();
             let mut message = Message::empty();
             let read_op = handle_op_read_struct(messages, &mut message);
+            read_op.submit_io();
             read_op.wait_for_completion();
 
             let vaddr = message.args[0];

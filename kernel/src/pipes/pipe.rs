@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::{vec::Vec, boxed::Box, sync::Arc};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use crate::collections::RingBuffer;
 use crate::task::id::TaskID;
@@ -28,9 +28,7 @@ impl<'buffer> Pipe<'buffer> {
         }
         let buffer_slice = heap_buffer.into_boxed_slice();
         let buffer_raw: *mut [u8] = Box::into_raw(buffer_slice);
-        let rb = unsafe {
-            RingBuffer::for_buffer(&*buffer_raw)
-        };
+        let rb = unsafe { RingBuffer::for_buffer(&*buffer_raw) };
 
         Self {
             ring_buffer: Arc::new(rb),
@@ -43,7 +41,7 @@ impl<'buffer> Pipe<'buffer> {
 
     pub fn get_ring_buffer(&self) -> Arc<RingBuffer<'buffer, u8>> {
         self.ring_buffer.clone()
-    } 
+    }
 
     pub fn set_blocked_reader(&mut self, task: TaskID) {
         self.blocked_reader = Some(task);
@@ -105,4 +103,3 @@ mod tests {
         assert_eq!(rb.read(), None);
     }
 }
-

@@ -1,19 +1,19 @@
-use core::sync::atomic::{AtomicU32, Ordering};
 use alloc::collections::BTreeMap;
+use core::sync::atomic::{AtomicU32, Ordering};
 use idos_api::io::error::IOError;
 use spin::RwLock;
 
 use crate::files::path::Path;
 
+use crate::io::async_io::{ASYNC_OP_READ, OPERATION_FLAG_MESSAGE};
 use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
+use crate::io::handle::PendingHandleOp;
 use crate::task::actions::handle::open_message_queue;
 use crate::task::actions::send_message;
-use crate::task::messaging::Message;
 use crate::task::id::TaskID;
-use crate::io::handle::PendingHandleOp;
-use crate::io::async_io::{OPERATION_FLAG_MESSAGE, ASYNC_OP_READ};
+use crate::task::messaging::Message;
 
 pub mod sync_fs {
     use crate::io::filesystem::driver::AsyncIOCallback;
@@ -31,9 +31,7 @@ pub mod sync_fs {
 
     impl OpenFile {
         pub fn new() -> Self {
-            Self {
-                written: 0,
-            }
+            Self { written: 0 }
         }
     }
 
@@ -57,13 +55,19 @@ pub mod sync_fs {
                     } else {
                         Err(IOError::NotFound)
                     }
-                },
+                }
                 None => Err(IOError::NotFound),
             };
             Some(result)
         }
 
-        fn read(&self, instance: u32, buffer: &mut [u8], _offset: u32, _: AsyncIOCallback) -> Option<IOResult> {
+        fn read(
+            &self,
+            instance: u32,
+            buffer: &mut [u8],
+            _offset: u32,
+            _: AsyncIOCallback,
+        ) -> Option<IOResult> {
             let mut open_files = self.open_files.write();
             let found = match open_files.get_mut(&instance) {
                 Some(file) => file,
@@ -106,9 +110,7 @@ pub mod async_fs {
 
     impl OpenFile {
         pub fn new() -> Self {
-            Self {
-                written: 0,
-            }
+            Self { written: 0 }
         }
     }
 
@@ -126,7 +128,9 @@ pub mod async_fs {
 
         fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IOResult {
             let mut open_files = self.open_files.write();
-            let found = open_files.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
+            let found = open_files
+                .get_mut(&instance)
+                .ok_or(IOError::FileHandleInvalid)?;
             for i in 0..buffer.len() {
                 let value = ((found.written + i) % 26) + 0x41;
                 buffer[i] = value as u8;
@@ -149,12 +153,11 @@ pub mod async_fs {
 
         loop {
             let op = PendingHandleOp::new(message_handle, ASYNC_OP_READ, message_ptr, 0, 0);
+            op.submit_io();
             let sender = op.wait_for_completion();
 
             match driver_impl.handle_request(message) {
-                Some(response) => {
-                    send_message(TaskID::new(sender), response, 0xffffffff)
-                },
+                Some(response) => send_message(TaskID::new(sender), response, 0xffffffff),
                 None => continue,
             }
         }
@@ -184,9 +187,7 @@ pub mod async_dev {
 
     impl OpenFile {
         pub fn new() -> Self {
-            Self {
-                written: 0,
-            }
+            Self { written: 0 }
         }
     }
 
@@ -199,7 +200,9 @@ pub mod async_dev {
 
         fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IOResult {
             let mut open_files = self.open_files.write();
-            let found = open_files.get_mut(&instance).ok_or(IOError::FileHandleInvalid)?;
+            let found = open_files
+                .get_mut(&instance)
+                .ok_or(IOError::FileHandleInvalid)?;
             let offset = found.written % 4;
             let sample = [b't', b'e', b's', b't'];
             let mut written = 0;
@@ -226,15 +229,13 @@ pub mod async_dev {
 
         loop {
             let op = PendingHandleOp::new(message_handle, ASYNC_OP_READ, message_ptr, 0, 0);
+            op.submit_io();
             let sender = op.wait_for_completion();
 
             match driver_impl.handle_request(message) {
-                Some(response) => {
-                    send_message(TaskID::new(sender), response, 0xffffffff)
-                },
+                Some(response) => send_message(TaskID::new(sender), response, 0xffffffff),
                 None => continue,
             }
         }
     }
 }
-

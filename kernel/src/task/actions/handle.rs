@@ -1,5 +1,5 @@
 use crate::interrupts::pic::add_interrupt_listener;
-use crate::io::async_io::{AsyncOp, IOType, ASYNC_OP_CLOSE};
+use crate::io::async_io::{IOType, ASYNC_OP_CLOSE};
 use crate::io::handle::{Handle, PendingHandleOp};
 use crate::io::notify::NotifyQueue;
 use crate::io::provider::file::FileIOProvider;
@@ -26,7 +26,8 @@ pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> (Handle, 
     (handle, child)
 }
 
-pub fn add_io_op(handle: Handle, op: AsyncOp) -> Result<(), ()> {
+/*
+pub fn add_io_op(handle: Handle) -> Result<(), ()> {
     let task_lock = get_current_task();
     let code = op.op_code;
     if code & 0xfff == ASYNC_OP_CLOSE {
@@ -67,6 +68,7 @@ pub fn add_io_op(handle: Handle, op: AsyncOp) -> Result<(), ()> {
     }
     Ok(())
 }
+*/
 
 pub fn open_message_queue() -> Handle {
     let task_lock = get_current_task();
@@ -231,6 +233,7 @@ pub fn handle_op_close(handle: Handle) -> PendingHandleOp {
 
 #[cfg(test)]
 mod tests {
+    use super::super::io::read_sync;
     use crate::io::async_io::{ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
     use crate::io::handle::PendingHandleOp;
 
@@ -241,9 +244,8 @@ mod tests {
         }
 
         let (handle, _) = super::create_kernel_task(child_task_body, Some("CHILD"));
-        let op = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
-        let result = op.wait_for_completion();
-        assert_eq!(result, 4);
+        let result = read_sync(handle, &mut [], 0);
+        assert_eq!(result, Ok(4));
     }
 
     #[test_case]
@@ -253,9 +255,9 @@ mod tests {
         }
         let (handle, _) = super::create_kernel_task(child_task_body, Some("CHILD"));
         crate::task::actions::sleep(500);
-        let op = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
-        let result = op.wait_for_completion();
-        assert_eq!(result, 4);
+
+        let result = read_sync(handle, &mut [], 0);
+        assert_eq!(result, Ok(4));
     }
 
     #[test_case]
@@ -266,7 +268,9 @@ mod tests {
 
         let (handle, _) = super::create_kernel_task(child_task_body, Some("CHILD"));
         let op1 = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
+        op1.submit_io();
         let op2 = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
+        op2.submit_io();
 
         let mut result = op1.wait_for_completion();
         assert_eq!(result, 3);
@@ -292,21 +296,21 @@ mod tests {
                 0,
                 0,
             );
+            op.submit_io();
             let _sender = op.wait_for_completion();
 
             assert_eq!(message.args, [1, 2, 3, 4, 5, 6]);
             terminate(1);
         }
 
-        let (handle, child_id) = super::create_kernel_task(child_task_body, Some("CHILD"));
+        let (child_handle, child_id) = super::create_kernel_task(child_task_body, Some("CHILD"));
         send_message(
             child_id,
             Message::empty().set_args([1, 2, 3, 4, 5, 6]),
             0xffffffff,
         );
 
-        let op = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
-        op.wait_for_completion();
+        read_sync(child_handle, &mut [], 0);
     }
 
     #[test_case]
@@ -326,6 +330,7 @@ mod tests {
                 0,
                 0,
             );
+            op1.submit_io();
             let op2 = PendingHandleOp::new(
                 msg_handle,
                 ASYNC_OP_READ,
@@ -333,6 +338,7 @@ mod tests {
                 0,
                 0,
             );
+            op2.submit_io();
             op1.wait_for_completion();
             op2.wait_for_completion();
 
@@ -340,7 +346,7 @@ mod tests {
             terminate(1);
         }
 
-        let (handle, child_id) = super::create_kernel_task(child_task_body, Some("CHILD"));
+        let (child_handle, child_id) = super::create_kernel_task(child_task_body, Some("CHILD"));
         send_message(
             child_id,
             Message {
@@ -360,8 +366,7 @@ mod tests {
             0xffffffff,
         );
 
-        let op = PendingHandleOp::new(handle, ASYNC_OP_READ, 0, 0, 0);
-        op.wait_for_completion();
+        read_sync(child_handle, &mut [], 0);
     }
 
     #[test_case]
@@ -372,6 +377,7 @@ mod tests {
             let path_ptr = path.as_ptr() as u32;
             let path_len = path.len() as u32;
             let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+            op.submit_io();
             let result = op.wait_for_completion();
             assert_eq!(result, 1);
         }
@@ -382,6 +388,7 @@ mod tests {
             let path_ptr = path.as_ptr() as u32;
             let path_len = path.len() as u32;
             let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+            op.submit_io();
             let result = op.wait_for_completion();
             // Error: Not Found
             assert_eq!(result, 0x80000002);
@@ -396,6 +403,7 @@ mod tests {
             let path_ptr = path.as_ptr() as u32;
             let path_len = path.len() as u32;
             let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+            op.submit_io();
             let result = op.wait_for_completion();
             assert_eq!(result, 1);
         }
@@ -406,6 +414,7 @@ mod tests {
             let path_ptr = path.as_ptr() as u32;
             let path_len = path.len() as u32;
             let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+            op.submit_io();
             let result = op.wait_for_completion();
             // Error: Not Found
             assert_eq!(result, 0x80000002);
@@ -418,20 +427,14 @@ mod tests {
         let path = "TEST:\\MYFILE.TXT";
         let path_ptr = path.as_ptr() as u32;
         let path_len = path.len() as u32;
-        let mut op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
-        let mut result = op.wait_for_completion();
+        let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+        op.submit_io();
+        let result = op.wait_for_completion();
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 5] = [0; 5];
-        op = PendingHandleOp::new(
-            handle,
-            ASYNC_OP_READ,
-            buffer.as_ptr() as u32,
-            buffer.len() as u32,
-            0,
-        );
-        result = op.wait_for_completion();
-        assert_eq!(result, 5);
+        let read_result = read_sync(handle, &mut buffer, 0);
+        assert_eq!(read_result, Ok(5));
         assert_eq!(buffer, [b'A', b'B', b'C', b'D', b'E']);
     }
 
@@ -442,24 +445,15 @@ mod tests {
         let path_ptr = path.as_ptr() as u32;
         let path_len = path.len() as u32;
         let mut op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+        op.submit_io();
         let mut result = op.wait_for_completion();
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 5] = [0; 5];
-        op = PendingHandleOp::new(
-            handle,
-            ASYNC_OP_READ,
-            buffer.as_ptr() as u32,
-            buffer.len() as u32,
-            0,
-        );
-        result = op.wait_for_completion();
-        assert_eq!(result, 5);
+        assert_eq!(read_sync(handle, &mut buffer, 0), Ok(5));
         assert_eq!(buffer, [b'A', b'B', b'C', b'D', b'E']);
 
-        op = PendingHandleOp::new(handle, ASYNC_OP_READ, buffer.as_ptr() as u32, 3, 0);
-        result = op.wait_for_completion();
-        assert_eq!(result, 3);
+        assert_eq!(read_sync(handle, &mut buffer[..3], 0), Ok(3));
         assert_eq!(buffer[..3], [b'F', b'G', b'H']);
     }
 
@@ -471,6 +465,7 @@ mod tests {
             let path_ptr = path.as_ptr() as u32;
             let path_len = path.len() as u32;
             let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+            op.submit_io();
             let result = op.wait_for_completion();
             assert_eq!(result, 1);
         }
@@ -481,6 +476,7 @@ mod tests {
             let path_ptr = path.as_ptr() as u32;
             let path_len = path.len() as u32;
             let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+            op.submit_io();
             let result = op.wait_for_completion();
             // Error: Not Found
             assert_eq!(result, 0x80000002);
@@ -494,19 +490,12 @@ mod tests {
         let path_ptr = path.as_ptr() as u32;
         let path_len = path.len() as u32;
         let mut op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+        op.submit_io();
         let mut result = op.wait_for_completion();
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 3] = [0xAA; 3];
-        op = PendingHandleOp::new(
-            handle,
-            ASYNC_OP_READ,
-            buffer.as_ptr() as u32,
-            buffer.len() as u32,
-            0,
-        );
-        result = op.wait_for_completion();
-        assert_eq!(result, 3);
+        assert_eq!(read_sync(handle, &mut buffer, 0), Ok(3));
         assert_eq!(buffer, [0, 0, 0]);
     }
 
@@ -517,18 +506,15 @@ mod tests {
         let path_ptr = path.as_ptr() as u32;
         let path_len = path.len() as u32;
         let mut op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+        op.submit_io();
         let mut result = op.wait_for_completion();
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 4] = [0xBB; 4];
-        op = PendingHandleOp::new(handle, ASYNC_OP_READ, buffer.as_ptr() as u32, 2, 0);
-        result = op.wait_for_completion();
-        assert_eq!(result, 2);
+        assert_eq!(read_sync(handle, &mut buffer[..2], 0), Ok(2));
         assert_eq!(buffer, [b't', b'e', 0xbb, 0xbb]);
 
-        op = PendingHandleOp::new(handle, ASYNC_OP_READ, buffer.as_ptr() as u32, 4, 0);
-        result = op.wait_for_completion();
-        assert_eq!(result, 4);
+        assert_eq!(read_sync(handle, &mut buffer, 0), Ok(4));
         assert_eq!(buffer, [b's', b't', b't', b'e']);
     }
 
@@ -540,6 +526,7 @@ mod tests {
         let path_len = path.len() as u32;
         let mut buffer: [u8; 4] = [0; 4];
         let op1 = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+        op1.submit_io();
         let op2 = PendingHandleOp::new(
             handle,
             ASYNC_OP_READ,
@@ -547,12 +534,14 @@ mod tests {
             buffer.len() as u32,
             0,
         );
+        op2.submit_io();
 
         let result = op2.wait_for_completion();
         assert_eq!(result, 4);
         assert_eq!(buffer, [b'A', b'B', b'C', b'D']);
     }
 
+    /*
     #[test_case]
     fn notify_queue() {
         let queue = super::create_notify_queue();
@@ -566,25 +555,30 @@ mod tests {
         assert!(op.is_complete());
         assert_eq!(op.get_result(), Some(1));
     }
+    */
 
     #[test_case]
     fn dup_file() {
         let handle = super::create_file_handle();
-        super::handle_op_open(handle, "TEST:\\MYFILE.TXT").wait_for_completion();
+        super::handle_op_open(handle, "TEST:\\MYFILE.TXT")
+            .submit_io()
+            .wait_for_completion();
         let handle_dup = super::dup_handle(handle).unwrap();
 
         let mut read_buffer: [u8; 3] = [0; 3];
-        super::handle_op_read(handle, &mut read_buffer, 0).wait_for_completion();
+        read_sync(handle, &mut read_buffer, 0).unwrap();
         assert_eq!(read_buffer, [b'A', b'B', b'C']);
 
-        super::handle_op_read(handle_dup, &mut read_buffer, 0).wait_for_completion();
+        read_sync(handle, &mut read_buffer, 0).unwrap();
         // dup handle should point to the same instance
         assert_eq!(read_buffer, [b'D', b'E', b'F']);
 
-        super::handle_op_close(handle);
+        super::handle_op_close(handle).submit_io();
         // the io instance should remain open because the dup'd handle still
         // points to it
-        super::handle_op_read(handle_dup, &mut read_buffer, 0).wait_for_completion();
+        super::handle_op_read(handle_dup, &mut read_buffer, 0)
+            .submit_io()
+            .wait_for_completion();
         assert_eq!(read_buffer, [b'G', b'H', b'I']);
     }
 }

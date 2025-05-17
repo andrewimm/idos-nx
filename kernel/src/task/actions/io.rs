@@ -1,0 +1,126 @@
+use core::sync::atomic::Ordering;
+
+use idos_api::io::{error::IOError, AsyncOp};
+
+use crate::{
+    io::{
+        async_io::{IOType, ASYNC_OP_CLOSE},
+        handle::Handle,
+        provider::{IOProvider, IOResult},
+    },
+    memory::address::VirtualAddress,
+    sync::futex::futex_wait,
+    task::switching::get_current_task,
+};
+
+/// Enqueue an IO operation for the specified handle. Progress can be tracked
+/// by the signal futex on the AsyncOp. If an optional Wake Set is provided,
+/// the signal futex will be temporarily added to that Wake Set. When the IO
+/// operation is completed, the address will be removed from the Wake Set.
+pub fn append_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> Result<(), ()> {
+    let task_lock = get_current_task();
+    let code = op.op_code;
+    if code & 0xfff == ASYNC_OP_CLOSE {
+        // Check how many copies of this handle are open
+        // If it's only one, we need to issue the close op; if there are
+        // multiple copies, just remove this particular reference.
+        let mut task = task_lock.write();
+        // TODO: use a real error type for this
+        let io_index = task.open_handles.get(handle).ok_or(())?.clone();
+        let ref_count = task
+            .async_io_table
+            .get_reference_count(io_index)
+            .ok_or(())?;
+        if ref_count > 1 {
+            // if there are multiple open handles, just remove the reference
+            // but don't actually close the provider
+            task.async_io_table.remove_reference(io_index);
+            task.open_handles.remove(handle);
+
+            op.return_value.store(1, Ordering::SeqCst);
+            op.signal.store(1, Ordering::SeqCst);
+            return Ok(());
+        }
+    }
+
+    let (io_instance, io_type) = {
+        let task_guard = task_lock.read();
+        let io_instance = task_guard.open_handles.get(handle).ok_or(())?.clone();
+        let io = task_guard.async_io_table.get(io_instance).ok_or(())?;
+        (io_instance, io.io_type.clone())
+    };
+
+    let is_message = if let IOType::MessageQueue(_) = *io_type {
+        true
+    } else {
+        false
+    };
+
+    // TODO: HANDLE WAKE SET!
+    io_type.op_request(io_instance, op);
+
+    if is_message {
+        // TODO: This is clowny, how can we fix it?
+        // if it's a messaging op, and it was successfully added, make sure
+        // all message queue handles are refreshed
+        task_lock.write().handle_incoming_messages();
+    }
+
+    Ok(())
+}
+
+pub fn async_io_complete() {}
+
+pub fn open(handle: Handle, path: &str) -> IOResult {
+    use crate::io::async_io::ASYNC_OP_OPEN;
+
+    let path_ptr = path.as_ptr() as u32;
+    let path_len = path.len() as u32;
+    io_sync(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0)
+}
+
+pub fn read_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IOResult {
+    use crate::io::async_io::ASYNC_OP_READ;
+
+    let buffer_ptr = buffer.as_ptr() as u32;
+    let buffer_len = buffer.len() as u32;
+    io_sync(handle, ASYNC_OP_READ, buffer_ptr, buffer_len, offset)
+}
+
+pub fn read_struct_sync<T: Sized>(handle: Handle, struct_ref: &mut T) -> IOResult {
+    use crate::io::async_io::ASYNC_OP_READ;
+
+    let ptr = struct_ref as *mut T as u32;
+    let len = core::mem::size_of::<T>() as u32;
+    io_sync(handle, ASYNC_OP_READ, ptr, len, 0)
+}
+
+pub fn write_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IOResult {
+    use crate::io::async_io::ASYNC_OP_WRITE;
+
+    let buffer_ptr = buffer.as_ptr() as u32;
+    let buffer_len = buffer.len() as u32;
+    io_sync(handle, ASYNC_OP_WRITE, buffer_ptr, buffer_len, offset)
+}
+
+pub fn close_sync(handle: Handle) -> IOResult {
+    io_sync(handle, ASYNC_OP_CLOSE, 0, 0, 0)
+}
+
+pub fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) -> IOResult {
+    let async_op = AsyncOp::new(op_code, arg0, arg1, arg2);
+    append_io_op(handle, &async_op, None).unwrap();
+
+    while async_op.signal.load(Ordering::SeqCst) == 0 {
+        futex_wait(VirtualAddress::new(async_op.signal_address()), 0);
+    }
+
+    let return_value = async_op.return_value.load(Ordering::SeqCst);
+
+    if return_value & 0x80000000 != 0 {
+        let io_error = IOError::try_from(return_value & 0x7fffffff).unwrap_or(IOError::Unknown);
+        Err(io_error)
+    } else {
+        Ok(return_value)
+    }
+}

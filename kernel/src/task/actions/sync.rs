@@ -59,6 +59,7 @@ mod tests {
     use crate::task::actions::handle::{
         create_kernel_task, handle_op_read_struct, open_message_queue,
     };
+    use crate::task::actions::io::read_struct_sync;
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::send_message;
     use crate::task::messaging::Message;
@@ -80,8 +81,7 @@ mod tests {
         fn waker_task() -> ! {
             let messages = open_message_queue();
             let mut message = Message::empty();
-            let read_op = handle_op_read_struct(messages, &mut message);
-            read_op.wait_for_completion();
+            read_struct_sync(messages, &mut message);
 
             let vaddr = message.args[0];
             futex_wake(VirtualAddress::new(vaddr), 1);

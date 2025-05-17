@@ -3,6 +3,7 @@
 //! actions that can be executed by the current task.
 
 pub mod handle;
+pub mod io;
 pub mod lifecycle;
 pub mod memory;
 pub mod sync;
