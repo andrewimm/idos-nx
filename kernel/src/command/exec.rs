@@ -8,9 +8,8 @@ use crate::files::stat::FileStatus;
 use crate::io::async_io::FILE_OP_STAT;
 use crate::io::filesystem::get_all_drive_names;
 use crate::io::handle::{Handle, PendingHandleOp};
-use crate::task::actions::handle::{
-    create_file_handle, handle_op_close, handle_op_open, handle_op_read, handle_op_write,
-};
+use crate::task::actions::handle::create_file_handle;
+use crate::task::actions::io::{close_sync, open_sync, read_sync, write_sync};
 use crate::task::actions::memory::map_memory;
 use crate::task::memory::MemoryBacking;
 use crate::time::date::DateTime;
@@ -44,9 +43,6 @@ pub fn exec(stdin: Handle, stdout: Handle, tree: CommandTree, env: &mut Environm
 
     match root {
         CommandComponent::Executable(name, args) => {
-            //let mut output = String::new();
-
-            //handle_op_write(stdout, output.as_bytes());
             match name.to_ascii_uppercase().as_str() {
                 "CD" => cd(stdout, args, env),
                 "DIR" => dir(stdout, args, env),
@@ -60,8 +56,7 @@ pub fn exec(stdin: Handle, stdout: Handle, tree: CommandTree, env: &mut Environm
                         cd(stdout, &cd_args, env);
                     } else if try_exec(stdin, stdout, name, args, env) {
                     } else {
-                        handle_op_write(stdout, "Unknown command!\n".as_bytes())
-                            .wait_for_completion();
+                        let _ = write_sync(stdout, "Unknown command!\n".as_bytes(), 0);
                     }
                 }
             }
@@ -94,15 +89,20 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
     );
     output.push_str(env.cwd.as_str());
     output.push_str("\n\n");
-    handle_op_write(stdout, output.as_bytes()).wait_for_completion();
+    let _ = write_sync(stdout, output.as_bytes(), 0);
 
     let dir_handle = create_file_handle();
-    handle_op_open(dir_handle, env.cwd.as_str()).wait_for_completion();
+    match open_sync(dir_handle, env.cwd.as_str()) {
+        Ok(_) => (),
+        Err(_) => {
+            let _ = write_sync(stdout, "Failed to open directory...\n".as_bytes(), 0);
+            return;
+        }
+    }
     let mut entries: Vec<DirEntry> = Vec::new();
     let mut read_offset = 0;
     loop {
-        let bytes_read = handle_op_read(dir_handle, file_read_buffer, read_offset)
-            .wait_for_completion() as usize;
+        let bytes_read = read_sync(dir_handle, file_read_buffer, read_offset).unwrap() as usize;
         read_offset += bytes_read as u32;
         let mut name_start = 0;
         for i in 0..bytes_read {
@@ -121,14 +121,14 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
             break;
         }
     }
-    handle_op_close(dir_handle).wait_for_completion();
+    let _ = close_sync(dir_handle);
     for entry in entries.iter_mut() {
         let stat_handle = create_file_handle();
         let mut file_status = FileStatus::new();
         let file_status_ptr = &mut file_status as *mut FileStatus;
         let mut file_path = env.cwd.clone();
         file_path.push(entry.name.as_str());
-        match handle_op_open(stat_handle, file_path.as_str()).wait_for_result() {
+        match open_sync(stat_handle, file_path.as_str()) {
             Ok(_) => {
                 let op = PendingHandleOp::new(
                     stat_handle,
@@ -137,6 +137,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
                     core::mem::size_of::<FileStatus>() as u32,
                     0,
                 );
+                op.submit_io();
                 match op.wait_for_result() {
                     Ok(_) => {
                         entry.size = file_status.byte_size;
@@ -145,7 +146,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
                     }
                     Err(_) => (),
                 }
-                handle_op_close(stat_handle).wait_for_completion();
+                let _ = close_sync(stat_handle);
             }
             Err(_) => {}
         }
@@ -167,7 +168,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
         row.push_str(&datetime.time.to_string());
         row.push('\n');
 
-        handle_op_write(stdout, row.as_bytes()).wait_for_completion();
+        let _ = write_sync(stdout, row.as_bytes(), 0);
     }
 
     let mut summary = String::new();
@@ -175,7 +176,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
         summary.push(' ');
     }
     summary.push_str(&alloc::format!("{} file(s)\n", entries.len()));
-    handle_op_write(stdout, summary.as_bytes()).wait_for_completion();
+    let _ = write_sync(stdout, summary.as_bytes(), 0);
 }
 
 fn drives(stdout: Handle) {
@@ -186,7 +187,7 @@ fn drives(stdout: Handle) {
         output.push_str(&name);
         output.push('\n');
     }
-    handle_op_write(stdout, output.as_bytes()).wait_for_completion();
+    let _ = write_sync(stdout, output.as_bytes(), 0);
 }
 
 fn try_exec(
@@ -226,7 +227,6 @@ fn type_file(stdout: Handle, args: &Vec<String>, env: &Environment) {
     }
     for arg in args {
         let handle = create_file_handle();
-        crate::kprintln!("TYPE {}", arg);
         let file_path = if Path::is_absolute(arg.as_str()) {
             Path::from_str(arg.as_str())
         } else {
@@ -234,31 +234,30 @@ fn type_file(stdout: Handle, args: &Vec<String>, env: &Environment) {
             path.push(arg.as_str());
             path
         };
-        match handle_op_open(handle, file_path.as_str()).wait_for_result() {
+        match open_sync(handle, file_path.as_str()) {
             Ok(_) => {
                 let mut read_offset = 0;
                 loop {
-                    let len = match handle_op_read(handle, buffer, read_offset).wait_for_result() {
+                    let len = match read_sync(handle, buffer, read_offset) {
                         Ok(len) => len as usize,
                         Err(_) => {
-                            handle_op_write(stdout, "Error reading file\n".as_bytes())
-                                .wait_for_completion();
+                            let _ = write_sync(stdout, "Error reading file\n".as_bytes(), 0);
                             return;
                         }
                     };
                     read_offset += len as u32;
-                    handle_op_write(stdout, &buffer[..len]).wait_for_completion();
+                    let _ = write_sync(stdout, &buffer[..len], 0);
 
                     if len < buffer.len() {
                         break;
                     }
                 }
-                handle_op_write(stdout, &[b'\n']).wait_for_completion();
-                handle_op_close(handle).wait_for_completion();
+                let _ = write_sync(stdout, &[b'\n'], 0);
+                let _ = close_sync(handle);
             }
             Err(_) => {
                 let output = alloc::format!("File not found: \"{}\"\n", arg);
-                handle_op_write(stdout, output.as_bytes()).wait_for_completion();
+                let _ = write_sync(stdout, output.as_bytes(), 0);
                 return;
             }
         }

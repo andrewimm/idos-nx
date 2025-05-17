@@ -4,9 +4,8 @@ use core::ops::Deref;
 use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
-use crate::task::actions::handle::{
-    create_file_handle, handle_op_close, handle_op_open, handle_op_write,
-};
+use crate::task::actions::handle::create_file_handle;
+use crate::task::actions::io::{close_sync, open_sync, write_sync};
 
 use super::arp::{add_network_translation, resolve_mac_from_ip};
 use super::error::NetError;
@@ -263,15 +262,9 @@ fn socket_send_inner(dest_mac: HardwareAddress, packet: Vec<u8>) -> Result<(), N
     total_frame.extend(packet);
 
     let dev = create_file_handle();
-    handle_op_open(dev, &device_name)
-        .wait_for_result()
-        .map_err(|_| NetError::DeviceDriverError)?;
-    handle_op_write(dev, &total_frame)
-        .wait_for_result()
-        .map_err(|_| NetError::DeviceDriverError)?;
-    handle_op_close(dev)
-        .wait_for_result()
-        .map_err(|_| NetError::DeviceDriverError)?;
+    open_sync(dev, &device_name).map_err(|_| NetError::DeviceDriverError)?;
+    write_sync(dev, &total_frame, 0).map_err(|_| NetError::DeviceDriverError)?;
+    close_sync(dev).map_err(|_| NetError::DeviceDriverError)?;
     Ok(())
 }
 

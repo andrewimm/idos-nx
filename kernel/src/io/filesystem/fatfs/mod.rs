@@ -10,10 +10,10 @@ use super::install_task_fs;
 use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::handle::Handle;
 use crate::task::actions::handle::{
-    add_handle_to_notify_queue, create_notify_queue, create_pipe_handles, handle_op_close,
-    handle_op_read, handle_op_read_struct, handle_op_write, open_message_queue, transfer_handle,
-    wait_on_notify,
+    add_handle_to_notify_queue, create_notify_queue, create_pipe_handles, open_message_queue,
+    transfer_handle,
 };
+use crate::task::actions::io::{close_sync, read_struct_sync, read_sync, write_sync};
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::send_message;
 use crate::task::id::TaskID;
@@ -24,15 +24,14 @@ fn run_driver() -> ! {
     let response_writer = Handle::new(1);
 
     let mut name_length_buffer: [u8; 1] = [0; 1];
-    handle_op_read(args_reader, &mut name_length_buffer, 0).wait_for_completion();
+    let _ = read_sync(args_reader, &mut name_length_buffer, 0);
     let name_length = name_length_buffer[0] as usize;
 
     let mut dev_name_buffer: [u8; 5 + 8] = [0; 5 + 8];
     dev_name_buffer[0..5].copy_from_slice("DEV:\\".as_bytes());
     let dev_name_len =
-        5 + handle_op_read(args_reader, &mut dev_name_buffer[5..(5 + name_length)], 0)
-            .wait_for_completion() as usize;
-    handle_op_close(args_reader).wait_for_completion();
+        5 + read_sync(args_reader, &mut dev_name_buffer[5..(5 + name_length)], 0).unwrap() as usize;
+    let _ = close_sync(args_reader);
 
     let dev_name = unsafe { core::str::from_utf8_unchecked(&dev_name_buffer[..dev_name_len]) };
 
@@ -40,26 +39,18 @@ fn run_driver() -> ! {
 
     let messages = open_message_queue();
     let mut incoming_message = Message::empty();
-    let notify = create_notify_queue();
-    add_handle_to_notify_queue(notify, messages);
-
-    let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
 
     let mut driver_impl = FatDriver::new(dev_name);
 
-    handle_op_write(response_writer, &[1]).wait_for_completion();
-    handle_op_close(response_writer).wait_for_completion();
+    let _ = write_sync(response_writer, &[1], 0);
+    let _ = close_sync(response_writer);
 
     loop {
-        if let Some(sender) = message_read.get_result() {
+        if let Ok(sender) = read_struct_sync(messages, &mut incoming_message) {
             match driver_impl.handle_request(incoming_message) {
                 Some(response) => send_message(TaskID::new(sender), response, 0xffffffff),
                 None => (),
             }
-
-            message_read = handle_op_read_struct(messages, &mut incoming_message);
-        } else {
-            wait_on_notify(notify, None);
         }
     }
 }
@@ -75,9 +66,9 @@ pub fn mount_fat_fs() {
         transfer_handle(args_reader, task_id);
         transfer_handle(response_writer, task_id);
 
-        handle_op_write(args_writer, &[pair.1.len() as u8]).wait_for_completion();
-        handle_op_write(args_writer, pair.1.as_bytes()).wait_for_completion();
-        handle_op_read(response_reader, &mut [0u8], 0).wait_for_completion();
+        let _ = write_sync(args_writer, &[pair.1.len() as u8], 0);
+        let _ = write_sync(args_writer, pair.1.as_bytes(), 0);
+        let _ = read_sync(response_reader, &mut [0u8], 0);
 
         install_task_fs(pair.0, task_id);
     }

@@ -6,9 +6,8 @@ use alloc::string::String;
 
 use crate::files::path::Path;
 use crate::io::handle::Handle;
-use crate::task::actions::handle::{
-    create_file_handle, handle_op_open, handle_op_read, handle_op_write, transfer_handle,
-};
+use crate::task::actions::handle::{create_file_handle, transfer_handle};
+use crate::task::actions::io::{open_sync, read_sync, write_sync};
 use crate::task::actions::lifecycle::create_kernel_task;
 
 use self::lexer::Lexer;
@@ -30,8 +29,8 @@ fn command_task() -> ! {
         let mut prompt = env.full_path_string();
         prompt.push_str("> ");
 
-        handle_op_write(stdout, prompt.as_bytes()).wait_for_completion();
-        let input_len = handle_op_read(stdin, &mut input_buffer, 0).wait_for_completion() as usize;
+        write_sync(stdout, prompt.as_bytes(), 0).unwrap();
+        let input_len = read_sync(stdin, &mut input_buffer, 0).unwrap() as usize;
 
         let input_str =
             unsafe { core::str::from_utf8_unchecked(&input_buffer[..input_len]).trim() };
@@ -58,9 +57,9 @@ pub fn start_command(console: usize) {
     let path = alloc::format!("DEV:\\CON{}", console + 1);
 
     let stdin = create_file_handle();
-    handle_op_open(stdin, path.as_str()).wait_for_completion();
+    open_sync(stdin, path.as_str()).unwrap();
     let stdout = create_file_handle();
-    handle_op_open(stdout, path.as_str()).wait_for_completion();
+    open_sync(stdout, path.as_str()).unwrap();
     let task_id = create_kernel_task(command_task, Some("COMMAND"));
     transfer_handle(stdin, task_id);
     transfer_handle(stdout, task_id);

@@ -4,11 +4,9 @@ use crate::io::driver::comms::IOResult;
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::io::IOError;
-use crate::task::actions::handle::handle_op_write;
-use crate::task::actions::handle::{
-    add_handle_to_notify_queue, create_notify_queue, handle_op_read_struct, open_message_queue,
-    wait_on_notify,
-};
+use crate::task::actions::handle::open_message_queue;
+use crate::task::actions::io::read_struct_sync;
+use crate::task::actions::io::write_sync;
 use crate::task::actions::send_message;
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;
@@ -130,7 +128,7 @@ pub fn run_driver() -> ! {
     let stdin = Handle::new(0);
     let mut args: [u16; 3] = [0; 3];
 
-    handle_op_read_struct(stdin, &mut args).wait_for_completion();
+    let _ = read_struct_sync(stdin, &mut args);
     let driver_no = args[0];
     let base_port = args[1];
     let control_port = args[2];
@@ -163,26 +161,18 @@ pub fn run_driver() -> ! {
 
     crate::kprintln!("Detected {} ATA device(s)", ata_count);
 
-    handle_op_write(Handle::new(1), &[1]).wait_for_completion();
+    let _ = write_sync(Handle::new(1), &[1], 0);
 
     // prepare message event loop
     let messages = open_message_queue();
     let mut incoming_message = Message::empty();
-    let notify = create_notify_queue();
-    add_handle_to_notify_queue(notify, messages);
-
-    let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
 
     loop {
-        if let Some(sender) = message_read.get_result() {
+        if let Ok(sender) = read_struct_sync(messages, &mut incoming_message) {
             match driver_impl.handle_request(incoming_message) {
                 Some(response) => send_message(TaskID::new(sender), response, 0xffffffff),
                 None => (),
             }
-
-            message_read = handle_op_read_struct(messages, &mut incoming_message);
-        } else {
-            wait_on_notify(notify, None);
         }
     }
 }

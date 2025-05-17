@@ -1,9 +1,7 @@
 use crate::task::{
     actions::{
-        handle::{
-            add_handle_to_notify_queue, create_notify_queue, handle_op_read_struct,
-            open_message_queue, wait_on_notify,
-        },
+        handle::{add_handle_to_notify_queue, create_notify_queue, open_message_queue},
+        io::read_struct_sync,
         send_message,
     },
     id::TaskID,
@@ -36,7 +34,7 @@ pub fn cleanup_resident() -> ! {
     let mut terminated: Vec<TaskID> = Vec::new();
 
     loop {
-        let _ = handle_op_read_struct(messages, &mut incoming_message).wait_for_completion();
+        let _ = read_struct_sync(messages, &mut incoming_message);
 
         crate::task::switching::for_each_task_mut(|t| {
             let task = t.read();

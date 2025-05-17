@@ -56,9 +56,7 @@ mod tests {
     use super::{add_address_to_wake_set, block_on_wake_set, create_wake_set};
     use crate::memory::address::VirtualAddress;
     use crate::sync::futex::futex_wake;
-    use crate::task::actions::handle::{
-        create_kernel_task, handle_op_read_struct, open_message_queue,
-    };
+    use crate::task::actions::handle::{create_kernel_task, open_message_queue};
     use crate::task::actions::io::read_struct_sync;
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::send_message;

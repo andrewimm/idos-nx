@@ -1,6 +1,6 @@
-use crate::task::actions::handle::{
-    create_kernel_task, create_pipe_handles, handle_op_read, handle_op_write_struct,
-    transfer_handle,
+use crate::task::actions::{
+    handle::{create_kernel_task, create_pipe_handles, transfer_handle},
+    io::{read_sync, write_struct_sync},
 };
 
 pub mod controller;
@@ -19,9 +19,9 @@ pub fn install() {
         transfer_handle(response_write, task).unwrap();
         let message: [u16; 3] = [driver_no, base_port, control_port];
 
-        handle_op_write_struct(args_write, &message).wait_for_completion();
+        let _ = write_struct_sync(args_write, &message);
 
-        handle_op_read(response_read, &mut [0u8], 0).wait_for_completion();
+        let _ = read_sync(response_read, &mut [0u8], 0);
         driver_no += 1;
     }
 }

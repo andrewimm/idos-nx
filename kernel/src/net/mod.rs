@@ -38,9 +38,9 @@ pub mod tcp;
 pub mod udp;
 
 use self::ethernet::HardwareAddress;
-use crate::task::actions::handle::{
-    create_file_handle, create_kernel_task, create_pipe_handles, handle_op_close, handle_op_open,
-    handle_op_read, handle_op_write, transfer_handle,
+use crate::task::actions::{
+    handle::{create_file_handle, create_kernel_task, create_pipe_handles, transfer_handle},
+    io::{close_sync, open_sync, read_sync, write_sync},
 };
 use alloc::{string::String, sync::Arc};
 use core::ops::Deref;
@@ -63,11 +63,9 @@ impl NetDevice {
 
     pub fn send_raw(&self, raw: &[u8]) {
         let dev = create_file_handle();
-        handle_op_open(dev, &self.device_name)
-            .wait_for_result()
-            .unwrap();
-        handle_op_write(dev, raw).wait_for_result().unwrap();
-        handle_op_close(dev).wait_for_result().unwrap();
+        open_sync(dev, &self.device_name).unwrap();
+        write_sync(dev, raw, 0).unwrap();
+        close_sync(dev).unwrap();
     }
 }
 
@@ -90,5 +88,5 @@ pub fn start_net_stack() {
     let (_, driver_task) = create_kernel_task(resident::net_stack_resident, Some("NETR"));
     transfer_handle(response_writer, driver_task).unwrap();
     // wait for a response from the driver indicating initialization
-    handle_op_read(response_reader, &mut [0u8], 0).wait_for_completion();
+    let _ = read_sync(response_reader, &mut [0u8], 0);
 }

@@ -80,8 +80,7 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn system_log(console_handle: Handle, message: &str) {
-    task::actions::handle::handle_op_write(console_handle, message.as_bytes())
-        .wait_for_completion();
+    let _ = task::actions::io::write_sync(console_handle, message.as_bytes(), 0);
 }
 
 fn init_system() -> ! {
@@ -92,7 +91,7 @@ fn init_system() -> ! {
         console::init_console();
 
         let con = task::actions::handle::create_file_handle();
-        task::actions::handle::handle_op_open(con, "DEV:\\CON1").wait_for_completion();
+        task::actions::io::open_sync(con, "DEV:\\CON1").unwrap();
 
         hardware::ps2::install_drivers();
 

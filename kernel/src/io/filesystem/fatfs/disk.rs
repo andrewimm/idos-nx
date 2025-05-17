@@ -1,6 +1,7 @@
 use crate::io::handle::Handle;
 use crate::memory::address::VirtualAddress;
-use crate::task::actions::handle::{create_file_handle, handle_op_open, handle_op_read};
+use crate::task::actions::handle::create_file_handle;
+use crate::task::actions::io::{open_sync, read_sync};
 use crate::task::actions::memory::map_memory;
 use crate::task::memory::MemoryBacking;
 use alloc::vec::Vec;
@@ -22,9 +23,7 @@ impl DiskAccess {
     pub fn new(mount: &str) -> Self {
         let mount_handle = create_file_handle();
 
-        handle_op_open(mount_handle, mount)
-            .wait_for_result()
-            .unwrap();
+        open_sync(mount_handle, mount).unwrap();
 
         let buffer_size = 4096;
 
@@ -99,9 +98,7 @@ impl DiskAccess {
         };
         let cache_buffer = self.get_buffer_sector(cache_index);
 
-        handle_op_read(self.mount_handle, cache_buffer, lba * 512)
-            .wait_for_result()
-            .unwrap();
+        read_sync(self.mount_handle, cache_buffer, lba * 512).unwrap();
         cache_index
     }
 

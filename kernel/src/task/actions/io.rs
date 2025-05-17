@@ -71,7 +71,7 @@ pub fn append_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> R
 
 pub fn async_io_complete() {}
 
-pub fn open(handle: Handle, path: &str) -> IOResult {
+pub fn open_sync(handle: Handle, path: &str) -> IOResult {
     use crate::io::async_io::ASYNC_OP_OPEN;
 
     let path_ptr = path.as_ptr() as u32;
@@ -95,12 +95,20 @@ pub fn read_struct_sync<T: Sized>(handle: Handle, struct_ref: &mut T) -> IOResul
     io_sync(handle, ASYNC_OP_READ, ptr, len, 0)
 }
 
-pub fn write_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IOResult {
+pub fn write_sync(handle: Handle, buffer: &[u8], offset: u32) -> IOResult {
     use crate::io::async_io::ASYNC_OP_WRITE;
 
     let buffer_ptr = buffer.as_ptr() as u32;
     let buffer_len = buffer.len() as u32;
     io_sync(handle, ASYNC_OP_WRITE, buffer_ptr, buffer_len, offset)
+}
+
+pub fn write_struct_sync<T: Sized>(handle: Handle, struct_ref: &T) -> IOResult {
+    use crate::io::async_io::ASYNC_OP_WRITE;
+
+    let ptr = struct_ref as *const T as u32;
+    let len = core::mem::size_of::<T>() as u32;
+    io_sync(handle, ASYNC_OP_WRITE, ptr, len, 0)
 }
 
 pub fn close_sync(handle: Handle) -> IOResult {

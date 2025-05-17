@@ -6,10 +6,8 @@ use crate::{
     io::{async_io::AsyncOpID, filesystem::driver::AsyncIOCallback},
     task::{
         actions::{
-            handle::{
-                add_handle_to_notify_queue, create_notify_queue, handle_op_read_struct,
-                open_message_queue, wait_on_notify,
-            },
+            handle::{add_handle_to_notify_queue, create_notify_queue, open_message_queue},
+            io::read_struct_sync,
             send_message,
         },
         id::TaskID,
@@ -79,12 +77,10 @@ pub fn driver_io_task() -> ! {
     let mut next_request_id: u32 = 1;
 
     loop {
-        let op = handle_op_read_struct(message_handle, &mut message);
-        op.submit_io();
-        //while !op.is_complete() {
-        //    wait_on_notify(notify, None);
-        //}
-        let sender = op.wait_for_completion();
+        let sender = match read_struct_sync(message_handle, &mut message) {
+            Ok(sender) => sender,
+            Err(_) => continue,
+        };
 
         if message.message_type == DRIVER_RESPONSE_MAGIC {
             let response_to = message.unique_id;

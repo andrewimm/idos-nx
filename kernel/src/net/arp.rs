@@ -7,9 +7,8 @@
 //! device can tell all interested parties that it is available at a specific
 //! location.
 
-use crate::task::actions::handle::{
-    create_file_handle, handle_op_close, handle_op_open, handle_op_write,
-};
+use crate::task::actions::handle::create_file_handle;
+use crate::task::actions::io::{close_sync, open_sync, write_sync};
 use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::id::TaskID;
 use crate::task::switching::{get_current_id, get_task};
@@ -186,15 +185,9 @@ pub fn send_arp_request(lookup_ip: IPV4Address) -> Result<(), NetError> {
     total_frame.extend_from_slice(arp.as_u8_buffer());
 
     let dev = create_file_handle();
-    handle_op_open(dev, &device_name)
-        .wait_for_result()
-        .map_err(|_| NetError::DeviceDriverError)?;
-    handle_op_write(dev, &total_frame)
-        .wait_for_result()
-        .map_err(|_| NetError::DeviceDriverError)?;
-    handle_op_close(dev)
-        .wait_for_result()
-        .map_err(|_| NetError::DeviceDriverError)?;
+    open_sync(dev, &device_name).map_err(|_| NetError::DeviceDriverError)?;
+    write_sync(dev, &total_frame, 0).map_err(|_| NetError::DeviceDriverError)?;
+    close_sync(dev).map_err(|_| NetError::DeviceDriverError)?;
     Ok(())
 }
 
