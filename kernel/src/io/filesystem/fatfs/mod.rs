@@ -39,10 +39,8 @@ fn run_driver() -> ! {
 
     let mut driver_impl = FatDriver::new(dev_name);
 
-    crate::kprintln!("SEND RESPONSE");
     let _ = write_sync(response_writer, &[1], 0);
     let _ = close_sync(response_writer);
-    crate::kprintln!("DRIVER LOOP");
 
     loop {
         if let Ok(_sender) = read_struct_sync(messages, &mut incoming_message) {
@@ -66,11 +64,9 @@ pub fn mount_fat_fs() {
         transfer_handle(args_reader, task_id);
         transfer_handle(response_writer, task_id);
 
-        crate::kprintln!("FAT INIT");
         let _ = write_sync(args_writer, &[pair.1.len() as u8], 0);
         let _ = write_sync(args_writer, pair.1.as_bytes(), 0);
         let _ = read_sync(response_reader, &mut [0u8], 0);
-        crate::kprintln!("FAT DONE");
 
         install_task_fs(pair.0, task_id);
     }

@@ -50,7 +50,6 @@ impl AsyncDriver for FatDriver {
     }
 
     fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> Result<u32, IOError> {
-        crate::kprintln!("FAT: Read");
         let table = self.get_table();
         let handle = self
             .open_handle_map
