@@ -8,8 +8,6 @@ use crate::task::actions::handle::open_message_queue;
 use crate::task::actions::io::driver_io_complete;
 use crate::task::actions::io::read_struct_sync;
 use crate::task::actions::io::write_sync;
-use crate::task::actions::send_message;
-use crate::task::id::TaskID;
 use crate::task::messaging::Message;
 use crate::task::switching::get_current_id;
 use alloc::collections::BTreeMap;
@@ -169,7 +167,7 @@ pub fn run_driver() -> ! {
     let mut incoming_message = Message::empty();
 
     loop {
-        if let Ok(sender) = read_struct_sync(messages, &mut incoming_message) {
+        if let Ok(_sender) = read_struct_sync(messages, &mut incoming_message) {
             let request_id = incoming_message.unique_id;
             match driver_impl.handle_request(incoming_message) {
                 Some(result) => driver_io_complete(request_id, result),

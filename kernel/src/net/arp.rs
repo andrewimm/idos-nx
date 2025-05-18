@@ -10,7 +10,7 @@
 use crate::task::actions::handle::create_file_handle;
 use crate::task::actions::io::{close_sync, open_sync, write_sync};
 use crate::task::id::TaskID;
-use crate::task::switching::{get_current_id, get_task};
+use crate::task::switching::get_current_id;
 use alloc::collections::{BTreeMap, BTreeSet};
 use alloc::vec::Vec;
 use spin::RwLock;

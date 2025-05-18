@@ -11,10 +11,10 @@ use core::arch::asm;
 extern "C" {
     #[link_name = "__kernel_start"]
     static mut label_kernel_start: ();
-    #[link_name = "__bss_start"]
-    static mut label_bss_start: u8;
-    #[link_name = "__bss_end"]
-    static label_bss_end: u8;
+    //#[link_name = "__bss_start"]
+    //static mut label_bss_start: u8;
+    //#[link_name = "__bss_end"]
+    //static label_bss_end: u8;
     #[link_name = "__kernel_end"]
     static label_kernel_end: ();
 }

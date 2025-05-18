@@ -1,20 +1,9 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::{
-    collections::{BTreeMap, VecDeque},
-    sync::Arc,
-};
+use alloc::{collections::BTreeMap, sync::Arc};
 use idos_api::io::AsyncOp;
-use spin::RwLock;
 
-use crate::{
-    memory::{
-        address::{PhysicalAddress, VirtualAddress},
-        signal::Signal,
-        virt::scratch::UnmappedPage,
-    },
-    task::{id::TaskID, messaging::MessageQueue},
-};
+use crate::task::id::TaskID;
 
 use super::{
     handle::Handle,

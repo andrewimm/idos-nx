@@ -279,7 +279,7 @@ pub fn socket_broadcast(socket: SocketHandle, payload: &[u8]) -> Result<(), NetE
 }
 
 pub fn socket_send(socket: SocketHandle, payload: &[u8]) -> Result<(), NetError> {
-    let (dest_ip, packet) = match OPEN_SOCKETS.read().get(&socket) {
+    let (dest_ip, _packet) = match OPEN_SOCKETS.read().get(&socket) {
         Some(sock) => (sock.binding.remote_ip, sock.create_packet(payload)),
         None => return Err(NetError::InvalidSocket),
     };

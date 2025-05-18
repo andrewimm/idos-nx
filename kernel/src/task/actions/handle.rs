@@ -11,7 +11,6 @@ use crate::task::id::TaskID;
 use crate::task::switching::get_task;
 
 use super::switching::get_current_task;
-use super::yield_coop;
 
 pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> (Handle, TaskID) {
     let child = super::lifecycle::create_kernel_task(task_body, name);

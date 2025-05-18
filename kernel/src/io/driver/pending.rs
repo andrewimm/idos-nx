@@ -1,7 +1,6 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::collections::BTreeMap;
-use idos_api::io::error::IOError;
 use spin::Mutex;
 
 use crate::{

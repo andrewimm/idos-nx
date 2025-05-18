@@ -159,9 +159,9 @@ fn run_driver() -> ! {
         core::mem::size_of::<Message>() as u32,
         0,
     );
-    append_io_op(messages_handle, &message_read, Some(wake_set));
-    let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
-    append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
+    let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
+    let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
+    let _ = append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
 
     register_network_device("DEV:\\ETH", mac);
     let _ = write_sync(response_writer, &[0], 0);
@@ -188,8 +188,8 @@ fn run_driver() -> ! {
 
             let _ = write_sync(interrupt_handle, &[], 0);
 
-            interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
-            append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
+            interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
+            let _ = append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
         } else if message_read.is_complete() {
             let sender = message_read.return_value.load(Ordering::SeqCst);
             let sender_id = TaskID::new(sender);
@@ -204,7 +204,7 @@ fn run_driver() -> ! {
                 core::mem::size_of::<Message>() as u32,
                 0,
             );
-            append_io_op(messages_handle, &message_read, Some(wake_set));
+            let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
         } else {
             block_on_wake_set(wake_set, None);
         }

@@ -1,12 +1,8 @@
 use core::sync::atomic::Ordering;
 
-use alloc::boxed::Box;
 use idos_api::io::{error::IOError, AsyncOp};
 
-use crate::{
-    collections::SlotList,
-    memory::{address::VirtualAddress, signal::Signal},
-};
+use crate::collections::SlotList;
 
 /// A Handle represents a reference to an object that can be passed back and
 /// forth across the syscall line. Internally, it's just a usize numeric value.

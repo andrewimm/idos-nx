@@ -9,7 +9,7 @@ use crate::{
     },
     task::{
         id::TaskID,
-        messaging::{Message, MessagePacket, MessageQueue},
+        messaging::{Message, MessagePacket},
         paging::get_current_physical_address,
         switching::{get_current_id, get_task},
     },
@@ -65,9 +65,6 @@ impl MessageIOProvider {
             None => return,
         };
         active_op.complete(sender.into());
-        if let Some(ws_handle) = active_op.wake_set {
-            //remove_address_from_wake_set(task_id, ws_handle, active_op.signal_address);
-        }
     }
 
     pub fn copy_message(message_paddr: u32, message: Message) {
@@ -135,8 +132,8 @@ impl IOProvider for MessageIOProvider {
 
     fn read(
         &self,
-        provider_index: u32,
-        id: AsyncOpID,
+        _provider_index: u32,
+        _id: AsyncOpID,
         op: UnmappedAsyncOp,
     ) -> Option<super::IOResult> {
         let packet = self.pop_message()?;

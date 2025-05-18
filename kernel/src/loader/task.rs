@@ -8,7 +8,7 @@ use spin::Once;
 
 use crate::memory::address::VirtualAddress;
 use crate::memory::shared::release_buffer;
-use crate::task::actions::handle::{create_kernel_task, handle_op_read_struct, open_message_queue};
+use crate::task::actions::handle::{create_kernel_task, open_message_queue};
 use crate::task::actions::io::read_struct_sync;
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;

@@ -1,7 +1,5 @@
-use crate::io::async_io::{AsyncIOTable, AsyncOpID, IOType};
-use crate::io::driver::comms::IOResult;
-use crate::io::handle::{Handle, HandleTable};
-use crate::io::provider::IOProvider;
+use crate::io::async_io::{AsyncIOTable, IOType};
+use crate::io::handle::HandleTable;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
 use crate::sync::wake_set::WakeSet;

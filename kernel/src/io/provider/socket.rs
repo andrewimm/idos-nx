@@ -45,7 +45,12 @@ impl SocketIOProvider {
 }
 
 impl IOProvider for SocketIOProvider {
-    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
+    fn enqueue_op(
+        &self,
+        _provider_index: u32,
+        _op: &AsyncOp,
+        _wake_set: Option<Handle>,
+    ) -> AsyncOpID {
         unimplemented!()
     }
 

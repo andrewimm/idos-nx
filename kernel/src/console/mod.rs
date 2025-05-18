@@ -11,7 +11,6 @@ use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
-use crate::task::switching::get_task;
 
 use self::manager::ConsoleManager;
 

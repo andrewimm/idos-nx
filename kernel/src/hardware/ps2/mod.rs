@@ -1,10 +1,8 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::{
-    interrupts::pic::install_interrupt_handler,
-    memory::address::VirtualAddress,
-    sync::futex::futex_wake,
-    task::{actions::lifecycle::create_kernel_task, id::TaskID, switching::get_task},
+    interrupts::pic::install_interrupt_handler, memory::address::VirtualAddress,
+    sync::futex::futex_wake, task::actions::lifecycle::create_kernel_task,
 };
 
 pub mod controller;

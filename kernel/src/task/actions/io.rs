@@ -3,14 +3,10 @@ use core::sync::atomic::Ordering;
 use idos_api::io::{error::IOError, AsyncOp};
 
 use crate::{
-    io::{
-        async_io::{AsyncOpID, IOType, ASYNC_OP_CLOSE},
-        handle::Handle,
-        provider::{IOProvider, IOResult},
-    },
+    io::{async_io::ASYNC_OP_CLOSE, handle::Handle, provider::IOResult},
     memory::address::VirtualAddress,
     sync::futex::futex_wait,
-    task::{id::TaskID, switching::get_current_task},
+    task::switching::get_current_task,
 };
 
 /// Enqueue an IO operation for the specified handle. Progress can be tracked
@@ -53,14 +49,6 @@ pub fn append_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> R
     io_type.op_request(io_instance, op, wake_set);
 
     Ok(())
-}
-
-pub fn async_io_complete(
-    task_id: TaskID,
-    provider_index: u32,
-    op_id: AsyncOpID,
-    return_value: IOResult,
-) {
 }
 
 pub fn driver_io_complete(request_id: u32, return_value: IOResult) {

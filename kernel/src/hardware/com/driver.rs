@@ -37,7 +37,7 @@ pub fn run_driver() -> ! {
 
     let mut driver_impl = ComDeviceDriver::new(0x3f8);
 
-    let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
+    let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
     let _ = append_io_op(irq_handle, &interrupt_read, Some(wake_set));
     let mut message_read = AsyncOp::new(
         ASYNC_OP_READ,
@@ -52,7 +52,7 @@ pub fn run_driver() -> ! {
 
             driver_impl.init_read();
 
-            interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
+            interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
             let _ = append_io_op(irq_handle, &interrupt_read, Some(wake_set));
         } else if message_read.is_complete() {
             let sender = message_read.return_value.load(Ordering::SeqCst);

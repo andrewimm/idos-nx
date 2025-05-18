@@ -9,7 +9,6 @@ pub mod memory;
 pub mod sync;
 
 use crate::io::async_io::IOType;
-use crate::io::provider::IOProvider;
 
 use super::{id, messaging, switching};
 pub use switching::yield_coop;
@@ -32,7 +31,7 @@ pub fn send_message(to_id: id::TaskID, message: messaging::Message, expiration: 
             .receive_message(current_ticks, current_id, message, expiration);
 
         let message_provider = recipient.read().get_message_io_provider().clone();
-        if let Some((io_index, message_io)) = message_provider {
+        if let Some((_io_index, message_io)) = message_provider {
             match *message_io {
                 IOType::MessageQueue(ref io_provider) => {
                     io_provider.check_messages();

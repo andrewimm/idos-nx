@@ -1,18 +1,6 @@
 use alloc::sync::Arc;
 
-use super::yield_coop;
-use crate::{
-    io::handle::Handle,
-    memory::address::{PhysicalAddress, VirtualAddress},
-    sync::{
-        futex::{inject_watch_address, remove_watch_address},
-        wake_set::WakeSet,
-    },
-    task::{
-        id::TaskID,
-        switching::{get_current_task, get_task},
-    },
-};
+use crate::{io::handle::Handle, sync::wake_set::WakeSet, task::switching::get_current_task};
 
 pub fn create_wake_set() -> Handle {
     let wake_set = WakeSet::new();

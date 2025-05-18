@@ -14,8 +14,6 @@ use crate::task::actions::io::{
     close_sync, driver_io_complete, read_struct_sync, read_sync, write_sync,
 };
 use crate::task::actions::lifecycle::create_kernel_task;
-use crate::task::actions::send_message;
-use crate::task::id::TaskID;
 use crate::task::messaging::Message;
 
 fn run_driver() -> ! {
@@ -47,7 +45,7 @@ fn run_driver() -> ! {
     crate::kprintln!("DRIVER LOOP");
 
     loop {
-        if let Ok(sender) = read_struct_sync(messages, &mut incoming_message) {
+        if let Ok(_sender) = read_struct_sync(messages, &mut incoming_message) {
             let request_id = incoming_message.unique_id;
             match driver_impl.handle_request(incoming_message) {
                 Some(response) => driver_io_complete(request_id, response),

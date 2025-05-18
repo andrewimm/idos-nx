@@ -1,5 +1,3 @@
-use crate::memory::address::PhysicalAddress;
-
 #[repr(C, packed)]
 pub struct TableHeader {
     pub signature: [u8; 4],

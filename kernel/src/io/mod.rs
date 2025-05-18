@@ -9,7 +9,6 @@ pub mod provider;
 
 pub use idos_api::io::error::IOError;
 
-use crate::task::actions::lifecycle::create_kernel_task;
 use alloc::boxed::Box;
 
 pub fn init_async_io_system() {

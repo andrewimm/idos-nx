@@ -1,4 +1,4 @@
-use super::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
+use super::comms::{DriverCommand, IOResult};
 use crate::{
     files::stat::FileStatus,
     memory::{address::VirtualAddress, shared::release_buffer},

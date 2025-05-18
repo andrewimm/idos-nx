@@ -5,8 +5,6 @@ use alloc::vec::Vec;
 use crate::memory::address::VirtualAddress;
 use crate::sync::futex::futex_wait;
 use crate::task::actions::yield_coop;
-use crate::task::id::TaskID;
-use crate::task::switching::get_task;
 use crate::{collections::RingBuffer, console::wake_console_manager};
 
 use super::keyboard::{KeyboardState, OPEN_KEYBOARD_HANDLES};
@@ -20,8 +18,6 @@ pub static MOUSE_BUFFER: RingBuffer<u8> = RingBuffer::for_buffer(&MOUSE_BUFFER_R
 pub static DATA_READY: AtomicU32 = AtomicU32::new(0);
 
 pub fn ps2_driver_task() -> ! {
-    let mut ids_to_wake: Vec<TaskID> = Vec::new();
-
     let mut keyboard_bytes: Vec<u8> = Vec::new();
     let mut mouse_bytes: Vec<u8> = Vec::new();
 
@@ -65,7 +61,6 @@ pub fn ps2_driver_task() -> ! {
                         for byte in keyboard_bytes.iter() {
                             handle.unread.push(*byte);
                         }
-                        ids_to_wake.push(handle.reader_id);
                     }
                     break;
                 } else {
@@ -78,13 +73,6 @@ pub fn ps2_driver_task() -> ! {
         if mouse_bytes.len() > 0 {
             mouse_bytes.clear();
         }
-
-        for task in ids_to_wake.iter() {
-            if let Some(lock) = get_task(*task) {
-                //lock.write().io_complete();
-            }
-        }
-        ids_to_wake.clear();
 
         if wake_manager {
             wake_console_manager();

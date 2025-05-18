@@ -21,32 +21,6 @@ use spin::RwLock;
 static FUTEX_WATCH_LIST: RwLock<BTreeMap<PhysicalAddress, VecDeque<TaskID>>> =
     RwLock::new(BTreeMap::new());
 
-pub fn inject_watch_address(address: PhysicalAddress, task: TaskID) {
-    let mut watch_list = FUTEX_WATCH_LIST.write();
-    match watch_list.get_mut(&address) {
-        Some(set) => set.push_back(task),
-        None => {
-            let mut set = VecDeque::new();
-            set.push_back(task);
-            watch_list.insert(address, set);
-        }
-    }
-}
-
-pub fn remove_watch_address(address: PhysicalAddress, task: TaskID) {
-    let mut watch_list = FUTEX_WATCH_LIST.write();
-    let remove_set = match watch_list.get_mut(&address) {
-        Some(set) => {
-            set.retain(|id| *id != task);
-            set.is_empty()
-        }
-        None => return,
-    };
-    if remove_set {
-        watch_list.remove(&address);
-    }
-}
-
 /// Atomically checks if the value at `address` is still `value`. If it is,
 /// the current Task waits until being woken by `futex_wake`.
 /// In order for this to complete atomically, it must stop interrupts.

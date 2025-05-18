@@ -5,7 +5,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
 use super::stack::{SavedState, StackFrame};
-use crate::io::async_io::{AsyncOpID, IOType};
+use crate::io::async_io::IOType;
 use crate::io::provider::IOProvider;
 use crate::{
     hardware::pic::PIC,

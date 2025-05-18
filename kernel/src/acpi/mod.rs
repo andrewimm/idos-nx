@@ -5,7 +5,7 @@ pub mod table;
 
 use self::madt::{MADTEntryType, MADT};
 use self::sdt::SDTHeader;
-use self::table::{ACPITable, TableHeader};
+use self::table::TableHeader;
 use crate::memory::address::PhysicalAddress;
 
 pub fn init() {

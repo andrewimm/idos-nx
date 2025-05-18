@@ -2,7 +2,7 @@ use core::sync::atomic::Ordering;
 
 use crate::{
     collections::SlotList,
-    io::handle::{Handle, PendingHandleOp},
+    io::handle::Handle,
     net::udp::create_datagram,
     task::actions::{
         handle::create_file_handle,
@@ -119,7 +119,7 @@ impl RegisteredNetDevice {
     /// DHCP packets are sent to port 68, and are handled with the DHCP state on
     /// the current net device. Fetching the current IP is an async request, so
     /// DHCP resolution may also have an associated async waker.
-    pub fn handle_ip_packet(&mut self, src_mac: HardwareAddress, read_offset: usize) {
+    pub fn handle_ip_packet(&mut self, _src_mac: HardwareAddress, read_offset: usize) {
         let ip_header = IPV4Header::try_from_u8_buffer(&self.read_buffer[read_offset..]).unwrap();
         let payload_offset = read_offset + IPV4Header::get_size();
         let total_length = ip_header.total_length.to_be() as usize;
