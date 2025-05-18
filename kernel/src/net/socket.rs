@@ -288,9 +288,9 @@ pub fn socket_send(socket: SocketHandle, payload: &[u8]) -> Result<(), NetError>
         return Err(NetError::UnboundSocket);
     }
 
-    let dest_mac = resolve_mac_from_ip(dest_ip)?;
-
-    socket_send_inner(dest_mac, packet)
+    panic!("Need to resolve mac from IP");
+    //let dest_mac = resolve_mac_from_ip(dest_ip)?;
+    //socket_send_inner(dest_mac, packet)
 }
 
 pub fn handle_incoming_tcp(

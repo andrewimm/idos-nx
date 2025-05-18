@@ -50,15 +50,15 @@ pub fn remove_watch_address(address: PhysicalAddress, task: TaskID) {
 /// Atomically checks if the value at `address` is still `value`. If it is,
 /// the current Task waits until being woken by `futex_wake`.
 /// In order for this to complete atomically, it must stop interrupts.
-pub fn futex_wait(address: VirtualAddress, value: u32) {
+pub fn futex_wait(address: VirtualAddress, value: u32, timeout: Option<u32>) {
     // TODO: disable interrupts; critical section.
     {
-        futex_wait_inner(address, value);
+        futex_wait_inner(address, value, timeout);
     }
     yield_coop();
 }
 
-fn futex_wait_inner(address: VirtualAddress, value: u32) {
+fn futex_wait_inner(address: VirtualAddress, value: u32, timeout: Option<u32>) {
     let current_value = unsafe {
         let atomic = AtomicU32::from_ptr(address.as_ptr_mut::<u32>());
         atomic.load(Ordering::SeqCst)
@@ -86,7 +86,7 @@ fn futex_wait_inner(address: VirtualAddress, value: u32) {
 
     // All accesses to this structure must be in critical sections to avoid
     // deadlocks. Maybe we can clean this up in the future.
-    get_current_task().write().futex_wait(None);
+    get_current_task().write().futex_wait(timeout);
 }
 
 /// Wakes up to `count` number of Tasks that may be blocked by previous calls to
@@ -160,6 +160,6 @@ mod tests {
         message.args[0] = futex.as_ptr() as u32;
         send_message(child_id, message, 0xffffffff);
 
-        futex_wait(VirtualAddress::new(futex.as_ptr() as u32), 1);
+        futex_wait(VirtualAddress::new(futex.as_ptr() as u32), 1, None);
     }
 }

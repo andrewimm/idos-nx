@@ -12,8 +12,6 @@
 
 use core::arch::asm;
 
-use io::handle::Handle;
-
 extern crate alloc;
 
 pub mod acpi;
@@ -79,7 +77,7 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
-fn system_log(console_handle: Handle, message: &str) {
+fn system_log(console_handle: crate::io::handle::Handle, message: &str) {
     let _ = task::actions::io::write_sync(console_handle, message.as_bytes(), 0);
 }
 
@@ -161,8 +159,9 @@ fn init_system() -> ! {
         }
     }*/
 
+    let wake_set = task::actions::sync::create_wake_set();
     loop {
-        task::actions::lifecycle::wait_for_io(None);
+        task::actions::sync::block_on_wake_set(wake_set, None);
     }
 }
 

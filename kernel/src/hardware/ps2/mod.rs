@@ -2,6 +2,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::{
     interrupts::pic::install_interrupt_handler,
+    memory::address::VirtualAddress,
+    sync::futex::futex_wake,
     task::{actions::lifecycle::create_kernel_task, id::TaskID, switching::get_task},
 };
 
@@ -59,8 +61,6 @@ fn interrupt_handler(irq: u32) {
         return;
     }
 
-    let id = TaskID::new(DRIVER_ID.load(Ordering::SeqCst));
-    if let Some(lock) = get_task(id) {
-        lock.write().io_complete();
-    }
+    driver::DATA_READY.fetch_add(1, Ordering::SeqCst);
+    futex_wake(VirtualAddress::new(driver::DATA_READY.as_ptr() as u32), 1);
 }

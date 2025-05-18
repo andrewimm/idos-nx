@@ -30,5 +30,5 @@ pub fn block_on_wake_set(set_id: Handle, timeout: Option<u32>) {
             None => return,
         }
     };
-    wake_set_found.wait();
+    wake_set_found.wait(timeout);
 }

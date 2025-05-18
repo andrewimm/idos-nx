@@ -9,7 +9,6 @@
 
 use crate::task::actions::handle::create_file_handle;
 use crate::task::actions::io::{close_sync, open_sync, write_sync};
-use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::id::TaskID;
 use crate::task::switching::{get_current_id, get_task};
 use alloc::collections::{BTreeMap, BTreeSet};
@@ -191,6 +190,7 @@ pub fn send_arp_request(lookup_ip: IPV4Address) -> Result<(), NetError> {
     Ok(())
 }
 
+/*
 pub fn handle_arp_announcement(payload: &[u8]) {
     if payload.len() < ARPPacket::get_size() {
         crate::kprintln!("Invalid ARP packet");
@@ -209,6 +209,7 @@ pub fn handle_arp_announcement(payload: &[u8]) {
         }
     }
 }
+*/
 
 pub fn resolve_mac_from_ip(ip: IPV4Address) -> Result<HardwareAddress, NetError> {
     match TRANSLATIONS.read().get(&ip) {
@@ -233,7 +234,7 @@ pub fn resolve_mac_from_ip(ip: IPV4Address) -> Result<HardwareAddress, NetError>
     if let Some(cached) = TRANSLATIONS.read().get(&ip) {
         return Ok(*cached);
     }
-    wait_for_io(Some(5000));
+    //wait_for_io(Some(5000));
 
     match TRANSLATIONS.read().get(&ip) {
         Some(cached) => Ok(*cached),

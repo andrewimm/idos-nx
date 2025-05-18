@@ -116,7 +116,7 @@ pub fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) ->
     append_io_op(handle, &async_op, None).unwrap();
 
     while async_op.signal.load(Ordering::SeqCst) == 0 {
-        futex_wait(VirtualAddress::new(async_op.signal_address()), 0);
+        futex_wait(VirtualAddress::new(async_op.signal_address()), 0, None);
     }
 
     let return_value = async_op.return_value.load(Ordering::SeqCst);

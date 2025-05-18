@@ -228,10 +228,6 @@ impl Task {
         self.state = RunState::Blocked(timeout, BlockType::WaitForChild(id));
     }
 
-    pub fn wait_for_io(&mut self, timeout: Option<u32>) {
-        self.state = RunState::Blocked(timeout, BlockType::IO);
-    }
-
     /// Notify the task that a child task has terminated with an exit code
     pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
         /*match self.async_io_table.get_task_io(id) {
@@ -259,19 +255,9 @@ impl Task {
     }
 
     pub fn async_io_complete(&self, io_index: u32) -> Option<Arc<IOType>> {
-        crate::kprintln!("IO COMPLETE {}", io_index);
         self.async_io_table
             .get(io_index)
             .map(|entry| entry.io_type.clone())
-    }
-
-    pub fn io_complete(&mut self) {
-        match self.state {
-            RunState::Blocked(_, BlockType::IO) => {
-                self.state = RunState::Running;
-            }
-            _ => return,
-        }
     }
 
     pub fn futex_wait(&mut self, timeout: Option<u32>) {
@@ -442,7 +428,6 @@ impl core::fmt::Display for RunState {
             Self::Terminated => f.write_str("Term"),
             Self::Blocked(_, BlockType::Sleep) => f.write_str("Sleep"),
             Self::Blocked(_, BlockType::WaitForChild(_)) => f.write_str("WaitTask"),
-            Self::Blocked(_, BlockType::IO) => f.write_str("WaitIO"),
             Self::Blocked(_, BlockType::Futex) => f.write_str("FutexWait"),
         }
     }
@@ -456,8 +441,6 @@ pub enum BlockType {
     Sleep,
     /// The Task is waiting for a Child Task to return
     WaitForChild(TaskID),
-    /// The Task is blocked on async IO
-    IO,
 
     /// The task is blocked on a futex
     Futex,

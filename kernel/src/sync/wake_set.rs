@@ -21,10 +21,17 @@ impl WakeSet {
     }
 
     // Warning: Don't call this if you're holding the current task lock
-    pub fn wait(&self) {
+    pub fn wait(&self, timeout: Option<u32>) {
         // block while the signal is still zero
-        futex_wait(VirtualAddress::new(self.wake_signal.as_ptr() as u32), 0);
-        // on wake, it should be assumed the value is > 0
-        let _ = self.wake_signal.fetch_sub(1, Ordering::SeqCst);
+        futex_wait(
+            VirtualAddress::new(self.wake_signal.as_ptr() as u32),
+            0,
+            timeout,
+        );
+        // TODO: make this critical section
+        let prev = self.wake_signal.fetch_sub(1, Ordering::SeqCst);
+        if prev == 0 {
+            self.wake_signal.store(0, Ordering::SeqCst);
+        }
     }
 }

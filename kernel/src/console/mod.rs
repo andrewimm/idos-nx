@@ -5,8 +5,9 @@ use spin::RwLock;
 
 use crate::collections::RingBuffer;
 use crate::hardware::ps2::{keyboard::KeyAction, keycodes::KeyCode};
-use crate::memory::address::PhysicalAddress;
-use crate::task::actions::lifecycle::{create_kernel_task, wait_for_io};
+use crate::memory::address::{PhysicalAddress, VirtualAddress};
+use crate::sync::futex::{futex_wait, futex_wake};
+use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
@@ -35,13 +36,11 @@ pub fn get_console_manager_id() -> TaskID {
     TaskID::new(CONSOLE_MANAGER_TASK.load(Ordering::SeqCst))
 }
 
+static CONSOLE_SIGNAL: AtomicU32 = AtomicU32::new(0);
+
 pub fn wake_console_manager() {
-    let id = get_console_manager_id();
-    if let Some(lock) = get_task(id) {
-        if let Some(mut task) = lock.try_write() {
-            task.io_complete();
-        }
-    }
+    CONSOLE_SIGNAL.fetch_add(1, Ordering::SeqCst);
+    futex_wake(VirtualAddress::new(CONSOLE_SIGNAL.as_ptr() as u32), 1);
 }
 
 pub fn manager_task() -> ! {
@@ -75,7 +74,12 @@ pub fn manager_task() -> ! {
 
         conman.update_clock();
 
-        wait_for_io(Some(1000));
+        futex_wait(
+            VirtualAddress::new(CONSOLE_SIGNAL.as_ptr() as u32),
+            0,
+            Some(1000),
+        );
+        CONSOLE_SIGNAL.store(0, Ordering::SeqCst);
     }
 }
 

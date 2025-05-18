@@ -3,7 +3,6 @@ use spin::RwLock;
 
 use crate::collections::SlotList;
 use crate::io::IOError;
-use crate::task::actions::lifecycle::wait_for_io;
 use crate::task::id::TaskID;
 use crate::task::switching::get_current_id;
 
@@ -65,7 +64,7 @@ impl KeyboardDriver {
 
         let mut bytes_written = 0;
         while bytes_written < buffer.len() {
-            wait_for_io(None);
+            //wait_for_io(None);
             let written = self.get_unread_bytes(index, &mut buffer[bytes_written..])?;
             bytes_written += written;
         }

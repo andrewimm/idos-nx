@@ -83,12 +83,6 @@ pub fn wait_for_child(id: TaskID, timeout: Option<u32>) -> u32 {
     code
 }
 
-pub fn wait_for_io(timeout: Option<u32>) {
-    let current_lock = super::switching::get_current_task();
-    current_lock.write().wait_for_io(timeout);
-    yield_coop();
-}
-
 pub fn exception() {
     let cur_id = super::switching::get_current_id();
     crate::kprint!("EXCEPTION! {:?}\n", cur_id);
