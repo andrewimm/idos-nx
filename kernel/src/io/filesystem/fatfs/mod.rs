@@ -10,7 +10,9 @@ use super::install_task_fs;
 use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::handle::Handle;
 use crate::task::actions::handle::{create_pipe_handles, open_message_queue, transfer_handle};
-use crate::task::actions::io::{close_sync, read_struct_sync, read_sync, write_sync};
+use crate::task::actions::io::{
+    close_sync, driver_io_complete, read_struct_sync, read_sync, write_sync,
+};
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::send_message;
 use crate::task::id::TaskID;
@@ -46,8 +48,9 @@ fn run_driver() -> ! {
 
     loop {
         if let Ok(sender) = read_struct_sync(messages, &mut incoming_message) {
+            let request_id = incoming_message.unique_id;
             match driver_impl.handle_request(incoming_message) {
-                Some(response) => send_message(TaskID::new(sender), response, 0xffffffff),
+                Some(response) => driver_io_complete(request_id, response),
                 None => (),
             }
         }

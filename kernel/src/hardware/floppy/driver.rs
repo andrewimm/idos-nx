@@ -15,7 +15,7 @@ use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::task::actions::handle::{open_interrupt_handle, open_message_queue};
-use crate::task::actions::io::{append_io_op, close_sync, write_sync};
+use crate::task::actions::io::{append_io_op, close_sync, driver_io_complete, write_sync};
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::actions::{send_message, yield_coop};
@@ -451,7 +451,7 @@ async fn handle_driver_request(
         DriverCommand::OpenRaw => {
             let sub_driver = message.args[0];
             let response = driver_ref.borrow_mut().open(sub_driver);
-            send_response(respond_to, message.unique_id, response);
+            driver_io_complete(message.unique_id, response);
         }
         DriverCommand::Read => {
             let instance = message.args[0];
@@ -460,34 +460,8 @@ async fn handle_driver_request(
             let offset = message.args[3];
             let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
             let result = driver_ref.borrow_mut().read(instance, buffer, offset).await;
-            send_response(respond_to, message.unique_id, result);
+            driver_io_complete(message.unique_id, result);
         }
-        _ => send_response(
-            respond_to,
-            message.unique_id,
-            Err(IOError::UnsupportedOperation),
-        ),
+        _ => driver_io_complete(message.unique_id, Err(IOError::UnsupportedOperation)),
     }
-}
-
-fn send_response(task: TaskID, request_id: u32, result: IOResult) {
-    let message = match result {
-        Ok(result) => {
-            let code = result & 0x7fffffff;
-            Message {
-                message_type: DRIVER_RESPONSE_MAGIC,
-                unique_id: request_id,
-                args: [code, 0, 0, 0, 0, 0],
-            }
-        }
-        Err(err) => {
-            let code = Into::<u32>::into(err) | 0x80000000;
-            Message {
-                message_type: DRIVER_RESPONSE_MAGIC,
-                unique_id: request_id,
-                args: [code, 0, 0, 0, 0, 0],
-            }
-        }
-    };
-    send_message(task, message, 0xffffffff);
 }

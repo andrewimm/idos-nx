@@ -14,8 +14,8 @@ use idos_api::io::error::IOError;
 /// TODO: This should eventually get moved out into the SDK.
 #[allow(unused_variables)]
 pub trait AsyncDriver {
-    fn handle_request(&mut self, message: Message) -> Option<Message> {
-        let driver_result: Option<IOResult> = match DriverCommand::from_u32(message.message_type) {
+    fn handle_request(&mut self, message: Message) -> Option<IOResult> {
+        match DriverCommand::from_u32(message.message_type) {
             DriverCommand::Open => {
                 let path_ptr = message.args[0] as *const u8;
                 let path_len = message.args[1] as usize;
@@ -64,25 +64,6 @@ pub trait AsyncDriver {
                 crate::kprintln!("Async driver: Unknown Request");
                 None
             }
-        };
-        match driver_result {
-            Some(Ok(result)) => {
-                let code = result & 0x7fffffff;
-                Some(Message {
-                    message_type: DRIVER_RESPONSE_MAGIC,
-                    unique_id: message.unique_id,
-                    args: [code, 0, 0, 0, 0, 0],
-                })
-            }
-            Some(Err(err)) => {
-                let code = Into::<u32>::into(err) | 0x80000000;
-                Some(Message {
-                    message_type: DRIVER_RESPONSE_MAGIC,
-                    unique_id: message.unique_id,
-                    args: [code, 0, 0, 0, 0, 0],
-                })
-            }
-            None => None,
         }
     }
 

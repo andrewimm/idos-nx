@@ -88,6 +88,8 @@ pub mod sync_fs {
 }
 
 pub mod async_fs {
+    use crate::task::actions::io::driver_io_complete;
+
     use super::*;
 
     pub struct AsyncTestFS {
@@ -156,8 +158,9 @@ pub mod async_fs {
             op.submit_io();
             let sender = op.wait_for_completion();
 
+            let request_id = message.unique_id;
             match driver_impl.handle_request(message) {
-                Some(response) => send_message(TaskID::new(sender), response, 0xffffffff),
+                Some(response) => driver_io_complete(request_id, response),
                 None => continue,
             }
         }
@@ -165,6 +168,8 @@ pub mod async_fs {
 }
 
 pub mod async_dev {
+    use crate::task::actions::io::driver_io_complete;
+
     use super::*;
 
     pub struct AsyncTestDev {
@@ -232,8 +237,9 @@ pub mod async_dev {
             op.submit_io();
             let sender = op.wait_for_completion();
 
+            let request_id = message.unique_id;
             match driver_impl.handle_request(message) {
-                Some(response) => send_message(TaskID::new(sender), response, 0xffffffff),
+                Some(response) => driver_io_complete(request_id, response),
                 None => continue,
             }
         }

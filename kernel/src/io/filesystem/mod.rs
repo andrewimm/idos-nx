@@ -25,7 +25,7 @@ use self::devfs::DevFileSystem;
 use self::driver::{AsyncIOCallback, DriverID, DriverType, InstalledDriver};
 
 use super::driver::comms::{DriverIOAction, IOResult};
-use super::driver::io_task::send_async_request;
+use super::driver::pending::send_async_request;
 
 static INSTALLED_DRIVERS: RwLock<BTreeMap<u32, (String, DriverType)>> =
     RwLock::new(BTreeMap::new());

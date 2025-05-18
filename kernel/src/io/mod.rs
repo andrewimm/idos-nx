@@ -47,6 +47,4 @@ pub fn init_async_io_system() {
     }
 
     crate::pipes::driver::install();
-
-    create_kernel_task(self::driver::io_task::driver_io_task, Some("DRIVER IO"));
 }

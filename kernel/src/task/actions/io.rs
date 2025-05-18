@@ -63,6 +63,10 @@ pub fn async_io_complete(
 ) {
 }
 
+pub fn driver_io_complete(request_id: u32, return_value: IOResult) {
+    crate::io::driver::pending::request_complete(request_id, return_value);
+}
+
 pub fn open_sync(handle: Handle, path: &str) -> IOResult {
     use crate::io::async_io::ASYNC_OP_OPEN;
 
