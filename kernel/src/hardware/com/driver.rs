@@ -6,19 +6,17 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::collections::{BTreeMap, VecDeque};
-use idos_api::io::error::IOError;
+use idos_api::io::{error::IOError, AsyncOp, ASYNC_OP_READ};
 
 use crate::{
     io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC},
     task::{
         actions::{
-            handle::{
-                add_handle_to_notify_queue, create_notify_queue, handle_op_read,
-                handle_op_read_struct, handle_op_write, open_interrupt_handle, open_message_queue,
-                wait_on_notify,
-            },
+            handle::{open_interrupt_handle, open_message_queue},
+            io::{append_io_op, write_sync},
             lifecycle::create_kernel_task,
             send_message,
+            sync::{block_on_wake_set, create_wake_set},
         },
         id::TaskID,
         messaging::Message,
@@ -29,36 +27,46 @@ use super::serial::SerialPort;
 
 /// Main event loop of the COM driver
 pub fn run_driver() -> ! {
-    let messages = open_message_queue();
+    let messages_handle = open_message_queue();
     let mut incoming_message = Message::empty();
 
-    let interrupt = open_interrupt_handle(4);
+    let irq_handle = open_interrupt_handle(4);
     let mut interrupt_ready: [u8; 1] = [0];
 
-    // notify queue waits on both the hardware interrupt and messages from the
-    // filesystem to the driver. Either of these signals will wake the main
-    // loop.
-    let notify = create_notify_queue();
-    add_handle_to_notify_queue(notify, messages);
-    add_handle_to_notify_queue(notify, interrupt);
+    let wake_set = create_wake_set();
 
     let mut driver_impl = ComDeviceDriver::new(0x3f8);
 
-    let mut interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
-    let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
+    let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
+    let _ = append_io_op(irq_handle, &interrupt_read, Some(wake_set));
+    let mut message_read = AsyncOp::new(
+        ASYNC_OP_READ,
+        &mut incoming_message as *mut Message as u32,
+        core::mem::size_of::<Message>() as u32,
+        0,
+    );
+    let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
     loop {
         if interrupt_read.is_complete() {
-            handle_op_write(interrupt, &[1]).wait_for_completion();
+            let _ = write_sync(irq_handle, &[1], 0);
 
             driver_impl.init_read();
 
-            interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
-        } else if let Some(sender) = message_read.get_result() {
+            interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
+            let _ = append_io_op(irq_handle, &interrupt_read, Some(wake_set));
+        } else if message_read.is_complete() {
+            let sender = message_read.return_value.load(Ordering::SeqCst);
             driver_impl.handle_request(incoming_message, TaskID::new(sender));
 
-            message_read = handle_op_read_struct(messages, &mut incoming_message);
+            message_read = AsyncOp::new(
+                ASYNC_OP_READ,
+                &mut incoming_message as *mut Message as u32,
+                core::mem::size_of::<Message>() as u32,
+                0,
+            );
+            let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
         } else {
-            wait_on_notify(notify, None);
+            block_on_wake_set(wake_set, None);
         }
     }
 }
