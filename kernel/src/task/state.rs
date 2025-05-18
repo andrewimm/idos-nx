@@ -48,7 +48,7 @@ pub struct Task {
     /// Store Messages that have been sent to this task
     pub message_queue: MessageQueue,
     /// Store Wake Sets that have been allocated to this task
-    pub wake_sets: HandleTable<WakeSet>,
+    pub wake_sets: HandleTable<Arc<WakeSet>>,
 
     /// The name of the executable file running in the thread
     pub filename: String,

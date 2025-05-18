@@ -7,6 +7,7 @@ use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
 use crate::io::async_io::AsyncOpID;
 use crate::io::handle::Handle;
 use crate::task::id::TaskID;
+use crate::task::switching::get_current_id;
 
 /// Inner contents of the handle generated when a child task is spawned. This
 /// can be used to listen for status changes in the child task, such as when it
@@ -49,7 +50,8 @@ impl TaskIOProvider {
 impl IOProvider for TaskIOProvider {
     fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         let id = self.id_gen.next_id();
-        let unmapped = UnmappedAsyncOp::from_op(op, wake_set);
+        let unmapped =
+            UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
         if self.active.read().is_some() {
             self.pending_ops.push(id, unmapped);
             return id;

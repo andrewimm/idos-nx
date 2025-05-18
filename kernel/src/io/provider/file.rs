@@ -11,7 +11,10 @@ use crate::{
         },
         handle::Handle,
     },
-    task::id::{AtomicTaskID, TaskID},
+    task::{
+        id::{AtomicTaskID, TaskID},
+        switching::get_current_id,
+    },
 };
 use idos_api::io::{error::IOError, AsyncOp};
 use spin::Mutex;
@@ -64,7 +67,8 @@ impl FileIOProvider {
 impl IOProvider for FileIOProvider {
     fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         let id = self.id_gen.next_id();
-        let unmapped = UnmappedAsyncOp::from_op(op, wake_set);
+        let unmapped =
+            UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
         if self.active.lock().is_some() {
             self.pending_ops.push(id, unmapped);
             return id;
@@ -141,7 +145,6 @@ impl IOProvider for FileIOProvider {
             let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
             let read_offset = op.args[2];
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            crate::kprintln!("FILE READ {}", provider_index);
             return driver_read(
                 driver_id,
                 instance,
@@ -165,7 +168,6 @@ impl IOProvider for FileIOProvider {
             let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_len) };
             let write_offset = op.args[2];
             let driver_id: DriverID = self.driver_id.lock().unwrap();
-            crate::kprintln!("FILE WRITE {}", provider_index);
             return driver_write(
                 driver_id,
                 instance,

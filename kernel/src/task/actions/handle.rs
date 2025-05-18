@@ -554,25 +554,9 @@ mod tests {
         let path_len = path.len() as u32;
         let async_op = idos_api::io::AsyncOp::new(ASYNC_OP_OPEN, path_ptr, path_len, 0);
 
-        let task_lock = get_current_task();
-        {
-            let task_guard = task_lock.read();
-            let wake_set_found = task_guard.wake_sets.get(wake_set).unwrap();
-            // the wake set is currently empty
-            assert!(wake_set_found.is_empty());
-        }
-
         // running this will temporarily add the signal address to the wake set
         append_io_op(file_handle, &async_op, Some(wake_set)).unwrap();
         block_on_wake_set(wake_set, None);
-
-        {
-            let task_guard = task_lock.read();
-            let wake_set_found = task_guard.wake_sets.get(wake_set).unwrap();
-            // on completion, the wake set should once again be empty
-            assert!(wake_set_found.is_empty());
-        }
-
         assert!(async_op.is_complete());
     }
 

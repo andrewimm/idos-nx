@@ -9,6 +9,7 @@ use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
 use crate::interrupts::pic::{acknowledge_interrupt, is_interrupt_active};
 use crate::io::async_io::AsyncOpID;
 use crate::io::handle::Handle;
+use crate::task::switching::get_current_id;
 
 /// Inner contents of the handle used to read IPC messages.
 pub struct InterruptIOProvider {
@@ -34,7 +35,8 @@ impl InterruptIOProvider {
 impl IOProvider for InterruptIOProvider {
     fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         let id = self.id_gen.next_id();
-        let unmapped = UnmappedAsyncOp::from_op(op, wake_set);
+        let unmapped =
+            UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
         if self.active.read().is_some() {
             self.pending_ops.push(id, unmapped);
             return id;

@@ -50,23 +50,7 @@ pub fn append_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> R
         (io_instance, io.io_type.clone())
     };
 
-    // If a wake set is provided (and valid), temporarily add the op's signal
-    // to the wake set. This will be removed when the op is completed.
-    if let Some(ws_handle) = wake_set {
-        let mut task_guard = task_lock.write();
-        let wake_set_found = task_guard.wake_sets.get_mut(ws_handle).ok_or(())?;
-        wake_set_found.watch_address(VirtualAddress::new(op.signal_address()));
-    };
-
     io_type.op_request(io_instance, op, wake_set);
-
-    if let Some(ws_handle) = wake_set {
-        if op.is_complete() {
-            let mut task_guard = task_lock.write();
-            let wake_set_found = task_guard.wake_sets.get_mut(ws_handle).ok_or(())?;
-            wake_set_found.remove_address(VirtualAddress::new(op.signal_address()));
-        }
-    }
 
     Ok(())
 }

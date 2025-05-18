@@ -1,14 +1,18 @@
+use core::sync::atomic::Ordering;
+
 use crate::{
     collections::SlotList,
     io::handle::{Handle, PendingHandleOp},
     net::udp::create_datagram,
-    task::actions::handle::{
-        add_handle_to_notify_queue, create_file_handle, create_notify_queue, handle_op_open,
-        handle_op_read, handle_op_write, wait_on_notify,
+    task::actions::{
+        handle::create_file_handle,
+        io::{append_io_op, write_sync},
+        sync::{block_on_wake_set, create_wake_set},
     },
 };
 
-use alloc::{collections::VecDeque, string::String, vec::Vec};
+use alloc::{boxed::Box, collections::VecDeque, string::String, vec::Vec};
+use idos_api::io::{AsyncOp, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
 
 use super::{
     arp::{ARPPacket, ARPTable},
@@ -23,30 +27,39 @@ use spin::Mutex;
 
 struct RegisteredNetDevice {
     handle: Handle,
+    wake_set: Handle,
     mac: HardwareAddress,
     is_open: bool,
-    current_read: PendingHandleOp,
-    current_writes: VecDeque<PendingHandleOp>,
+    current_read: Box<AsyncOp>,
+    current_writes: VecDeque<Box<AsyncOp>>,
     read_buffer: Vec<u8>,
     arp_table: ARPTable,
     dhcp_state: DHCPState,
 }
 
 impl RegisteredNetDevice {
-    pub fn new(device_path: &str, mac: HardwareAddress, notify_queue: Handle) -> Self {
+    pub fn new(device_path: &str, mac: HardwareAddress, wake_set: Handle) -> Self {
         let handle = create_file_handle();
-        add_handle_to_notify_queue(notify_queue, handle);
 
         let mut read_buffer = Vec::with_capacity(1024);
         for _ in 0..1024 {
             read_buffer.push(0);
         }
 
+        let current_read = Box::new(AsyncOp::new(
+            ASYNC_OP_OPEN,
+            device_path.as_ptr() as u32,
+            device_path.len() as u32,
+            0,
+        ));
+        let _ = append_io_op(handle, &current_read, Some(wake_set));
+
         Self {
             handle,
+            wake_set,
             mac,
             is_open: false,
-            current_read: handle_op_open(handle, device_path),
+            current_read,
             current_writes: VecDeque::new(),
             read_buffer,
             arp_table: ARPTable::new(),
@@ -135,19 +148,27 @@ impl RegisteredNetDevice {
 
     /// Special handling for sending DHCP payloads through ethernet broadcasts.
     /// We don't open a true socket for DHCP navigation. We just fake it.
-    pub fn dhcp_broadcast(&self, payload: &[u8]) -> PendingHandleOp {
+    pub fn dhcp_broadcast(&self, payload: &[u8]) -> Box<AsyncOp> {
         let eth_header = EthernetFrameHeader::new_ipv4(self.mac, HardwareAddress::broadcast());
         let ip_packet =
             create_datagram(IPV4Address([0; 4]), 68, IPV4Address([255; 4]), 67, payload);
         self.send_raw(eth_header, &ip_packet)
     }
 
-    pub fn send_raw(&self, eth_header: EthernetFrameHeader, payload: &[u8]) -> PendingHandleOp {
+    pub fn send_raw(&self, eth_header: EthernetFrameHeader, payload: &[u8]) -> Box<AsyncOp> {
         let mut total_frame = Vec::with_capacity(EthernetFrameHeader::get_size() + payload.len());
         total_frame.extend_from_slice(eth_header.as_u8_buffer());
         total_frame.extend(payload);
 
-        handle_op_write(self.handle, &total_frame)
+        let async_op = Box::new(AsyncOp::new(
+            ASYNC_OP_WRITE,
+            total_frame.as_ptr() as u32,
+            total_frame.len() as u32,
+            0,
+        ));
+        let _ = append_io_op(self.handle, &async_op, Some(self.wake_set));
+
+        async_op
     }
 }
 
@@ -173,20 +194,16 @@ pub fn register_network_device(name: &str, mac: [u8; 6]) {
 }
 
 pub fn net_stack_resident() -> ! {
-    // this notify queue will be used to listen for all network devices
-    // each time a new network device is registered, it will be opened and the
-    // handle will be attached to this queue
-    let notify = create_notify_queue();
+    // this wake set will be used to listen for all network devices
+    // each time a new network device is registered, it will be passed in and
+    // the io operations will notify it
+    let wake_set = create_wake_set();
 
     let mut network_devices: SlotList<RegisteredNetDevice> = SlotList::new();
 
-    // TODO: move this out to an external call
-    //let my_mac = HardwareAddress([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
-    //network_devices.insert(RegisteredNetDevice::new("DEV:\\ETH", my_mac, notify));
-
     // let the init task know that the network stack is ready
     let response_writer = Handle::new(0);
-    handle_op_write(response_writer, &[1]).wait_for_completion();
+    let _ = write_sync(response_writer, &[1], 0);
 
     // each time a device is registered, open it and add its handle to the
     // notify queue
@@ -222,22 +239,39 @@ pub fn net_stack_resident() -> ! {
                 // reading from the device.
                 net_dev.is_open = true;
                 net_dev.init_dhcp();
-                net_dev.current_read = handle_op_read(net_dev.handle, &mut net_dev.read_buffer, 0);
+
+                net_dev.current_read = Box::new(AsyncOp::new(
+                    ASYNC_OP_READ,
+                    net_dev.read_buffer.as_mut_ptr() as u32,
+                    net_dev.read_buffer.len() as u32,
+                    0,
+                ));
+                let _ = append_io_op(net_dev.handle, &net_dev.current_read, Some(wake_set));
                 continue;
             }
             // if data is ready, inspect the packet
-            // TODO: Implement error handling
-            let len = net_dev.current_read.get_result().unwrap() as usize;
-            if len > 0 {
-                net_dev.process_read_buffer();
-
-                for i in 0..net_dev.read_buffer.len() {
-                    net_dev.read_buffer[i] = 0;
-                }
+            let read_result = net_dev.current_read.return_value.load(Ordering::SeqCst);
+            if read_result & 0x80000000 != 0 {
+                // TODO: implement error handling
             } else {
-                crate::kprintln!("NET RESPONSE ZERO LENGTH");
+                let len = read_result as usize & 0x7fffffff;
+                if len > 0 {
+                    net_dev.process_read_buffer();
+
+                    for i in 0..net_dev.read_buffer.len() {
+                        net_dev.read_buffer[i] = 0;
+                    }
+                } else {
+                    crate::kprintln!("NET RESPONSE ZERO LENGTH");
+                }
             }
-            net_dev.current_read = handle_op_read(net_dev.handle, &mut net_dev.read_buffer, 0);
+            net_dev.current_read = Box::new(AsyncOp::new(
+                ASYNC_OP_READ,
+                net_dev.read_buffer.as_mut_ptr() as u32,
+                net_dev.read_buffer.len() as u32,
+                0,
+            ));
+            let _ = append_io_op(net_dev.handle, &net_dev.current_read, Some(wake_set));
         }
 
         // check the task queue for external requests
@@ -249,7 +283,7 @@ pub fn net_stack_resident() -> ! {
             while let Some(req) = queue.pop_front() {
                 match req {
                     NetRequest::RegisterDevice(name, mac) => {
-                        network_devices.insert(RegisteredNetDevice::new(&name, mac, notify));
+                        network_devices.insert(RegisteredNetDevice::new(&name, mac, wake_set));
                     }
                     _ => {}
                 }
@@ -257,7 +291,7 @@ pub fn net_stack_resident() -> ! {
         }
 
         // block on notify queue
-        wait_on_notify(notify, Some(5000));
+        block_on_wake_set(wake_set, Some(5000));
     }
 }
 

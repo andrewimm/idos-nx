@@ -11,7 +11,7 @@ use crate::{
         id::TaskID,
         messaging::{Message, MessagePacket, MessageQueue},
         paging::get_current_physical_address,
-        switching::get_task,
+        switching::{get_current_id, get_task},
     },
 };
 use idos_api::io::AsyncOp;
@@ -96,7 +96,8 @@ impl IOProvider for MessageIOProvider {
             .expect("Tried to reference unmapped address");
 
         let id = self.id_gen.next_id();
-        let mut unmapped = UnmappedAsyncOp::from_op(op, wake_set);
+        let mut unmapped =
+            UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
         unmapped.args[0] = message_phys.as_u32();
         if self.active.read().is_some() {
             self.pending_ops.push(id, unmapped);

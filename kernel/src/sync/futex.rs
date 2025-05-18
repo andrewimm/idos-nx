@@ -105,28 +105,26 @@ pub fn futex_wake_inner(paddr: PhysicalAddress, count: u32) {
     if count == 0 {
         return;
     }
-    {
-        let mut watch_list = FUTEX_WATCH_LIST.write();
-        let remove_address = match watch_list.get_mut(&paddr) {
-            Some(set) => {
-                let mut to_wake = count;
-                while to_wake > 0 && !set.is_empty() {
-                    if let Some(wake_id) = set.pop_front() {
-                        if let Some(task) = get_task(wake_id) {
-                            task.write().futex_wake();
-                        }
+    let mut watch_list = FUTEX_WATCH_LIST.write();
+    let remove_address = match watch_list.get_mut(&paddr) {
+        Some(set) => {
+            let mut to_wake = count;
+            while to_wake > 0 && !set.is_empty() {
+                if let Some(wake_id) = set.pop_front() {
+                    if let Some(task) = get_task(wake_id) {
+                        task.write().futex_wake();
                     }
-                    to_wake -= 1;
                 }
-                // remove the set entirely if it's now empty
-                set.is_empty()
+                to_wake -= 1;
             }
-            None => return,
-        };
-
-        if remove_address {
-            watch_list.remove(&paddr);
+            // remove the set entirely if it's now empty
+            set.is_empty()
         }
+        None => return,
+    };
+
+    if remove_address {
+        watch_list.remove(&paddr);
     }
 }
 

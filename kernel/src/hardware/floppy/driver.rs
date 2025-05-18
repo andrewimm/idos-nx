@@ -22,7 +22,7 @@ use crate::task::actions::{send_message, yield_coop};
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::messaging::Message;
-use crate::task::paging::page_on_demand;
+use crate::task::paging::{get_current_physical_address, page_on_demand};
 use crate::task::switching::get_current_id;
 
 use super::controller::{Command, ControllerError, DriveSelect, DriveType, FloppyController};

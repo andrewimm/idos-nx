@@ -11,8 +11,9 @@ use crate::{
     },
     sync::futex::futex_wake_inner,
     task::{
-        actions::sync::remove_address_from_wake_set, id::TaskID,
+        id::TaskID,
         paging::get_current_physical_address,
+        switching::{get_current_task, get_task},
     },
 };
 
@@ -97,9 +98,6 @@ pub trait IOProvider {
             None => return,
         };
         active_op.complete(self.transform_result(active_op.op_code, result));
-        if let Some(ws_handle) = active_op.wake_set {
-            remove_address_from_wake_set(task_id, ws_handle, active_op.signal_address);
-        }
 
         loop {
             self.pop_queued_op();
@@ -109,9 +107,6 @@ pub trait IOProvider {
                     None => return,
                 };
                 active_op.complete(self.transform_result(active_op.op_code, res));
-                if let Some(ws_handle) = active_op.wake_set {
-                    remove_address_from_wake_set(task_id, ws_handle, active_op.signal_address);
-                }
             } else {
                 return;
             }
@@ -166,11 +161,11 @@ pub struct UnmappedAsyncOp {
     pub signal_address: PhysicalAddress,
     pub return_value_address: PhysicalAddress,
     pub args: [u32; 3],
-    pub wake_set: Option<Handle>,
+    pub wake_set: Option<(TaskID, Handle)>,
 }
 
 impl UnmappedAsyncOp {
-    pub fn from_op(op: &AsyncOp, wake_set: Option<Handle>) -> Self {
+    pub fn from_op(op: &AsyncOp, wake_set: Option<(TaskID, Handle)>) -> Self {
         let signal_vaddr = VirtualAddress::new(op.signal.as_ptr() as u32);
         let return_value_vaddr = VirtualAddress::new(op.return_value.as_ptr() as u32);
         let signal_paddr =
@@ -207,9 +202,15 @@ impl UnmappedAsyncOp {
             AtomicU32::from_ptr(ptr).store(1, Ordering::SeqCst);
         }
 
-        futex_wake_inner(unmapped_phys + signal_offset, 1);
+        futex_wake_inner(unmapped_phys + signal_offset, 0xffffffff);
 
-        if let Some(ws_handle) = self.wake_set {}
+        if let Some((task_id, ws_handle)) = self.wake_set {
+            let wake_set_found = get_task(task_id)
+                .and_then(|task_lock| task_lock.read().wake_sets.get(ws_handle).cloned());
+            if let Some(wake_set) = wake_set_found {
+                wake_set.wake();
+            }
+        }
     }
 }
 

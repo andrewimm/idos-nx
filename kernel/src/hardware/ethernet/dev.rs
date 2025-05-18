@@ -20,17 +20,18 @@ use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::shared::release_buffer;
 use crate::net::resident::register_network_device;
 use crate::task::actions::handle::{
-    add_handle_to_notify_queue, create_notify_queue, create_pipe_handles, handle_op_close,
-    handle_op_read, handle_op_read_struct, handle_op_write, open_interrupt_handle,
-    open_message_queue, transfer_handle, wait_on_notify,
+    create_pipe_handles, open_interrupt_handle, open_message_queue, transfer_handle,
 };
+use crate::task::actions::io::{append_io_op, close_sync, read_sync, write_sync};
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::send_message;
+use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::messaging::Message;
 use alloc::vec::Vec;
+use idos_api::io::{AsyncOp, ASYNC_OP_READ};
 
 use super::controller::E1000Controller;
 use super::driver::EthernetDriver;
@@ -108,7 +109,7 @@ fn run_driver() -> ! {
     let response_writer = Handle::new(1);
 
     let mut args: [u8; 3] = [0; 3];
-    handle_op_read(args_reader, &mut args, 0).wait_for_completion();
+    let _ = read_sync(args_reader, &mut args, 0);
     crate::kprintln!(
         "Install Ethernet driver for PCI device at {:x}:{:x}:{:x}",
         args[0],
@@ -147,18 +148,24 @@ fn run_driver() -> ! {
         panic!("No PCI IRQ");
     };
     let messages_handle = open_message_queue();
-    let notify = create_notify_queue();
-    add_handle_to_notify_queue(notify, interrupt_handle);
-    add_handle_to_notify_queue(notify, messages_handle);
+    let wake_set = create_wake_set();
 
     let mut incoming_message = Message::empty();
     let mut interrupt_ready: [u8; 1] = [0; 1];
-    let mut message_read = handle_op_read_struct(messages_handle, &mut incoming_message);
-    let mut interrupt_read = handle_op_read(interrupt_handle, &mut interrupt_ready, 0);
+
+    let mut message_read = AsyncOp::new(
+        ASYNC_OP_READ,
+        &mut incoming_message as *mut Message as u32,
+        core::mem::size_of::<Message>() as u32,
+        0,
+    );
+    append_io_op(messages_handle, &message_read, Some(wake_set));
+    let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
+    append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
 
     register_network_device("DEV:\\ETH", mac);
-    handle_op_write(response_writer, &[0]).wait_for_completion();
-    handle_op_close(response_writer).wait_for_completion();
+    let _ = write_sync(response_writer, &[0], 0);
+    let _ = close_sync(response_writer);
 
     loop {
         if interrupt_read.is_complete() {
@@ -178,17 +185,28 @@ fn run_driver() -> ! {
                     }
                 }
             }
-            handle_op_write(interrupt_handle, &[]).wait_for_completion();
-            interrupt_read = handle_op_read(interrupt_handle, &mut interrupt_ready, 0);
-        } else if let Some(sender) = message_read.get_result() {
+
+            let _ = write_sync(interrupt_handle, &[], 0);
+
+            interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
+            append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
+        } else if message_read.is_complete() {
+            let sender = message_read.return_value.load(Ordering::SeqCst);
             let sender_id = TaskID::new(sender);
             match driver_impl.handle_request(sender_id, incoming_message) {
                 Some(response) => send_response(sender_id, incoming_message.unique_id, response),
                 None => (),
             }
-            message_read = handle_op_read_struct(messages_handle, &mut incoming_message)
+
+            message_read = AsyncOp::new(
+                ASYNC_OP_READ,
+                &mut incoming_message as *mut Message as u32,
+                core::mem::size_of::<Message>() as u32,
+                0,
+            );
+            append_io_op(messages_handle, &message_read, Some(wake_set));
         } else {
-            wait_on_notify(notify, None);
+            block_on_wake_set(wake_set, None);
         }
     }
 }
@@ -237,9 +255,9 @@ pub fn install_driver() {
     transfer_handle(response_writer, driver_task);
 
     // send the PCI identifier to the driver
-    handle_op_write(args_writer, bus_addr).wait_for_completion();
+    let _ = write_sync(args_writer, bus_addr, 0);
     // wait for a response from the driver indicating initialization
-    handle_op_read(response_reader, &mut [0u8], 0).wait_for_completion();
+    let _ = read_sync(response_reader, &mut [0u8], 0);
 
     install_task_dev("ETH", driver_task, 0);
 }
