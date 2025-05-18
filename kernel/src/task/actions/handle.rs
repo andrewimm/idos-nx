@@ -1,7 +1,6 @@
 use crate::interrupts::pic::add_interrupt_listener;
 use crate::io::async_io::{IOType, ASYNC_OP_CLOSE};
 use crate::io::handle::{Handle, PendingHandleOp};
-use crate::io::notify::NotifyQueue;
 use crate::io::provider::file::FileIOProvider;
 use crate::io::provider::irq::InterruptIOProvider;
 use crate::io::provider::message::MessageIOProvider;
@@ -123,33 +122,6 @@ pub fn create_udp_socket() -> Handle {
     let io = IOType::Socket(SocketIOProvider::create_udp());
     let io_index = task.async_io_table.add_io(io);
     task.open_handles.insert(io_index)
-}
-
-pub fn create_notify_queue() -> Handle {
-    let task_lock = get_current_task();
-    let mut task = task_lock.write();
-    let queue = NotifyQueue::new();
-    task.notify_queues.insert(queue)
-}
-
-pub fn add_handle_to_notify_queue(queue: Handle, handle: Handle) {
-    let task_lock = get_current_task();
-    let mut task = task_lock.write();
-    let io_index = match task.open_handles.get(handle) {
-        Some(index) => *index,
-        None => return,
-    };
-
-    match task.notify_queues.get_mut(queue) {
-        Some(q) => q.add_listener(io_index),
-        None => (),
-    }
-}
-
-pub fn wait_on_notify(queue: Handle, timeout: Option<u32>) {
-    let task_lock = get_current_task();
-    task_lock.write().wait_on_notify_queue(queue, timeout);
-    yield_coop();
 }
 
 pub fn transfer_handle(handle: Handle, transfer_to: TaskID) -> Option<Handle> {
@@ -559,22 +531,6 @@ mod tests {
         block_on_wake_set(wake_set, None);
         assert!(async_op.is_complete());
     }
-
-    /*
-    #[test_case]
-    fn notify_queue() {
-        let queue = super::create_notify_queue();
-        let file = super::create_file_handle();
-        super::add_handle_to_notify_queue(queue, file);
-        let path = "ATEST:\\MYFILE.TXT";
-        let path_ptr = path.as_ptr() as u32;
-        let path_len = path.len() as u32;
-        let op = PendingHandleOp::new(file, ASYNC_OP_OPEN, path_ptr, path_len, 0);
-        super::wait_on_notify(queue, None);
-        assert!(op.is_complete());
-        assert_eq!(op.get_result(), Some(1));
-    }
-    */
 
     #[test_case]
     fn dup_file() {

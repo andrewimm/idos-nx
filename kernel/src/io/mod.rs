@@ -5,7 +5,6 @@ pub mod devices;
 pub mod driver;
 pub mod filesystem;
 pub mod handle;
-pub mod notify;
 pub mod provider;
 
 pub use idos_api::io::error::IOError;

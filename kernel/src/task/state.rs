@@ -1,7 +1,6 @@
 use crate::io::async_io::{AsyncIOTable, AsyncOpID, IOType};
 use crate::io::driver::comms::IOResult;
 use crate::io::handle::{Handle, HandleTable};
-use crate::io::notify::NotifyQueue;
 use crate::io::provider::IOProvider;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
@@ -59,8 +58,6 @@ pub struct Task {
     pub open_handles: HandleTable<u32>,
     /// Stores the actual active async IO objects
     pub async_io_table: AsyncIOTable,
-    /// The set of active notify queues, which can be used to wait on handles
-    pub notify_queues: HandleTable<NotifyQueue>,
 }
 
 impl Task {
@@ -81,7 +78,6 @@ impl Task {
             args: ExecArgs::new(),
             open_handles: HandleTable::new(),
             async_io_table: AsyncIOTable::new(),
-            notify_queues: HandleTable::new(),
         }
     }
 
@@ -259,46 +255,6 @@ impl Task {
         };
         if id == waiting_on {
             self.state = RunState::Resuming(exit_code);
-        }
-    }
-
-    pub fn wait_on_notify_queue(&mut self, handle: Handle, timeout: Option<u32>) {
-        match self.notify_queues.get_mut(handle) {
-            Some(queue) => {
-                if queue.is_ready() {
-                    return;
-                }
-            }
-            None => return,
-        }
-        self.state = RunState::Blocked(timeout, BlockType::Notify(handle));
-    }
-
-    pub fn io_action_notify(&mut self, io_index: u32) {
-        let waiting_on = match self.state {
-            RunState::Blocked(_, BlockType::Notify(handle)) => Some(handle),
-            _ => None,
-        };
-        for (index, queue) in self.notify_queues.iter_mut() {
-            if queue.contains(io_index) {
-                if waiting_on == Some(index) {
-                    self.state = RunState::Running;
-                } else {
-                    queue.mark_ready();
-                }
-            }
-        }
-        let waiting_on = match self.state {
-            RunState::Blocked(_, BlockType::Notify(handle)) => handle,
-            _ => return,
-        };
-        match self.notify_queues.get(waiting_on) {
-            Some(queue) => {
-                if queue.contains(io_index) {
-                    self.state = RunState::Running;
-                }
-            }
-            None => return,
         }
     }
 
@@ -487,7 +443,6 @@ impl core::fmt::Display for RunState {
             Self::Blocked(_, BlockType::Sleep) => f.write_str("Sleep"),
             Self::Blocked(_, BlockType::WaitForChild(_)) => f.write_str("WaitTask"),
             Self::Blocked(_, BlockType::IO) => f.write_str("WaitIO"),
-            Self::Blocked(_, BlockType::Notify(_)) => f.write_str("NotifyQueue"),
             Self::Blocked(_, BlockType::Futex) => f.write_str("FutexWait"),
         }
     }
@@ -503,9 +458,6 @@ pub enum BlockType {
     WaitForChild(TaskID),
     /// The Task is blocked on async IO
     IO,
-
-    /// The task is blocked on a notify queue
-    Notify(Handle),
 
     /// The task is blocked on a futex
     Futex,

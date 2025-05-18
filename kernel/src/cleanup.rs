@@ -1,9 +1,5 @@
 use crate::task::{
-    actions::{
-        handle::{add_handle_to_notify_queue, create_notify_queue, open_message_queue},
-        io::read_struct_sync,
-        send_message,
-    },
+    actions::{handle::open_message_queue, io::read_struct_sync, send_message},
     id::TaskID,
     messaging::Message,
 };
