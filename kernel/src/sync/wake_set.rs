@@ -1,4 +1,5 @@
 use crate::{
+    io::handle::HandleTable,
     memory::address::{PhysicalAddress, VirtualAddress},
     task::paging::get_current_physical_address,
 };
@@ -21,6 +22,10 @@ impl WakeSet {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.watched_addresses.is_empty()
+    }
+
     pub fn watch_address(&mut self, addr: VirtualAddress) {
         let paddr = match get_current_physical_address(addr) {
             Some(addr) => addr,
@@ -31,5 +36,16 @@ impl WakeSet {
 
     pub fn get_addresses(&self) -> Vec<PhysicalAddress> {
         self.watched_addresses.iter().copied().collect()
+    }
+
+    pub fn remove_address(&mut self, addr: VirtualAddress) {
+        match get_current_physical_address(addr) {
+            Some(paddr) => self.remove_physical_address(paddr),
+            None => (),
+        }
+    }
+
+    pub fn remove_physical_address(&mut self, addr: PhysicalAddress) {
+        self.watched_addresses.remove(&addr);
     }
 }

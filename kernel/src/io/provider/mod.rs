@@ -10,10 +10,16 @@ use crate::{
         virt::scratch::UnmappedPage,
     },
     sync::futex::futex_wake_inner,
-    task::paging::get_current_physical_address,
+    task::{
+        actions::sync::remove_address_from_wake_set, id::TaskID,
+        paging::get_current_physical_address,
+    },
 };
 
-use super::async_io::{AsyncOpID, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
+use super::{
+    async_io::{AsyncOpID, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE},
+    handle::Handle,
+};
 
 pub mod file;
 pub mod irq;
@@ -29,9 +35,12 @@ pub trait IOProvider {
     /// enqueue_op adds a new op to be handled. Many providers implement a
     /// single operation queue, but some may have multiple parallel queues if,
     /// say, reads should not block writes (as is the case with sockets).
+    /// The optional handle to a wake set is passed in as well. The provider is
+    /// responsible for making sure that the physical address of the op signal
+    /// is removed from the set when the op is completed.
     /// The method returns the unique ID of the enqueued op, which can be used
     /// to reference, complete, or cancel the op.
-    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp) -> AsyncOpID;
+    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID;
 
     fn get_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)>;
 
@@ -68,7 +77,13 @@ pub trait IOProvider {
     /// Then in a loop, pop a queued op and make it active. Then run the
     /// active op and if an immediate response is available, complete it
     /// before continuing the loop.
-    fn async_complete(&self, provider_index: u32, id: AsyncOpID, result: IOResult) {
+    fn async_complete(
+        &self,
+        task_id: TaskID,
+        provider_index: u32,
+        id: AsyncOpID,
+        result: IOResult,
+    ) {
         match self.get_active_op() {
             Some((active_id, _)) => {
                 if active_id != id {
@@ -82,6 +97,9 @@ pub trait IOProvider {
             None => return,
         };
         active_op.complete(self.transform_result(active_op.op_code, result));
+        if let Some(ws_handle) = active_op.wake_set {
+            remove_address_from_wake_set(task_id, ws_handle, active_op.signal_address);
+        }
 
         loop {
             self.pop_queued_op();
@@ -91,6 +109,9 @@ pub trait IOProvider {
                     None => return,
                 };
                 active_op.complete(self.transform_result(active_op.op_code, res));
+                if let Some(ws_handle) = active_op.wake_set {
+                    remove_address_from_wake_set(task_id, ws_handle, active_op.signal_address);
+                }
             } else {
                 return;
             }
@@ -145,10 +166,11 @@ pub struct UnmappedAsyncOp {
     pub signal_address: PhysicalAddress,
     pub return_value_address: PhysicalAddress,
     pub args: [u32; 3],
+    pub wake_set: Option<Handle>,
 }
 
 impl UnmappedAsyncOp {
-    pub fn from_op(op: &AsyncOp) -> Self {
+    pub fn from_op(op: &AsyncOp, wake_set: Option<Handle>) -> Self {
         let signal_vaddr = VirtualAddress::new(op.signal.as_ptr() as u32);
         let return_value_vaddr = VirtualAddress::new(op.return_value.as_ptr() as u32);
         let signal_paddr =
@@ -160,6 +182,7 @@ impl UnmappedAsyncOp {
             signal_address: signal_paddr,
             return_value_address: return_value_paddr,
             args: [op.args[0], op.args[1], op.args[2]],
+            wake_set,
         }
     }
 
@@ -185,6 +208,8 @@ impl UnmappedAsyncOp {
         }
 
         futex_wake_inner(unmapped_phys + signal_offset, 1);
+
+        if let Some(ws_handle) = self.wake_set {}
     }
 }
 

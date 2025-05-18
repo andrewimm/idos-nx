@@ -9,6 +9,7 @@ use crate::{
             driver::DriverID, driver_close, driver_open, driver_read, driver_stat, driver_write,
             get_driver_id_by_name,
         },
+        handle::Handle,
     },
     task::id::{AtomicTaskID, TaskID},
 };
@@ -61,9 +62,9 @@ impl FileIOProvider {
 }
 
 impl IOProvider for FileIOProvider {
-    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp) -> AsyncOpID {
+    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         let id = self.id_gen.next_id();
-        let unmapped = UnmappedAsyncOp::from_op(op);
+        let unmapped = UnmappedAsyncOp::from_op(op, wake_set);
         if self.active.lock().is_some() {
             self.pending_ops.push(id, unmapped);
             return id;

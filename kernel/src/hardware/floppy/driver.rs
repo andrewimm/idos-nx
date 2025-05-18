@@ -7,18 +7,17 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::{boxed::Box, task::Wake};
 use idos_api::io::error::IOError;
+use idos_api::io::{AsyncOp, ASYNC_OP_READ};
 
 use crate::hardware::dma::DmaChannelRegisters;
 use crate::io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
-use crate::task::actions::handle::{
-    add_handle_to_notify_queue, create_notify_queue, handle_op_close, handle_op_read,
-    handle_op_read_struct, handle_op_write, open_interrupt_handle, open_message_queue,
-    wait_on_notify,
-};
+use crate::task::actions::handle::{open_interrupt_handle, open_message_queue};
+use crate::task::actions::io::{append_io_op, close_sync, write_sync};
 use crate::task::actions::memory::map_memory;
+use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::actions::{send_message, yield_coop};
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
@@ -345,14 +344,6 @@ pub fn run_driver() -> ! {
     let task_id = get_current_id();
     crate::kprintln!("Install Floppy device driver ({:?})\n", task_id);
 
-    // run event loop
-    let messages = open_message_queue();
-    let mut incoming_message = Message::empty();
-    let interrupt = open_interrupt_handle(6);
-    let notify = create_notify_queue();
-    add_handle_to_notify_queue(notify, messages);
-    add_handle_to_notify_queue(notify, interrupt);
-
     let interrupt_flag: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     // I know this event loop won't create multiple mutable references, but the
     // borrow checker doesn't...
@@ -377,10 +368,6 @@ pub fn run_driver() -> ! {
         install_task_dev(dev_name.as_str(), task_id, sub_id);
     }
 
-    let mut interrupt_ready: [u8; 1] = [0];
-    let mut interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
-    let mut message_read = handle_op_read_struct(messages, &mut incoming_message);
-
     let init_request = async {
         match driver_impl.clone().borrow_mut().init().await {
             Ok(_) => (),
@@ -390,24 +377,49 @@ pub fn run_driver() -> ! {
         }
     };
 
-    handle_op_write(Handle::new(0), &[fd_count as u8]).wait_for_completion();
-    handle_op_close(Handle::new(0)).wait_for_completion();
+    let _ = write_sync(Handle::new(0), &[fd_count as u8], 0);
+    let _ = close_sync(Handle::new(0));
 
     // The first async action to run on the floppy controller should be
     // initialization
     let mut active_request: Option<DriverTask> = Some(DriverTask::new(init_request));
-
     let mut pending_requests: VecDeque<(TaskID, Message)> = VecDeque::new();
+
+    // run event loop
+    let messages = open_message_queue();
+    let floppy_irq = open_interrupt_handle(6);
+    let wake_set = create_wake_set();
+
+    let mut interrupt_ready: [u8; 1] = [0];
+    let mut incoming_message = Message::empty();
+    let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
+    append_io_op(floppy_irq, &interrupt_read, Some(wake_set));
+    let mut message_read = AsyncOp::new(
+        ASYNC_OP_READ,
+        &mut incoming_message as *mut Message as u32,
+        core::mem::size_of::<Message>() as u32,
+        0,
+    );
+    append_io_op(messages, &message_read, Some(wake_set));
 
     loop {
         if interrupt_read.is_complete() {
-            handle_op_write(interrupt, &[]).wait_for_completion();
+            // acknowledge interrupt
+            let _ = write_sync(floppy_irq, &[], 0);
             interrupt_flag.store(true, Ordering::SeqCst);
-            interrupt_read = handle_op_read(interrupt, &mut interrupt_ready, 0);
-        } else if let Some(sender) = message_read.get_result() {
+            interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_ptr() as u32, 1, 0);
+            append_io_op(floppy_irq, &interrupt_read, Some(wake_set));
+        } else if message_read.is_complete() {
+            let sender = message_read.return_value.load(Ordering::SeqCst);
             pending_requests.push_back((TaskID::new(sender), incoming_message.clone()));
 
-            message_read = handle_op_read_struct(messages, &mut incoming_message);
+            message_read = AsyncOp::new(
+                ASYNC_OP_READ,
+                &mut incoming_message as *mut Message as u32,
+                core::mem::size_of::<Message>() as u32,
+                0,
+            );
+            append_io_op(messages, &message_read, Some(wake_set));
         } else {
             if active_request.is_none() {
                 active_request = pending_requests.pop_front().map(|(sender, message)| {
@@ -425,7 +437,7 @@ pub fn run_driver() -> ! {
                     Poll::Pending => {}
                 }
             }
-            wait_on_notify(notify, None);
+            block_on_wake_set(wake_set, None);
         }
     }
 }

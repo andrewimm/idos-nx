@@ -235,7 +235,6 @@ impl Task {
     ) {
         self.message_queue
             .add(from, message, current_ticks, expiration_ticks);
-        self.handle_incoming_messages();
 
         match self.state {
             RunState::Blocked(_, BlockType::Message) => {
@@ -245,13 +244,8 @@ impl Task {
         }
     }
 
-    pub fn handle_incoming_messages(&mut self) {
-        if let Some(io_index) = self
-            .async_io_table
-            .handle_incoming_messages(&mut self.message_queue)
-        {
-            self.io_action_notify(io_index);
-        }
+    pub fn get_message_io_provider(&self) -> Option<(u32, Arc<IOType>)> {
+        self.async_io_table.get_message_io()
     }
 
     /// Wait for a child process with the specified ID to return
@@ -299,10 +293,6 @@ impl Task {
             None => return,
         }
         self.state = RunState::Blocked(timeout, BlockType::Notify(handle));
-    }
-
-    pub fn get_wake_set(&self, handle: Handle) -> Option<&WakeSet> {
-        self.wake_sets.get(handle)
     }
 
     pub fn io_action_notify(&mut self, io_index: u32) {

@@ -74,7 +74,7 @@ pub fn open_message_queue() -> Handle {
     let task_lock = get_current_task();
     let mut task = task_lock.write();
 
-    let io = IOType::MessageQueue(MessageIOProvider::new());
+    let io = IOType::MessageQueue(MessageIOProvider::for_task(task.id));
     let io_index = task.async_io_table.add_io(io);
     task.open_handles.insert(io_index)
 }
@@ -236,6 +236,10 @@ mod tests {
     use super::super::io::read_sync;
     use crate::io::async_io::{ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
     use crate::io::handle::PendingHandleOp;
+    use crate::memory::address::VirtualAddress;
+    use crate::task::actions::io::append_io_op;
+    use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
+    use crate::task::switching::get_current_task;
 
     #[test_case]
     fn wait_for_child() {
@@ -539,6 +543,37 @@ mod tests {
         let result = op2.wait_for_completion();
         assert_eq!(result, 4);
         assert_eq!(buffer, [b'A', b'B', b'C', b'D']);
+    }
+
+    #[test_case]
+    fn wake_set() {
+        let wake_set = create_wake_set();
+        let file_handle = super::create_file_handle();
+        let path = "ATEST:\\MYFILE.TXT";
+        let path_ptr = path.as_ptr() as u32;
+        let path_len = path.len() as u32;
+        let async_op = idos_api::io::AsyncOp::new(ASYNC_OP_OPEN, path_ptr, path_len, 0);
+
+        let task_lock = get_current_task();
+        {
+            let task_guard = task_lock.read();
+            let wake_set_found = task_guard.wake_sets.get(wake_set).unwrap();
+            // the wake set is currently empty
+            assert!(wake_set_found.is_empty());
+        }
+
+        // running this will temporarily add the signal address to the wake set
+        append_io_op(file_handle, &async_op, Some(wake_set)).unwrap();
+        block_on_wake_set(wake_set, None);
+
+        {
+            let task_guard = task_lock.read();
+            let wake_set_found = task_guard.wake_sets.get(wake_set).unwrap();
+            // on completion, the wake set should once again be empty
+            assert!(wake_set_found.is_empty());
+        }
+
+        assert!(async_op.is_complete());
     }
 
     /*

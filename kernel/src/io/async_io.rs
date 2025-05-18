@@ -16,9 +16,12 @@ use crate::{
     task::{id::TaskID, messaging::MessageQueue},
 };
 
-use super::provider::{
-    file::FileIOProvider, irq::InterruptIOProvider, message::MessageIOProvider,
-    socket::SocketIOProvider, task::TaskIOProvider, IOProvider,
+use super::{
+    handle::Handle,
+    provider::{
+        file::FileIOProvider, irq::InterruptIOProvider, message::MessageIOProvider,
+        socket::SocketIOProvider, task::TaskIOProvider, IOProvider,
+    },
 };
 
 pub enum IOType {
@@ -40,9 +43,9 @@ impl IOType {
         }
     }
 
-    pub fn op_request(&self, index: u32, op: &AsyncOp) -> AsyncOpID {
+    pub fn op_request(&self, index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         let provider = self.inner();
-        provider.enqueue_op(index, op)
+        provider.enqueue_op(index, op, wake_set)
     }
 
     pub fn set_task(&self, task: TaskID) {
@@ -163,20 +166,14 @@ impl AsyncIOTable {
         None
     }
 
-    /// convenience method for handling incoming IPC messages
-    /// We _explicitly_ don't support more than one Message Queue handle. Only
-    /// the first one, numerically, will receive any messages from the queue.
-    pub fn handle_incoming_messages(&mut self, messages: &mut MessageQueue) -> Option<u32> {
-        // TODO: Fill this with the actual current ticks
-        let current_ticks = 0;
-
-        for (io_index, entry) in self.inner.iter_mut() {
-            match *entry.io_type {
-                IOType::MessageQueue(ref io) => {
-                    io.check_message_queue(current_ticks, messages);
-                    return Some(*io_index);
-                }
-                _ => continue,
+    pub fn get_message_io(&self) -> Option<(u32, Arc<IOType>)> {
+        for (io_index, entry) in self.inner.iter() {
+            let matched = match *entry.io_type {
+                IOType::MessageQueue(_) => true,
+                _ => false,
+            };
+            if matched {
+                return Some((*io_index, entry.io_type.clone()));
             }
         }
         None

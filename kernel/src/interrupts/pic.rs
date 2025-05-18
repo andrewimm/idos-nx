@@ -210,7 +210,7 @@ pub fn notify_interrupt_listeners(irq: u8) {
                 Some(iotype) => match *iotype {
                     IOType::Interrupt(ref provider) => {
                         if let Some((op_id, _)) = provider.get_active_op() {
-                            provider.async_complete(*io_index, op_id, Ok(1));
+                            provider.async_complete(*id, *io_index, op_id, Ok(1));
                         }
                     }
                     _ => continue,

@@ -5,6 +5,7 @@ use spin::RwLock;
 
 use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
 use crate::io::async_io::AsyncOpID;
+use crate::io::handle::Handle;
 use crate::task::id::TaskID;
 
 /// Inner contents of the handle generated when a child task is spawned. This
@@ -35,20 +36,20 @@ impl TaskIOProvider {
         self.child_id == id
     }
 
-    pub fn task_exited(&self, provider_index: u32, code: u32) {
+    pub fn task_exited(&self, host_task: TaskID, provider_index: u32, code: u32) {
         self.exit_code.write().replace(code);
         let id = match *self.active.read() {
             Some((id, _)) => id,
             None => return,
         };
-        self.async_complete(provider_index, id, Ok(code));
+        self.async_complete(host_task, provider_index, id, Ok(code));
     }
 }
 
 impl IOProvider for TaskIOProvider {
-    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp) -> AsyncOpID {
+    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         let id = self.id_gen.next_id();
-        let unmapped = UnmappedAsyncOp::from_op(op);
+        let unmapped = UnmappedAsyncOp::from_op(op, wake_set);
         if self.active.read().is_some() {
             self.pending_ops.push(id, unmapped);
             return id;

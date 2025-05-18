@@ -102,6 +102,7 @@ pub fn driver_io_task() -> ! {
                         let io_entry = task_lock.read().async_io_complete(request.source_io);
                         if let Some(entry) = io_entry {
                             entry.inner().async_complete(
+                                request.source_task,
                                 request.source_io,
                                 request.source_op,
                                 return_value,

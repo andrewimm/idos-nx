@@ -310,7 +310,7 @@ impl PipeDriver {
             if let Some(entry) = io_entry {
                 entry
                     .inner()
-                    .async_complete(io_index, op_id, Ok(read as u32));
+                    .async_complete(task_id, io_index, op_id, Ok(read as u32));
             }
         }
         Some(Ok(written as u32))

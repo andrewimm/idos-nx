@@ -1,12 +1,15 @@
 use super::yield_coop;
 use crate::{
     io::handle::Handle,
-    memory::address::VirtualAddress,
+    memory::address::{PhysicalAddress, VirtualAddress},
     sync::{
         futex::{inject_watch_address, remove_watch_address},
         wake_set::WakeSet,
     },
-    task::switching::get_current_task,
+    task::{
+        id::TaskID,
+        switching::{get_current_task, get_task},
+    },
 };
 
 pub fn create_wake_set() -> Handle {
@@ -21,6 +24,18 @@ pub fn add_address_to_wake_set(set_id: Handle, address: VirtualAddress) {
     let mut current_task_guard = current_task_lock.write();
     match current_task_guard.wake_sets.get_mut(set_id) {
         Some(set) => set.watch_address(address),
+        None => (),
+    }
+}
+
+pub fn remove_address_from_wake_set(task: TaskID, set_id: Handle, address: PhysicalAddress) {
+    let task_lock = match get_task(task) {
+        Some(task) => task,
+        None => return,
+    };
+    let mut task_guard = task_lock.write();
+    match task_guard.wake_sets.get_mut(set_id) {
+        Some(set) => set.remove_physical_address(address),
         None => (),
     }
 }

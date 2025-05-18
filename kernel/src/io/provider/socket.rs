@@ -8,7 +8,7 @@
 use idos_api::io::{error::IOError, AsyncOp};
 
 use crate::{
-    io::async_io::AsyncOpID,
+    io::{async_io::AsyncOpID, handle::Handle},
     net::{
         ip::IPV4Address,
         socket::{bind_socket, create_socket, SocketHandle, SocketPort, SocketProtocol},
@@ -45,7 +45,7 @@ impl SocketIOProvider {
 }
 
 impl IOProvider for SocketIOProvider {
-    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp) -> AsyncOpID {
+    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         unimplemented!()
     }
 
