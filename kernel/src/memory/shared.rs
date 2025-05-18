@@ -239,9 +239,11 @@ mod tests {
     use super::{share_buffer, SharedMemoryRange};
     use crate::task::{
         actions::{
+            handle::open_message_queue,
+            io::read_struct_sync,
             lifecycle::{create_kernel_task, terminate, wait_for_child},
             memory::map_memory,
-            read_message_blocking, send_message,
+            send_message,
         },
         memory::MemoryBacking,
         messaging::Message,
@@ -254,9 +256,9 @@ mod tests {
     fn sharing_outside_kernel() {
         // code for secondary task
         fn outside_kernel_subtask() -> ! {
-            let (message_read, _) = read_message_blocking(None);
-            let packet = message_read.unwrap();
-            let (_, message) = packet.open();
+            let mut message = Message::empty();
+            let message_queue = open_message_queue();
+            let _ = read_struct_sync(message_queue, &mut message);
             let addr = message.args[0];
             let size = message.args[1] as usize;
             let mut buffer = unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, size) };

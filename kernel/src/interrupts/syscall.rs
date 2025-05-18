@@ -1,7 +1,7 @@
 use core::arch::global_asm;
 
 use crate::task::{
-    actions::{self, read_message_blocking, send_message},
+    actions::{self, send_message},
     id::TaskID,
     messaging::Message,
 };
@@ -95,24 +95,7 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
             let expiration = registers.edx;
             send_message(send_to, *message, expiration)
         }
-        0x04 => {
-            // receive message
-            let message_ptr = registers.ebx as *mut Message;
-            let timeout = match registers.ecx {
-                0xffffffff => None,
-                time => Some(time),
-            };
-            match read_message_blocking(timeout) {
-                (Some(packet), _) => {
-                    let (from, message) = packet.open();
-                    unsafe { core::ptr::write_volatile(message_ptr, message) };
-                    registers.eax = from.into();
-                }
-                (None, _) => {
-                    registers.eax = 0;
-                }
-            };
-        }
+        0x04 => {} // ???
         0x05 => {
             // sleep
             let duration = registers.ebx;

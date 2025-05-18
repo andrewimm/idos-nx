@@ -208,20 +208,6 @@ impl Task {
         self.message_queue.read(current_ticks)
     }
 
-    pub fn read_message_blocking(
-        &mut self,
-        current_ticks: u32,
-        timeout: Option<u32>,
-    ) -> (Option<MessagePacket>, bool) {
-        let (first_read, has_more) = self.message_queue.read(current_ticks);
-        if first_read.is_some() {
-            return (first_read, has_more);
-        }
-        // Nothing in the queue, block until something arrives
-        self.state = RunState::Blocked(timeout, BlockType::Message);
-        (None, false)
-    }
-
     /// Place a Message in this task's queue. If the task is currently blocked
     /// on reading the message queue, it will resume running.
     /// Each message is accompanied by an expiration time (in system ticks),
@@ -235,13 +221,6 @@ impl Task {
     ) {
         self.message_queue
             .add(from, message, current_ticks, expiration_ticks);
-
-        match self.state {
-            RunState::Blocked(_, BlockType::Message) => {
-                self.state = RunState::Running;
-            }
-            _ => (),
-        }
     }
 
     pub fn get_message_io_provider(&self) -> Option<(u32, Arc<IOType>)> {
@@ -328,34 +307,6 @@ impl Task {
         self.async_io_table
             .get(io_index)
             .map(|entry| entry.io_type.clone())
-        /*
-        if let Some(async_io) = self.async_io_table.get(io_index) {
-            async_io
-                .io_type
-                .inner()
-                .async_complete(io_index, op_id, return_value);
-        }
-        */
-        /*
-        let should_notify = match self.async_io_table.get(io_index) {
-            Some(async_io) => match *async_io.io_type {
-                IOType::File(ref fp) => {
-                    fp.complete_op(io_index, op_id, return_value);
-                    true
-                }
-                IOType::Interrupt(ref ip) => {
-                    ip.interrupt_notify();
-                    true
-                }
-                _ => false,
-            },
-            _ => false,
-        };
-
-        if should_notify {
-            self.io_action_notify(io_index);
-        }
-        */
     }
 
     pub fn io_complete(&mut self) {
@@ -534,7 +485,6 @@ impl core::fmt::Display for RunState {
             Self::Running | Self::Resuming(_) => f.write_str("Run"),
             Self::Terminated => f.write_str("Term"),
             Self::Blocked(_, BlockType::Sleep) => f.write_str("Sleep"),
-            Self::Blocked(_, BlockType::Message) => f.write_str("WaitMsg"),
             Self::Blocked(_, BlockType::WaitForChild(_)) => f.write_str("WaitTask"),
             Self::Blocked(_, BlockType::IO) => f.write_str("WaitIO"),
             Self::Blocked(_, BlockType::Notify(_)) => f.write_str("NotifyQueue"),
@@ -549,8 +499,6 @@ impl core::fmt::Display for RunState {
 pub enum BlockType {
     /// The Task is sleeping for a fixed period of time, stored in the timeout
     Sleep,
-    /// The Task is waiting for a Message from another task
-    Message,
     /// The Task is waiting for a Child Task to return
     WaitForChild(TaskID),
     /// The Task is blocked on async IO
