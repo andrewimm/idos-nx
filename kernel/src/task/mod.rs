@@ -26,13 +26,12 @@ mod tests {
 
     #[test_case]
     fn wait_for_child() {
-        let child_task =
-            super::actions::lifecycle::create_kernel_task(wait_for_child_inner, Some("CHILD"));
-        let result = super::actions::lifecycle::wait_for_child(child_task, None);
-        assert_eq!(result, 4);
-    }
-
-    fn wait_for_child_inner() -> ! {
-        super::actions::lifecycle::terminate(4);
+        fn wait_for_child_inner() -> ! {
+            super::actions::lifecycle::terminate(4);
+        }
+        let (child_handle, child_task) =
+            super::actions::handle::create_kernel_task(wait_for_child_inner, Some("CHILD"));
+        let result = super::actions::io::read_sync(child_handle, &mut [], 0);
+        assert_eq!(result, Ok(4));
     }
 }

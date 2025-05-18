@@ -53,9 +53,6 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
 
     let parent_task = super::switching::get_task(parent_id);
     if let Some(parent_lock) = parent_task {
-        // TODO: delete this once all uses of blocking on child are deleted
-        parent_lock.write().child_terminated(id, exit_code);
-
         let io_provider = parent_lock.read().async_io_table.get_task_io(id).clone();
         if let Some((io_index, provider)) = io_provider {
             if let IOType::ChildTask(ref io) = *provider {
@@ -73,14 +70,6 @@ pub fn terminate(exit_code: u32) -> ! {
     terminate_id(cur_id, exit_code);
     yield_coop();
     unreachable!("Task has terminated");
-}
-
-pub fn wait_for_child(id: TaskID, timeout: Option<u32>) -> u32 {
-    let current_lock = super::switching::get_current_task();
-    current_lock.write().wait_for_child(id, timeout);
-    yield_coop();
-    let code = current_lock.write().resume_from_wait();
-    code
 }
 
 pub fn exception() {

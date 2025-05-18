@@ -155,7 +155,6 @@ impl Task {
         match self.state {
             RunState::Initialized => true,
             RunState::Running => true,
-            RunState::Resuming(_) => true,
             _ => false,
         }
     }
@@ -223,37 +222,6 @@ impl Task {
         self.async_io_table.get_message_io()
     }
 
-    /// Wait for a child process with the specified ID to return
-    pub fn wait_for_child(&mut self, id: TaskID, timeout: Option<u32>) {
-        self.state = RunState::Blocked(timeout, BlockType::WaitForChild(id));
-    }
-
-    /// Notify the task that a child task has terminated with an exit code
-    pub fn child_terminated(&mut self, id: TaskID, exit_code: u32) {
-        /*match self.async_io_table.get_task_io(id) {
-            Some((io_index, mutex)) => {
-                let notify = if let IOType::ChildTask(ref io) = *mutex {
-                    io.task_exited(io_index, exit_code);
-                    true
-                } else {
-                    false
-                };
-                if notify {
-                    self.io_action_notify(io_index);
-                }
-            }
-            _ => (),
-        }*/
-
-        let waiting_on = match self.state {
-            RunState::Blocked(_, BlockType::WaitForChild(wait_id)) => wait_id,
-            _ => return,
-        };
-        if id == waiting_on {
-            self.state = RunState::Resuming(exit_code);
-        }
-    }
-
     pub fn async_io_complete(&self, io_index: u32) -> Option<Arc<IOType>> {
         self.async_io_table
             .get(io_index)
@@ -270,16 +238,6 @@ impl Task {
                 self.state = RunState::Running;
             }
             _ => (),
-        }
-    }
-
-    pub fn resume_from_wait(&mut self) -> u32 {
-        match self.state {
-            RunState::Resuming(code) => {
-                self.state = RunState::Running;
-                return code;
-            }
-            _ => 0,
         }
     }
 
@@ -415,8 +373,6 @@ pub enum RunState {
     Terminated,
     /// The Task is blocked on some condition, with an optional timeout
     Blocked(Option<u32>, BlockType),
-    /// The Task is resuming from a Blocked state with a return code
-    Resuming(u32),
 }
 
 impl core::fmt::Display for RunState {
@@ -424,10 +380,9 @@ impl core::fmt::Display for RunState {
         match self {
             Self::Uninitialized => f.write_str("Uninit"),
             Self::Initialized => f.write_str("Init"),
-            Self::Running | Self::Resuming(_) => f.write_str("Run"),
+            Self::Running => f.write_str("Run"),
             Self::Terminated => f.write_str("Term"),
             Self::Blocked(_, BlockType::Sleep) => f.write_str("Sleep"),
-            Self::Blocked(_, BlockType::WaitForChild(_)) => f.write_str("WaitTask"),
             Self::Blocked(_, BlockType::Futex) => f.write_str("FutexWait"),
         }
     }
@@ -439,8 +394,6 @@ impl core::fmt::Display for RunState {
 pub enum BlockType {
     /// The Task is sleeping for a fixed period of time, stored in the timeout
     Sleep,
-    /// The Task is waiting for a Child Task to return
-    WaitForChild(TaskID),
 
     /// The task is blocked on a futex
     Futex,

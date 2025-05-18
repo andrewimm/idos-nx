@@ -239,9 +239,9 @@ mod tests {
     use super::{share_buffer, SharedMemoryRange};
     use crate::task::{
         actions::{
-            handle::open_message_queue,
-            io::read_struct_sync,
-            lifecycle::{create_kernel_task, terminate, wait_for_child},
+            handle::{create_kernel_task, open_message_queue},
+            io::{read_struct_sync, read_sync},
+            lifecycle::terminate,
             memory::map_memory,
             send_message,
         },
@@ -281,16 +281,16 @@ mod tests {
             buffer[i] = 0;
         }
 
-        let child = create_kernel_task(outside_kernel_subtask, Some("CHILD"));
+        let (child_handle, child_id) = create_kernel_task(outside_kernel_subtask, Some("CHILD"));
 
-        let buffer_start = share_buffer(child, addr + 0xf00, buffer.len());
+        let buffer_start = share_buffer(child_id, addr + 0xf00, buffer.len());
 
         let mut msg = Message::empty();
         msg.args[0] = buffer_start.as_u32();
         msg.args[1] = buffer.len() as u32;
-        send_message(child, msg, 0xffffffff);
+        send_message(child_id, msg, 0xffffffff);
 
-        wait_for_child(child, None);
+        let _ = read_sync(child_handle, &mut [0u8], 0);
 
         for i in 0..10 {
             assert_eq!(buffer[i], i as u8);
