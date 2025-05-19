@@ -193,6 +193,12 @@ impl core::fmt::Debug for VirtualAddress {
     }
 }
 
+impl Default for VirtualAddress {
+    fn default() -> Self {
+        Self(0)
+    }
+}
+
 pub trait AddressRange<T>: RangeBounds<T>
 where
     T: MemoryAddress,

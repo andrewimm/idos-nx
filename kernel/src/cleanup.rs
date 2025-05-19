@@ -30,7 +30,7 @@ pub fn cleanup_resident() -> ! {
     let mut terminated: Vec<TaskID> = Vec::new();
 
     loop {
-        let _ = read_struct_sync(messages, &mut incoming_message);
+        let _ = read_struct_sync(messages, &mut incoming_message, 0);
 
         crate::task::switching::for_each_task_mut(|t| {
             let task = t.read();

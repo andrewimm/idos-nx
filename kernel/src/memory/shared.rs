@@ -258,7 +258,7 @@ mod tests {
         fn outside_kernel_subtask() -> ! {
             let mut message = Message::empty();
             let message_queue = open_message_queue();
-            let _ = read_struct_sync(message_queue, &mut message);
+            let _ = read_struct_sync(message_queue, &mut message, 0);
             let addr = message.args[0];
             let size = message.args[1] as usize;
             let mut buffer = unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, size) };

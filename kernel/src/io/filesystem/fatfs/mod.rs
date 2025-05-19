@@ -43,7 +43,7 @@ fn run_driver() -> ! {
     let _ = close_sync(response_writer);
 
     loop {
-        if let Ok(_sender) = read_struct_sync(messages, &mut incoming_message) {
+        if let Ok(_sender) = read_struct_sync(messages, &mut incoming_message, 0) {
             let request_id = incoming_message.unique_id;
             match driver_impl.handle_request(incoming_message) {
                 Some(response) => driver_io_complete(request_id, response),

@@ -114,18 +114,10 @@ fn init_system() -> ! {
 
     {
         // Loader test
-        use task::actions::send_message;
-        use task::messaging::Message;
+        let loader_id = loader::resident::get_loader_id();
 
-        let loader_id = loader::task::get_loader_id();
-
-        let load_path = "A:\\TEST.ELF";
-        let shared_addr = memory::shared::share_string(loader_id, load_path);
-
-        let mut req = Message::empty();
-        req.args[0] = shared_addr.as_u32();
-        req.args[1] = load_path.len() as u32;
-        send_message(loader_id, req, 0xffffffff);
+        let (child_handle, child_id) = task::actions::handle::create_task();
+        loader::load_executable(child_id, "A:\\ELFTEST.ELF");
     }
 
     /*{

@@ -24,6 +24,18 @@ pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> (Handle, 
     (handle, child)
 }
 
+pub fn create_task() -> (Handle, TaskID) {
+    let child = super::lifecycle::create_task();
+    let task_lock = get_current_task();
+    let mut task = task_lock.write();
+
+    let io = IOType::ChildTask(TaskIOProvider::for_task(child));
+    let io_index = task.async_io_table.add_io(io);
+    let handle = task.open_handles.insert(io_index);
+
+    (handle, child)
+}
+
 /*
 pub fn add_io_op(handle: Handle) -> Result<(), ()> {
     let task_lock = get_current_task();

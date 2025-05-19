@@ -71,12 +71,12 @@ pub fn read_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IOResult {
     io_sync(handle, ASYNC_OP_READ, buffer_ptr, buffer_len, offset)
 }
 
-pub fn read_struct_sync<T: Sized>(handle: Handle, struct_ref: &mut T) -> IOResult {
+pub fn read_struct_sync<T: Sized>(handle: Handle, struct_ref: &mut T, offset: u32) -> IOResult {
     use crate::io::async_io::ASYNC_OP_READ;
 
     let ptr = struct_ref as *mut T as u32;
     let len = core::mem::size_of::<T>() as u32;
-    io_sync(handle, ASYNC_OP_READ, ptr, len, 0)
+    io_sync(handle, ASYNC_OP_READ, ptr, len, offset)
 }
 
 pub fn write_sync(handle: Handle, buffer: &[u8], offset: u32) -> IOResult {

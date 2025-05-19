@@ -123,7 +123,7 @@ mod tests {
         fn waker_task() -> ! {
             let messages = open_message_queue();
             let mut message = Message::empty();
-            let _ = read_struct_sync(messages, &mut message);
+            let _ = read_struct_sync(messages, &mut message, 0);
 
             let vaddr = message.args[0];
             futex_wake(VirtualAddress::new(vaddr), 1);

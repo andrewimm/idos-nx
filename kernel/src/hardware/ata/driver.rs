@@ -127,7 +127,7 @@ pub fn run_driver() -> ! {
     let stdin = Handle::new(0);
     let mut args: [u16; 3] = [0; 3];
 
-    let _ = read_struct_sync(stdin, &mut args);
+    let _ = read_struct_sync(stdin, &mut args, 0);
     let driver_no = args[0];
     let base_port = args[1];
     let control_port = args[2];
@@ -167,7 +167,7 @@ pub fn run_driver() -> ! {
     let mut incoming_message = Message::empty();
 
     loop {
-        if let Ok(_sender) = read_struct_sync(messages, &mut incoming_message) {
+        if let Ok(_sender) = read_struct_sync(messages, &mut incoming_message, 0) {
             let request_id = incoming_message.unique_id;
             match driver_impl.handle_request(incoming_message) {
                 Some(result) => driver_io_complete(request_id, result),
