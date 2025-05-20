@@ -8,6 +8,7 @@ use idos_api::io::error::IOError;
 use spin::Once;
 
 use crate::io::handle::Handle;
+use crate::loader::environment::ExecutionEnvironment;
 use crate::loader::error::LoaderError;
 use crate::task::actions::handle::{create_file_handle, create_kernel_task};
 use crate::task::actions::io::{open_sync, read_struct_sync, read_sync};
@@ -24,14 +25,16 @@ fn loader_resident() -> ! {
         let incoming_request = REQUEST_QUEUE.wait_on_request();
         crate::kprintln!("Loader Request - Load \"{}\"", incoming_request.path);
 
-        let file_handle = match load_file(&incoming_request.path) {
+        let (file_handle, mut env) = match load_file(&incoming_request.path) {
             Ok(handle) => handle,
             Err(e) => continue,
         };
+
+        env.map_memory(incoming_request.task);
     }
 }
 
-fn load_file(path: &str) -> Result<Handle, LoaderError> {
+fn load_file(path: &str) -> Result<(Handle, ExecutionEnvironment), LoaderError> {
     let exec_handle = create_file_handle();
     let _ = open_sync(exec_handle, path).map_err(|e| match e {
         IOError::NotFound => LoaderError::FileNotFound,
@@ -52,17 +55,17 @@ fn load_file(path: &str) -> Result<Handle, LoaderError> {
     };
 
     crate::kprintln!("Loader Request - Executable loaded");
-    for segment in env.segments.iter() {
+    for segment in &env.segments {
         crate::kprintln!(
             "Segment: {} {:?} - {:?} ({:#x})",
-            if segment.can_write { "W" } else { "R" },
+            if segment.can_write() { "W" } else { "R" },
             segment.get_starting_address(),
             segment.get_starting_address() + segment.size_in_bytes(),
             segment.size_in_bytes()
         );
     }
 
-    Ok(exec_handle)
+    Ok((exec_handle, env))
 }
 
 struct Loader {}

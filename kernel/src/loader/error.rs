@@ -2,5 +2,6 @@
 pub enum LoaderError {
     FileNotFound,
     UnsupportedFileFormat,
+    SectionOutOfBounds,
     InternalError,
 }

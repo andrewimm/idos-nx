@@ -249,6 +249,51 @@ impl ExternalPageDirectory {
         }
     }
 
+    pub fn map(&self, vaddr: VirtualAddress, paddr: PhysicalAddress, flags: PermissionFlags) {
+        let dir_index = vaddr.get_page_directory_index();
+        let table_index = vaddr.get_page_table_index();
+
+        let (zero_frame, table_location) = {
+            let unmapped_page_dir = UnmappedPage::map(self.page_directory_location);
+            let page_dir = PageTable::at_address(unmapped_page_dir.virtual_address());
+            let dir_entry = page_dir.get_mut(dir_index);
+            let zero_frame = if !dir_entry.is_present() {
+                let frame_addr = allocate_frame().unwrap().to_physical_address();
+                dir_entry.set_address(frame_addr);
+                dir_entry.set_present();
+                if dir_index < 768 {
+                    dir_entry.set_user_access();
+                    dir_entry.set_write_access();
+                }
+                true
+            } else {
+                false
+            };
+            (zero_frame, dir_entry.get_address())
+        };
+
+        {
+            let unmapped_page_table = UnmappedPage::map(table_location);
+            let page_table = PageTable::at_address(unmapped_page_table.virtual_address());
+            if zero_frame {
+                // new page table should be zeroed out for safety
+                page_table.zero();
+            }
+            let table_entry = page_table.get_mut(table_index);
+            table_entry.set_address(paddr);
+            table_entry.set_present();
+            if flags.has_flag(PermissionFlags::USER_ACCESS) {
+                table_entry.set_user_access();
+            }
+            if flags.has_flag(PermissionFlags::WRITE_ACCESS) {
+                table_entry.set_write_access();
+            }
+            if flags.has_flag(PermissionFlags::NO_RECLAIM) {
+                table_entry.set_no_reclaim();
+            }
+        }
+    }
+
     pub fn unmap(&self, address: VirtualAddress) -> Option<PhysicalAddress> {
         crate::kprint!("Unmap {:?} for {:?}\n", address, self.id);
         let dir_index = address.get_page_directory_index();

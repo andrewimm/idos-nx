@@ -262,6 +262,7 @@ impl Task {
         }
     }
 
+    /*
     pub fn attach_executable(&mut self, env: ExecutionEnvironment) {
         let ExecutionEnvironment {
             registers,
@@ -319,6 +320,7 @@ impl Task {
         self.stack_push_u32(registers.ecx);
         self.stack_push_u32(registers.eax);
     }
+    */
 
     pub fn has_executable(&self) -> bool {
         false

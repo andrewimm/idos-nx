@@ -3,18 +3,14 @@ pub mod parse;
 
 use alloc::vec::Vec;
 
-use crate::{
-    io::handle::Handle,
-    memory::address::VirtualAddress,
-    task::memory::{ExecutionSection, ExecutionSegment},
-};
+use crate::{io::handle::Handle, memory::address::VirtualAddress};
 
 use self::headers::{
     ProgramHeader, SECTION_FLAG_ALLOC, SECTION_TYPE_NOBITS, SEGMENT_FLAG_WRITE, SEGMENT_TYPE_LOAD,
 };
 
 use super::{
-    environment::{ExecutionEnvironment, InitialRegisters},
+    environment::{ExecutionEnvironment, ExecutionSection, ExecutionSegment, InitialRegisters},
     error::LoaderError,
 };
 
@@ -32,21 +28,21 @@ pub fn build_environment(exec_handle: Handle) -> Result<ExecutionEnvironment, Lo
             let segment_end = program_header.virtual_address + program_header.memory_size;
             let address = segment_start.prev_page_barrier();
             let page_count = (segment_end.next_page_barrier() - address) / 0x1000;
-            let mut segment = ExecutionSegment::at_address(address, page_count).ok()?;
+            let mut segment = ExecutionSegment::at_address(address, page_count);
             segment.set_user_write_flag(program_header.flags & SEGMENT_FLAG_WRITE != 0);
             Some(segment)
         })
         .filter_map(|e| e)
         .collect();
 
-    for section_header in elf_tables.section_headers.iter() {
+    for section_header in &elf_tables.section_headers {
         // Only allocate memory for sections marked alloc
         if section_header.flags & SECTION_FLAG_ALLOC == 0 {
             continue;
         }
         let section_start = section_header.address;
 
-        for segment in segments.iter_mut() {
+        for segment in &mut segments {
             let segment_start = segment.get_starting_address();
             let segment_end = segment_start + segment.size_in_bytes();
             if segment_start <= section_start && segment_end > section_start {
@@ -56,13 +52,11 @@ pub fn build_environment(exec_handle: Handle) -> Result<ExecutionEnvironment, Lo
                 };
                 let section = ExecutionSection {
                     segment_offset: section_start - segment_start,
-                    executable_file_offset: offset,
                     size: section_header.file_size,
+                    source_location: offset,
                 };
 
-                segment
-                    .add_section(section)
-                    .map_err(|_| LoaderError::InternalError)?;
+                segment.add_section(section)?;
                 break;
             }
         }
@@ -73,17 +67,14 @@ pub fn build_environment(exec_handle: Handle) -> Result<ExecutionEnvironment, Lo
     let mut stack_segment = ExecutionSegment::at_address(
         VirtualAddress::new(0xc0000000 - stack_size_pages * 0x1000),
         stack_size_pages,
-    )
-    .map_err(|_| LoaderError::InternalError)?;
+    );
     stack_segment.set_user_write_flag(true);
     let stack_section = ExecutionSection {
         segment_offset: 0,
-        executable_file_offset: None,
         size: stack_size_pages * 0x1000,
+        source_location: None,
     };
-    stack_segment
-        .add_section(stack_section)
-        .map_err(|_| LoaderError::InternalError)?;
+    stack_segment.add_section(stack_section)?;
     segments.push(stack_segment);
 
     let relocations = Vec::new();
