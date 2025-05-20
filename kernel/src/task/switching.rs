@@ -154,7 +154,7 @@ pub fn clean_up_task(_id: TaskID) {
 /// though the call to the inner switch method never happened.
 pub fn switch_to(id: TaskID) {
     // Uncomment this to debug switching:
-    //crate::kprint!("    SWITCH TO {:?}\r\n", id);
+    //crate::kprintln!("    SWITCH TO {:?}", id);
 
     let current_sp_addr: u32 = {
         let current_lock = get_current_task();

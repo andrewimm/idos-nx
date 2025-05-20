@@ -1,10 +1,12 @@
 use crate::{
+    io::handle::Handle,
     memory::{
         address::{PhysicalAddress, VirtualAddress},
         physical::allocate_frame,
+        virt::scratch::UnmappedPage,
     },
     task::{
-        actions::memory::map_memory_for_task,
+        actions::{io::io_sync, memory::map_memory_for_task},
         id::TaskID,
         memory::MemoryBacking,
         paging::{ExternalPageDirectory, PermissionFlags},
@@ -12,6 +14,7 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
+use idos_api::io::ASYNC_OP_READ;
 
 use super::{error::LoaderError, relocation::Relocation};
 
@@ -29,7 +32,94 @@ impl ExecutionEnvironment {
         }
 
         let task_pagedir = get_task(task_id).unwrap().read().page_directory;
+        // TODO: store mappings on the task itself, so they can be unmapped on termination
         crate::kprintln!("LOADER - Memory Mapped. Pagedir at {:?}", task_pagedir);
+    }
+
+    pub fn fill_sections(&mut self, exec_handle: Handle) {
+        // TODO: if sections were guaranteed to be sorted earlier, we wouldn't
+        // be so inefficient!
+        for segment in &self.segments {
+            if segment.sections.is_empty() {
+                continue;
+            }
+            for current_page in 0..segment.size_in_pages {
+                let page_paddr = segment
+                    .physical_frames
+                    .get(current_page as usize)
+                    .cloned()
+                    .unwrap();
+                let unmapped_page = UnmappedPage::map(page_paddr);
+
+                let page_start_offset = current_page * 0x1000;
+                let page_end_offset = page_start_offset + 0x1000;
+                for section in &segment.sections {
+                    let section_end_offset = section.segment_offset + section.size;
+                    let overlap_start = page_start_offset.max(section.segment_offset);
+                    let overlap_end = page_end_offset.min(section_end_offset);
+
+                    if overlap_start >= overlap_end {
+                        continue;
+                    }
+                    // overlap_start..overlap_end is the range of the section
+                    // in the current page
+                    match section.source_location {
+                        Some(file_offset) => {
+                            let relative_offset = overlap_start - page_start_offset;
+                            let buffer_start = unmapped_page.virtual_address() + relative_offset;
+                            let buffer_len = overlap_end - overlap_start;
+
+                            crate::kprintln!(
+                                "  \\ Load from {:#X} in file to {:#X}",
+                                file_offset,
+                                buffer_start.as_u32(),
+                            );
+                            let _ = io_sync(
+                                exec_handle,
+                                ASYNC_OP_READ,
+                                buffer_start.as_u32(),
+                                buffer_len,
+                                file_offset,
+                            );
+                        }
+                        None => {
+                            // zero out contents?
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn set_registers(&self, task_id: TaskID) {
+        let flags = 0;
+
+        let task_lock = get_task(task_id).unwrap();
+        let esp_start = self.registers.esp.unwrap_or(0xc000_0000);
+        let esp = {
+            let task_guard = task_lock.read();
+            esp_start - task_guard.args.stack_size() as u32
+        };
+
+        let task_lock = get_task(task_id).unwrap();
+        let mut task_guard = task_lock.write();
+
+        task_guard.stack_push_u32(0); // GS
+        task_guard.stack_push_u32(0); // FS
+        task_guard.stack_push_u32(self.registers.es.unwrap_or(0x20 | 3));
+        task_guard.stack_push_u32(self.registers.ds.unwrap_or(0x20 | 3));
+        task_guard.stack_push_u32(self.registers.ss.unwrap_or(0x20 | 3));
+        task_guard.stack_push_u32(esp);
+        task_guard.stack_push_u32(flags);
+        task_guard.stack_push_u32(self.registers.cs.unwrap_or(0x18 | 3));
+        task_guard.stack_push_u32(self.registers.eip);
+        task_guard.stack_push_u32(self.registers.edi.unwrap_or(0));
+        task_guard.stack_push_u32(self.registers.esi.unwrap_or(0));
+        task_guard.stack_push_u32(self.registers.ebp.unwrap_or(0));
+        task_guard.stack_push_u32(self.registers.ebx.unwrap_or(0));
+        task_guard.stack_push_u32(self.registers.edx.unwrap_or(0));
+        task_guard.stack_push_u32(self.registers.ecx.unwrap_or(0));
+        task_guard.stack_push_u32(self.registers.eax.unwrap_or(0));
     }
 }
 

@@ -14,6 +14,7 @@ use crate::task::actions::handle::{create_file_handle, create_kernel_task};
 use crate::task::actions::io::{open_sync, read_struct_sync, read_sync};
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;
+use crate::task::switching::get_task;
 
 use super::request::RequestQueue;
 
@@ -31,6 +32,13 @@ fn loader_resident() -> ! {
         };
 
         env.map_memory(incoming_request.task);
+        env.fill_sections(file_handle);
+        env.set_registers(incoming_request.task);
+
+        get_task(incoming_request.task)
+            .unwrap()
+            .write()
+            .make_runnable();
     }
 }
 
