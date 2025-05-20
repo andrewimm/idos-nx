@@ -33,6 +33,7 @@ fn loader_resident() -> ! {
 
         env.map_memory(incoming_request.task);
         env.fill_sections(file_handle);
+        env.fill_stack(incoming_request.task);
         env.set_registers(incoming_request.task);
 
         get_task(incoming_request.task)

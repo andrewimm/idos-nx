@@ -1,9 +1,15 @@
 use core::arch::global_asm;
 
-use crate::task::{
-    actions::{self, send_message},
-    id::TaskID,
-    messaging::Message,
+use idos_api::io::AsyncOp;
+
+use crate::{
+    io::handle::Handle,
+    memory::address::VirtualAddress,
+    task::{
+        actions::{self, send_message},
+        id::TaskID,
+        messaging::Message,
+    },
 };
 
 use super::stack::StackFrame;
@@ -83,28 +89,160 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
             let code = registers.ebx;
             actions::lifecycle::terminate(code);
         }
-        0x01 => { // create task
+        0x01 => {
+            // yield coop
+            actions::yield_coop();
         }
-        0x02 => { // wait (single task or all)
+        0x02 => {
+            // sleep
+            let duration = registers.ebx;
+            actions::sleep(duration);
         }
         0x03 => {
+            // get current task id
+            let current = crate::task::switching::get_current_id();
+            registers.eax = current.into();
+        }
+        0x04 => {
+            // get parent task id
+            let current = crate::task::switching::get_current_id();
+            let parent = crate::task::switching::get_task(current)
+                .unwrap()
+                .read()
+                .parent_id;
+            registers.eax = parent.into();
+        }
+        0x05 => {
+            // add args
+            unimplemented!()
+        }
+        0x06 => {
+            // load executable
+            unimplemented!()
+        }
+
+        // IO Actions
+        0x10 => {
+            // submit async io op
+            let handle = Handle::new(registers.ebx as usize);
+            let op_ptr = registers.ecx as *const AsyncOp;
+            let op = unsafe { &*op_ptr };
+            let wake_set = match registers.edx {
+                0xffff_ffff => None,
+                edx => Some(Handle::new(registers.edx as usize)),
+            };
+            match actions::io::append_io_op(handle, op, wake_set) {
+                Ok(_) => registers.eax = 1,
+                Err(e) => registers.eax = 0x8000_0000,
+            }
+        }
+        0x11 => {
             // send message
             let send_to = TaskID::new(registers.ebx);
             let message_ptr = registers.ecx as *const Message;
             let message = unsafe { &*message_ptr };
             let expiration = registers.edx;
-            send_message(send_to, *message, expiration)
+            send_message(send_to, *message, expiration);
         }
-        0x04 => {} // ???
-        0x05 => {
-            // sleep
-            let duration = registers.ebx;
-            actions::sleep(duration);
+        0x12 => {
+            // driver io complete
+            unimplemented!()
         }
-        0x06 => {
-            // yield coop
-            actions::yield_coop();
+        0x13 => {
+            // futex wait
+            let address = VirtualAddress::new(registers.ebx);
+            let value = registers.ecx;
+            let timeout = match registers.edx {
+                0xffff_ffff => None,
+                edx => Some(edx),
+            };
+            crate::sync::futex::futex_wait(address, value, timeout)
         }
+        0x14 => {
+            // futex wake
+            let address = VirtualAddress::new(registers.ebx);
+            let count = registers.ecx;
+            crate::sync::futex::futex_wake(address, count)
+        }
+        0x15 => {
+            // create wake set
+            let handle = actions::sync::create_wake_set();
+            registers.eax = *handle as u32;
+        }
+        0x16 => {
+            // block on wake set
+            let handle = Handle::new(registers.ebx as usize);
+            let timeout = match registers.ecx {
+                0xffff_ffff => None,
+                edx => Some(edx),
+            };
+            actions::sync::block_on_wake_set(handle, timeout);
+        }
+
+        // handle actions
+        0x20 => {
+            // create task
+            let (handle, task_id) = actions::handle::create_task();
+            registers.eax = *handle as u32;
+            registers.ebx = task_id.into();
+        }
+        0x21 => {
+            // create message queue handle
+            let handle = actions::handle::open_message_queue();
+            registers.eax = *handle as u32;
+        }
+        0x22 => {
+            // create irq handle
+            let irq = registers.eax;
+            let handle = actions::handle::open_interrupt_handle(irq as u8);
+            registers.eax = *handle as u32;
+        }
+        0x23 => {
+            // create file handle
+            let handle = actions::handle::create_file_handle();
+            registers.eax = *handle as u32;
+        }
+        0x24 => {
+            // create pipe handles
+            let (read_handle, write_handle) = actions::handle::create_pipe_handles();
+            registers.eax = *read_handle as u32;
+            registers.ebx = *write_handle as u32;
+        }
+        0x25 => {
+            // create udp socket handle
+            unimplemented!()
+        }
+        0x26 => {
+            // create tcp socket handle
+            unimplemented!()
+        }
+
+        0x2a => {
+            // transfer handle
+            let handle = Handle::new(registers.eax as usize);
+            let task_id = TaskID::new(registers.ebx);
+            let result = actions::handle::transfer_handle(handle, task_id);
+            registers.eax = match result {
+                Some(handle) => *handle as u32,
+                None => 0xffff_ffff,
+            }
+        }
+        0x2b => {
+            // dup handle
+            let handle = Handle::new(registers.eax as usize);
+            let result = actions::handle::dup_handle(handle);
+            registers.eax = match result {
+                Some(handle) => *handle as u32,
+                None => 0xffff_ffff,
+            }
+        }
+
+        // memory actions
+        0x30 => {
+            // ???
+            unimplemented!()
+        }
+
         0xffff => {
             crate::kprint!("\n\nSyscall: DEBUG\n");
             registers.eax = 0;

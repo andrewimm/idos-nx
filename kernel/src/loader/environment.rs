@@ -91,6 +91,60 @@ impl ExecutionEnvironment {
         }
     }
 
+    pub fn fill_stack(&self, task_id: TaskID) {
+        // assume the last section of the last segment is the stack
+        // if that's no longer the case, we need to change this
+        let last_segment = self.segments.get(self.segments.len() - 1).unwrap();
+        let last_frame = last_segment
+            .physical_frames
+            .get(last_segment.physical_frames.len() - 1)
+            .cloned()
+            .unwrap();
+
+        let unmapped_stack_page = UnmappedPage::map(last_frame);
+        let raw_stack_buffer: &mut [u8] = unsafe {
+            core::slice::from_raw_parts_mut(
+                unmapped_stack_page.virtual_address().as_ptr_mut::<u8>(),
+                0x1000,
+            )
+        };
+        let raw_stack_buffer_32: &mut [u32] = unsafe {
+            core::slice::from_raw_parts_mut(
+                unmapped_stack_page.virtual_address().as_ptr_mut::<u32>(),
+                0x1000 / 4,
+            )
+        };
+
+        let task_lock = get_task(task_id).unwrap();
+        let task_guard = task_lock.read();
+        let args = task_guard.args.arg_string();
+        let mut args_start: usize = 0x1000 - args.len();
+        // make sure that the start of the arg string is 4-bytes aligned,
+        // so that all numbers below it on the stack are also aligned
+        let alignment_offset = args_start & 3;
+        if alignment_offset != 0 {
+            args_start = args_start - alignment_offset;
+        }
+        // copy raw arg strings
+        let args_slice = &mut raw_stack_buffer[args_start..(args_start + args.len())];
+        args_slice.copy_from_slice(&args);
+        // construct argv
+        let arg_lengths = task_guard.args.arg_lengths();
+        let arg_pointers_size = arg_lengths.len() * 4;
+        let arg_pointers_start = args_start - arg_pointers_size;
+        let mut arg_pointer_index = arg_pointers_start / 4;
+        let mut string_offset = 0;
+        for length in arg_lengths {
+            raw_stack_buffer_32[arg_pointer_index] =
+                0xbffff000 + (args_start as u32) + string_offset;
+            string_offset += length;
+            arg_pointer_index = arg_pointer_index + 1;
+        }
+        // construct argc
+        let arg_count_index = arg_pointers_start / 4 - 1;
+        raw_stack_buffer_32[arg_count_index] = task_guard.args.arg_count();
+    }
+
     pub fn set_registers(&self, task_id: TaskID) {
         let flags = 0;
 
