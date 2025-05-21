@@ -113,17 +113,8 @@ fn init_system() -> ! {
     }
 
     {
-        // Loader test
+        // this ensures the loader is up and running
         let loader_id = loader::resident::get_loader_id();
-
-        let (child_handle, child_id) = task::actions::handle::create_task();
-        let child_lock = task::switching::get_task(child_id).unwrap();
-        let mut child_guard = child_lock.write();
-        child_guard.push_arg("apples");
-        child_guard.push_arg("banana");
-        child_guard.push_arg("cherry");
-
-        loader::load_executable(child_id, "A:\\ELFTEST.ELF");
     }
 
     /*{

@@ -23,9 +23,7 @@ impl DiskAccess {
     pub fn new(mount: &str) -> Self {
         let mount_handle = create_file_handle();
 
-        crate::kprintln!("DISK OPEN {}", mount);
         open_sync(mount_handle, mount).unwrap();
-        crate::kprintln!("LETS GO");
 
         let buffer_size = 4096;
 

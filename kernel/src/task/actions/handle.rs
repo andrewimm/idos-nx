@@ -1,3 +1,5 @@
+use alloc::sync::Arc;
+
 use crate::interrupts::pic::add_interrupt_listener;
 use crate::io::async_io::{IOType, ASYNC_OP_CLOSE};
 use crate::io::handle::{Handle, PendingHandleOp};
@@ -147,12 +149,29 @@ pub fn transfer_handle(handle: Handle, transfer_to: TaskID) -> Option<Handle> {
             Some(io_entry) => {
                 // This was the only reference to this entry
                 // It can be modified and added to the destination task
+                match *io_entry {
+                    // open question: does transferring child handle make the new task the "parent"
+                    IOType::ChildTask(_) => unimplemented!(),
+                    IOType::File(ref file_io) => file_io.set_task(transfer_to),
+                    // this needs to register the new task as a listener to the irq, remove the current task
+                    IOType::Interrupt(_) => unimplemented!(),
+                    // message queue can't be transferred
+                    IOType::MessageQueue(_) => unimplemented!(),
+                    IOType::Socket(_) => unimplemented!(),
+                }
                 io_entry.set_task(transfer_to);
                 io_entry
             }
             None => {
-                panic!("Not implemented");
-                // TODO: entry needs to be duplicated
+                let entry = task.async_io_table.get(io_index).unwrap();
+                let dup = match *entry.io_type {
+                    IOType::File(ref file_io) => {
+                        let new_io = file_io.duplicate(transfer_to);
+                        IOType::File(new_io)
+                    }
+                    _ => unimplemented!(),
+                };
+                Arc::new(dup)
             }
         }
     };

@@ -191,12 +191,31 @@ fn drives(stdout: Handle) {
 }
 
 fn try_exec(
-    _stdin: Handle,
-    _stdout: Handle,
-    _name: &str,
-    _args: &Vec<String>,
+    stdin: Handle,
+    stdout: Handle,
+    name: &str,
+    args: &Vec<String>,
     _env: &Environment,
 ) -> bool {
+    let exec_handle = create_file_handle();
+    match open_sync(exec_handle, name) {
+        Ok(_) => {
+            let _ = close_sync(exec_handle);
+        }
+        Err(_) => return false,
+    }
+    let (child_handle, child_id) = crate::task::actions::handle::create_task();
+    crate::task::actions::lifecycle::add_args(child_id, args);
+
+    let stdin_dup = crate::task::actions::handle::dup_handle(stdin).unwrap();
+    let stdout_dup = crate::task::actions::handle::dup_handle(stdout).unwrap();
+
+    crate::loader::load_executable(child_id, name);
+
+    crate::task::actions::handle::transfer_handle(stdin_dup, child_id).unwrap();
+    crate::task::actions::handle::transfer_handle(stdout_dup, child_id).unwrap();
+
+    let _ = read_sync(child_handle, &mut [0u8], 0);
     /*
     match open_path(name) {
         Ok(handle) => {

@@ -77,3 +77,9 @@ impl AtomicTaskID {
         TaskID::new(self.0.load(order))
     }
 }
+
+impl Clone for AtomicTaskID {
+    fn clone(&self) -> Self {
+        Self(AtomicU32::new(self.0.load(Ordering::SeqCst)))
+    }
+}

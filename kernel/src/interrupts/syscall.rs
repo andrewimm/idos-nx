@@ -80,7 +80,7 @@ impl core::fmt::Debug for SavedRegisters {
 
 #[no_mangle]
 pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegisters) {
-    crate::kprint!("REG: {:?}\n", registers);
+    crate::kprint!("SYSCALL REG: {:?}\n", registers);
     let eax = registers.eax;
     match eax {
         // task lifecycle and interop

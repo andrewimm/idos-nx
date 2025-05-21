@@ -62,6 +62,20 @@ impl FileIOProvider {
     pub fn set_task(&self, source_id: TaskID) {
         let _ = self.source_id.swap(source_id, Ordering::SeqCst);
     }
+
+    // TODO: this isn't enough. Devices and other things need to handle
+    // this properly at the driver level, so that we can ref-count things and
+    // not free resources prematurely
+    pub fn duplicate(&self, new_task: TaskID) -> Self {
+        Self {
+            source_id: self.source_id.clone(),
+            driver_id: Mutex::new(self.driver_id.lock().clone()),
+            bound_instance: Mutex::new(self.bound_instance.lock().clone()),
+            active: Mutex::new(None),
+            id_gen: OpIdGenerator::new(),
+            pending_ops: AsyncOpQueue::new(),
+        }
+    }
 }
 
 impl IOProvider for FileIOProvider {

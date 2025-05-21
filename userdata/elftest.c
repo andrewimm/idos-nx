@@ -29,7 +29,9 @@ int write_sync(int handle, char *buffer, int len, int offset) {
     op.args[1] = len;
     op.args[2] = offset;
 
-    syscall(0x10, handle, (int) &op, -1);
+    if (syscall(0x10, handle, (int) &op, -1) == 0x80000000) {
+        return -1;
+    }
 
     while (atomic_load(&op.signal) == 0) {
         syscall(0x13, (int) &op.signal, 0, -1);
@@ -61,12 +63,6 @@ void terminate(int code) {
 }
 
 int main(int argc, char* argv[]) {
-  // temporary
-  int stdin = syscall(0x23, 0, 0, 0);
-  int stdout = syscall(0x23, 0, 0, 0);
-  char *dev_con = "DEV:\\CON1";
-  open_sync(stdout, dev_con, 9);
-
   char *label = "args: ";
   char *newline = "\n";
   write_sync(1, label, 6, 0);
@@ -79,6 +75,6 @@ int main(int argc, char* argv[]) {
     write_sync(1, arg_start, len, 0);
     write_sync(1, newline, 1, 0);
   }
-  sleep(5000);
+  sleep(3000);
   terminate(0);
 }

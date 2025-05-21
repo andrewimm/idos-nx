@@ -38,7 +38,6 @@ impl RequestQueue {
         };
 
         self.requests.write().push_back(req);
-
         self.request_count.fetch_add(1, Ordering::SeqCst);
         futex_wake(self.get_request_count_address(), 1);
     }
