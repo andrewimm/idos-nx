@@ -51,3 +51,5 @@ impl Into<u32> for IOError {
         self as u32
     }
 }
+
+pub type IOResult = Result<u32, IOError>;

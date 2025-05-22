@@ -3,7 +3,7 @@
 #![feature(lang_items)]
 
 pub mod allocator;
-pub mod driver;
+//pub mod driver;
 pub mod env;
 pub mod panic;
 
@@ -12,11 +12,12 @@ extern crate idos_api;
 
 use core::arch::global_asm;
 
-extern {
+extern "C" {
     fn main();
 }
 
-global_asm!(r#"
+global_asm!(
+    r#"
 .global _start
 
 _start:
@@ -25,7 +26,8 @@ _start:
     push esi
     push edi
     call sdk_start
-"#);
+"#
+);
 
 #[no_mangle]
 pub extern "C" fn sdk_start(argc: u32, argv: *const u32) {
@@ -37,4 +39,3 @@ pub extern "C" fn sdk_start(argc: u32, argv: *const u32) {
 
     idos_api::syscall::exec::terminate(0)
 }
-

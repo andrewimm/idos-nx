@@ -4,6 +4,8 @@ bootsector := build/mbr.bin
 bootbin := build/boot.bin
 kernel := build/kernel.bin
 
+command := target/i386-idos/release/command
+
 kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
 
 
@@ -31,10 +33,11 @@ $(userdata):
 	@mcopy -D o -i $(userdata) userdata/disk/*.* ::
 	@mcopy -D o -i $(userdata) userdata/static/*.* ::
 
-bootdisk: $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
+bootdisk: $(command) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
 	@mcopy -D o -i $(diskimage) $(bootbin) ::BOOT.BIN
 	@mcopy -D o -i $(diskimage) $(kernel) ::KERNEL.BIN
+	@mcopy -D o -i $(diskimage) $(command) ::COMMAND.ELF
 
 $(bootsector):
 	@mkdir -p $(shell dirname $@)
@@ -62,3 +65,7 @@ testkernel:
 	cp $$TEST_EXEC $(kernel)
 
 test: testkernel run
+
+$(command):
+	@cd components/programs/command && \
+	cargo build -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-idos.json

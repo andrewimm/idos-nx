@@ -1,6 +1,8 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 pub mod error;
+pub mod handle;
+pub mod sync;
 
 pub const ASYNC_OP_OPEN: u32 = 1;
 pub const ASYNC_OP_READ: u32 = 2;
