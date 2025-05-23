@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(alloc_error_handler)]
 #![feature(lang_items)]
+#![feature(strict_provenance_atomic_ptr)]
 
 pub mod allocator;
 //pub mod driver;

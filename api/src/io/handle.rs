@@ -1,3 +1,4 @@
+#[derive(Copy, Clone)]
 #[repr(transparent)]
 pub struct Handle(u32);
 

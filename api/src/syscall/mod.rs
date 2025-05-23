@@ -1,5 +1,6 @@
 pub mod exec;
 pub mod io;
+pub mod memory;
 
 use core::arch::asm;
 

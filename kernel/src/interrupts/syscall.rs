@@ -4,10 +4,11 @@ use idos_api::io::AsyncOp;
 
 use crate::{
     io::handle::Handle,
-    memory::address::VirtualAddress,
+    memory::address::{PhysicalAddress, VirtualAddress},
     task::{
-        actions::{self, send_message},
+        actions::{self, memory::map_memory, send_message},
         id::TaskID,
+        memory::MemoryBacking,
         messaging::Message,
     },
 };
@@ -239,8 +240,25 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
 
         // memory actions
         0x30 => {
-            // ???
-            unimplemented!()
+            // map memory
+            let address = match registers.ebx {
+                0xffff_ffff => None,
+                ebx => Some(VirtualAddress::new(ebx)),
+            };
+            let size = registers.ecx;
+            let backing = match registers.edx {
+                0xffff_ffff => MemoryBacking::Anonymous,
+                address => MemoryBacking::Direct(PhysicalAddress::new(address)),
+            };
+            match map_memory(address, size, backing) {
+                Ok(vaddr) => {
+                    registers.eax = vaddr.into();
+                }
+                Err(e) => {
+                    // TODO: we need error codes
+                    registers.eax = 0xffff_ffff;
+                }
+            }
         }
 
         0xffff => {
