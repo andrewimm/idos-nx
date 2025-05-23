@@ -29,7 +29,7 @@ impl Allocator {
         self.heap_end.store(heap_end, Ordering::Relaxed);
     }
 
-    pub fn reset(self) {
+    pub fn reset(&self) {
         let start = self.heap_start.load(Ordering::Relaxed);
         for i in 0..0x1000 {
             unsafe {
@@ -69,6 +69,10 @@ static ALLOC: Allocator = Allocator::new();
 
 pub fn init_allocator() {
     ALLOC.init();
+}
+
+pub fn reset() {
+    ALLOC.reset();
 }
 
 #[alloc_error_handler]

@@ -47,8 +47,9 @@ pub extern "x86-interrupt" fn bound_exceeded(_stack_frame: StackFrame) {
 }
 
 #[no_mangle]
-pub extern "x86-interrupt" fn invalid_opcode(_stack_frame: StackFrame) {
-    panic!("Invalid Opcode");
+pub extern "x86-interrupt" fn invalid_opcode(stack_frame: StackFrame) {
+    let eip = stack_frame.eip;
+    panic!("Invalid Opcode at {:#010X}", eip);
 }
 
 #[no_mangle]
@@ -104,9 +105,16 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
     }
     let eip = stack_frame.eip;
     let cur_id = get_current_id();
-    crate::kprint!("\nPage Fault ({:?}: {:#010X}) at {:#010X} ({:X})\n", cur_id, eip, address, error);
+    crate::kprint!(
+        "\nPage Fault ({:?}: {:#010X}) at {:#010X} ({:X})\n",
+        cur_id,
+        eip,
+        address,
+        error
+    );
 
-    if address >= 0xc0000000 { // Kernel region
+    if address >= 0xc0000000 {
+        // Kernel region
         if error & 4 == 4 {
             // Permission error - access attempt did not come from ring 0
             // This should segfault
@@ -115,10 +123,13 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
         }
         if error & 1 == 0 {
             // Page was not present
-            crate::kprint!("Attempted to reach unpaged kernel memory. Does heap need to be expanded?");
+            crate::kprint!(
+                "Attempted to reach unpaged kernel memory. Does heap need to be expanded?"
+            );
             loop {}
         }
-    } else { // User space
+    } else {
+        // User space
         if stack_frame.eflags & 0x20000 != 0 {
             // handle VM86 page faults separately
             if crate::dos::memory::handle_page_fault(&stack_frame, address) {
@@ -139,11 +150,9 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
             crate::kprint!("Write to page {:?}", cur_id);
         }
 
-        
         // All other cases (accessing an unmapped section, writing a read-only
         // segment, etc) should cause a segfault.
         crate::kprint!("SEGFAULT AT IP: {:#010X} (Access {:#010X})\n", eip, address);
     }
     crate::task::actions::lifecycle::terminate(0);
 }
-

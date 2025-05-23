@@ -64,7 +64,8 @@ impl ExecutionEnvironment {
                     // overlap_start..overlap_end is the range of the section
                     // in the current page
                     match section.source_location {
-                        Some(file_offset) => {
+                        Some(section_file_offset) => {
+                            let file_offset = section_file_offset.max(page_start_offset);
                             let relative_offset = overlap_start - page_start_offset;
                             let buffer_start = unmapped_page.virtual_address() + relative_offset;
                             let buffer_len = overlap_end - overlap_start;
