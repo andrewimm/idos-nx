@@ -34,6 +34,10 @@ impl Environment {
         &self.cwd[..self.cwd_length]
     }
 
+    pub fn cwd_string(&self) -> &str {
+        unsafe { core::str::from_utf8_unchecked(&self.cwd[..self.cwd_length]) }
+    }
+
     pub fn pushd(&mut self, dir_bytes: &[u8]) {
         if self.cwd_length + dir_bytes.len() + 1 < self.cwd.len() {
             self.cwd[self.cwd_length..self.cwd_length + dir_bytes.len()].copy_from_slice(dir_bytes);
@@ -66,8 +70,8 @@ impl Environment {
     }
 
     pub fn reset_drive(&mut self, drive: &[u8]) {
-        self.cwd.copy_from_slice(drive);
-        self.cwd[drive.len()] = b':';
+        self.cwd[..drive.len()].copy_from_slice(drive);
+        self.cwd[drive.len()] = b'\\';
         self.cwd_length = drive.len() + 1;
     }
 }
