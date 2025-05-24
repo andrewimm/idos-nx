@@ -22,8 +22,8 @@ impl Allocator {
     }
 
     pub fn init(&self) {
-        let heap_start = map_memory(None, 0x1000, None).unwrap() as *mut u8;
-        let heap_end = unsafe { heap_start.add(0x1000) };
+        let heap_start = map_memory(None, 0x2000, None).unwrap() as *mut u8;
+        let heap_end = unsafe { heap_start.add(0x2000) };
         self.heap_start.store(heap_start, Ordering::Relaxed);
         self.current_pointer.store(heap_start, Ordering::Relaxed);
         self.heap_end.store(heap_end, Ordering::Relaxed);

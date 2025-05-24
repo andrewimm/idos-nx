@@ -36,10 +36,10 @@ fn loader_resident() -> ! {
         env.fill_stack(incoming_request.task);
         env.set_registers(incoming_request.task);
 
-        get_task(incoming_request.task)
-            .unwrap()
-            .write()
-            .make_runnable();
+        let task_lock = get_task(incoming_request.task).unwrap();
+        let mut task = task_lock.write();
+        task.set_filename(&incoming_request.path);
+        task.make_runnable();
     }
 }
 

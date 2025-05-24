@@ -1,6 +1,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 pub mod error;
+pub mod file;
 pub mod handle;
 pub mod sync;
 
@@ -8,6 +9,8 @@ pub const ASYNC_OP_OPEN: u32 = 1;
 pub const ASYNC_OP_READ: u32 = 2;
 pub const ASYNC_OP_WRITE: u32 = 3;
 pub const ASYNC_OP_CLOSE: u32 = 4;
+
+pub const FILE_OP_STAT: u32 = 5;
 
 /// All async operations on handles are performed by passing an AsyncOp object
 /// to the kernel. The fields are used to determine which action to take.

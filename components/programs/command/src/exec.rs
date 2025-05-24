@@ -8,10 +8,18 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use idos_api::io::error::IOError;
-use idos_api::io::sync::{close_sync, open_sync, read_sync, write_sync};
+use idos_api::io::{
+    handle::{dup_handle, transfer_handle},
+    sync::{close_sync, open_sync, read_sync, write_sync},
+};
 use idos_api::syscall::io::create_file_handle;
 use idos_api::syscall::memory::map_memory;
+use idos_api::time::DateTime;
+use idos_api::{io::file::FileStatus, syscall::exec::create_task};
+use idos_api::{
+    io::{error::IOError, sync::io_sync, FILE_OP_STAT},
+    syscall::exec::load_executable,
+};
 
 static IO_BUFFER: AtomicPtr<u8> = AtomicPtr::new(0xffff_ffff as *mut u8);
 
@@ -43,12 +51,15 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
         CommandComponent::Executable(name, args) => match name.to_ascii_uppercase().as_str() {
             "CD" | "CHDIR" => cd(env, args),
             "DIR" => dir(env, args),
+            //"DRIVES" => drives(env),
             "TYPE" => type_file(env, args),
             _ => {
                 if is_drive(name.as_bytes()) {
                     let mut cd_args = Vec::new();
                     cd_args.push(String::from(name));
                     cd(env, &cd_args);
+                } else if try_exec(env, name, args) {
+                    // command ran successfully
                 } else {
                     let _ = write_sync(env.stdout, "Unknown command!\n".as_bytes(), 0);
                 }
@@ -158,6 +169,30 @@ fn dir(env: &Environment, args: &Vec<String>) {
     }
     let _ = close_sync(dir_handle);
 
+    for entry in entries.iter_mut() {
+        let stat_handle = create_file_handle();
+        let mut file_status = FileStatus::new();
+        let file_status_ptr = &mut file_status as *mut FileStatus;
+        let mut file_path = String::from(env.cwd_string());
+        file_path.push_str(entry.name.as_str());
+        match open_sync(stat_handle, file_path.as_str()) {
+            Ok(_) => {
+                let op = io_sync(
+                    stat_handle,
+                    FILE_OP_STAT,
+                    file_status_ptr as u32,
+                    core::mem::size_of::<FileStatus>() as u32,
+                    0,
+                );
+                entry.size = file_status.byte_size;
+                entry.mod_timestamp = file_status.modification_time;
+                entry.is_dir = file_status.file_type & 2 != 0;
+                let _ = close_sync(stat_handle);
+            }
+            Err(_) => {}
+        }
+    }
+
     for entry in entries.iter() {
         let mut row = String::from("");
         row.push_str(&entry.name);
@@ -169,10 +204,21 @@ fn dir(env: &Environment, args: &Vec<String>) {
         } else {
             row.push_str(&alloc::format!("{:>9} ", entry.size));
         }
-        //let datetime = DateTime::from_timestamp(Timestamp(entry.mod_timestamp));
-        //row.push_str(&datetime.date.to_string());
-        //row.push(' ');
-        //row.push_str(&datetime.time.to_string());
+        let datetime = DateTime::from_timestamp(entry.mod_timestamp);
+        let day = datetime.date.day;
+        let month = datetime.date.month;
+        let year = datetime.date.year;
+        row.push_str(&alloc::format!("{:02}-{:02}-{:04}", day, month, year));
+        row.push(' ');
+        let hours = datetime.time.hours;
+        let minutes = datetime.time.minutes;
+        let seconds = datetime.time.seconds;
+        row.push_str(&alloc::format!(
+            "{:02}:{:02}:{:02}",
+            hours,
+            minutes,
+            seconds,
+        ));
         row.push('\n');
 
         let _ = write_sync(env.stdout, row.as_bytes(), 0);
@@ -221,4 +267,29 @@ fn type_file_inner(env: &Environment, arg: &String) -> Result<(), ()> {
 
     let _ = close_sync(handle).map_err(|_| ())?;
     Ok(())
+}
+
+fn try_exec(env: &Environment, name: &String, args: &Vec<String>) -> bool {
+    let exec_handle = create_file_handle();
+    let exec_path = env.full_file_path(name);
+    match open_sync(exec_handle, exec_path.as_str()) {
+        Ok(_) => {
+            let _ = close_sync(exec_handle);
+        }
+        Err(_) => return false,
+    }
+    let (child_handle, child_id) = create_task();
+
+    //crate::task::actions::lifecycle::add_args(child_id, args);
+
+    let stdin_dup = dup_handle(env.stdin).unwrap();
+    let stdout_dup = dup_handle(env.stdout).unwrap();
+
+    load_executable(child_id, exec_path.as_str());
+
+    transfer_handle(stdin_dup, child_id).unwrap();
+    transfer_handle(stdout_dup, child_id).unwrap();
+
+    let _ = read_sync(child_handle, &mut [0u8], 0);
+    true
 }

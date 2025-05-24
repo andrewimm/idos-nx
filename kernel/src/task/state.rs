@@ -163,6 +163,10 @@ impl Task {
         }
     }
 
+    pub fn set_filename(&mut self, name: &String) {
+        self.filename.clone_from(name);
+    }
+
     /// End all execution of the task, and mark its resources as available for
     /// cleanup
     pub fn terminate(&mut self) {

@@ -10,6 +10,7 @@ use crate::{
         id::TaskID,
         memory::MemoryBacking,
         messaging::Message,
+        switching::get_task,
     },
 };
 
@@ -115,11 +116,28 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
         }
         0x05 => {
             // add args
-            unimplemented!()
+            let task_id = TaskID::new(registers.ebx);
+            match get_task(task_id) {
+                Some(task) => {
+                    registers.eax = 1;
+                }
+                None => {
+                    registers.eax = 0xffff_ffff;
+                }
+            }
         }
         0x06 => {
             // load executable
-            unimplemented!()
+            let task_id = TaskID::new(registers.ebx);
+            let path_ptr = registers.ecx as *const u8;
+            let path_len = registers.edx as usize;
+            let path = unsafe {
+                core::str::from_utf8_unchecked(core::slice::from_raw_parts(path_ptr, path_len))
+            };
+            match crate::loader::load_executable(task_id, path) {
+                Ok(_) => registers.eax = 1,
+                Err(_) => registers.eax = 0xffff_ffff,
+            }
         }
 
         // IO Actions
@@ -194,7 +212,7 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
         }
         0x22 => {
             // create irq handle
-            let irq = registers.eax;
+            let irq = registers.ebx;
             let handle = actions::handle::open_interrupt_handle(irq as u8);
             registers.eax = *handle as u32;
         }
@@ -220,8 +238,8 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
 
         0x2a => {
             // transfer handle
-            let handle = Handle::new(registers.eax as usize);
-            let task_id = TaskID::new(registers.ebx);
+            let handle = Handle::new(registers.ebx as usize);
+            let task_id = TaskID::new(registers.ecx);
             let result = actions::handle::transfer_handle(handle, task_id);
             registers.eax = match result {
                 Some(handle) => *handle as u32,
@@ -230,7 +248,7 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
         }
         0x2b => {
             // dup handle
-            let handle = Handle::new(registers.eax as usize);
+            let handle = Handle::new(registers.ebx as usize);
             let result = actions::handle::dup_handle(handle);
             registers.eax = match result {
                 Some(handle) => *handle as u32,
