@@ -65,7 +65,19 @@ impl ExecutionEnvironment {
                     // in the current page
                     match section.source_location {
                         Some(section_file_offset) => {
-                            let file_offset = section_file_offset.max(page_start_offset);
+                            // in the first page of the section, we start reading from file_offset
+                            let file_offset = if section.segment_offset > page_start_offset {
+                                section_file_offset
+                            } else {
+                                // in every other page of the section, we figure
+                                // out how many pages deep we are, and then
+                                // read from that same distance into the copy
+                                // in the file
+                                (section_file_offset & 0xffff_f000)
+                                    + (page_start_offset - section.segment_offset + 0x1000)
+                                    & 0xffff_f000
+                            };
+                            section_file_offset.max(page_start_offset);
                             let relative_offset = overlap_start - page_start_offset;
                             let buffer_start = unmapped_page.virtual_address() + relative_offset;
                             let buffer_len = overlap_end - overlap_start;

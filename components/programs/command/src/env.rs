@@ -1,6 +1,10 @@
+use idos_api::io::handle::Handle;
+
 pub struct Environment {
     cwd: [u8; 256],
     cwd_length: usize,
+    pub stdin: Handle,
+    pub stdout: Handle,
 }
 
 impl Environment {
@@ -12,6 +16,8 @@ impl Environment {
         Self {
             cwd,
             cwd_length: drive_bytes.len() + 1,
+            stdin: Handle::new(0),
+            stdout: Handle::new(1),
         }
     }
 
@@ -35,5 +41,33 @@ impl Environment {
             self.cwd[self.cwd_length] = b'\\';
             self.cwd_length += 1;
         }
+    }
+
+    pub fn popd(&mut self) {
+        if self.cwd_length < 2 {
+            return;
+        }
+        let mut i = self.cwd_length - 2;
+        while i > 0 && self.cwd[i] != b'\\' {
+            i -= 1;
+        }
+        if self.cwd[i] == b'\\' {
+            self.cwd_length = i + 1;
+        }
+    }
+
+    pub fn pop_to_root(&mut self) {
+        for i in 0..self.cwd_length {
+            if self.cwd[i] == b'\\' {
+                self.cwd_length = i + 1;
+                return;
+            }
+        }
+    }
+
+    pub fn reset_drive(&mut self, drive: &[u8]) {
+        self.cwd.copy_from_slice(drive);
+        self.cwd[drive.len()] = b':';
+        self.cwd_length = drive.len() + 1;
     }
 }

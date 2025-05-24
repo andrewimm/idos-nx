@@ -3,6 +3,10 @@ use crate::io::AsyncOp;
 
 use super::syscall;
 
+pub fn create_file_handle() -> Handle {
+    Handle::new(syscall(0x23, 0, 0, 0))
+}
+
 pub fn append_io_op(handle: Handle, async_op: &AsyncOp, wait_set: Option<Handle>) -> u32 {
     syscall(
         0x10,
