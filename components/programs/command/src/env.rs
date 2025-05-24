@@ -1,5 +1,7 @@
 use idos_api::io::handle::Handle;
 
+use alloc::string::String;
+
 pub struct Environment {
     cwd: [u8; 256],
     cwd_length: usize,
@@ -73,5 +75,38 @@ impl Environment {
         self.cwd[..drive.len()].copy_from_slice(drive);
         self.cwd[drive.len()] = b'\\';
         self.cwd_length = drive.len() + 1;
+    }
+
+    pub fn full_file_path(&self, file: &String) -> String {
+        // check if path is absolute, if so, return it as is
+        let mut full_path = String::from(self.cwd_string());
+        let mut split_iter = file.split('\\');
+        loop {
+            match split_iter.next() {
+                Some(chunk) => match chunk {
+                    "." => continue,
+                    ".." => {
+                        if full_path.len() < 2 {
+                            continue;
+                        }
+                        let _ = full_path.pop();
+                        while !full_path.ends_with('\\') && !full_path.ends_with(':') {
+                            let _ = full_path.pop();
+                        }
+                        if full_path.ends_with(':') {
+                            full_path.push('\\');
+                        }
+                    }
+                    dir => {
+                        if !dir.is_empty() {
+                            full_path.push_str(dir);
+                            full_path.push('\\');
+                        }
+                    }
+                },
+                None => break,
+            }
+        }
+        full_path
     }
 }

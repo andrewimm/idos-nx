@@ -198,8 +198,8 @@ fn type_file(env: &Environment, args: &Vec<String>) {
 
 fn type_file_inner(env: &Environment, arg: &String) -> Result<(), ()> {
     let handle = create_file_handle();
-    // TODO: handle relative and absolute paths
-    let _ = open_sync(handle, arg.as_str()).map_err(|_| ());
+    let file_path = env.full_file_path(arg);
+    let _ = open_sync(handle, file_path.as_str()).map_err(|_| ());
     let mut read_offset = 0;
 
     let buffer = get_io_buffer();
