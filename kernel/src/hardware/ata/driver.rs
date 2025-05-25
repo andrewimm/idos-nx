@@ -1,12 +1,16 @@
-use super::controller::{AtaController, DriveSelect, SECTOR_SIZE};
+use super::controller::{AtaChannel, DriveSelect, SECTOR_SIZE};
+use crate::hardware::pci::devices::PciDevice;
 use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::driver::comms::IOResult;
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::io::IOError;
+use crate::task::actions::handle::open_interrupt_handle;
 use crate::task::actions::handle::open_message_queue;
+use crate::task::actions::io::close_sync;
 use crate::task::actions::io::driver_io_complete;
 use crate::task::actions::io::read_struct_sync;
+use crate::task::actions::io::read_sync;
 use crate::task::actions::io::write_sync;
 use crate::task::messaging::Message;
 use crate::task::switching::get_current_id;
@@ -14,7 +18,7 @@ use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 pub struct AtaDeviceDriver {
-    controller: AtaController,
+    channel: AtaChannel,
 
     /// Each bus can have up to two attached ATA devices. When the driver is
     /// initialized, it detects these drives and stores access info in the
@@ -26,9 +30,9 @@ pub struct AtaDeviceDriver {
 }
 
 impl AtaDeviceDriver {
-    pub fn new(bus: AtaController) -> Self {
+    pub fn new(channel: AtaChannel) -> Self {
         Self {
-            controller: bus,
+            channel,
             attached: [None, None],
             next_instance: AtomicU32::new(1),
             open_instances: BTreeMap::new(),
@@ -76,8 +80,8 @@ impl AsyncDriver for AtaDeviceDriver {
         if offset % SECTOR_SIZE as u32 == 0 && buffer.len() % SECTOR_SIZE == 0 {
             let first_sector = offset / SECTOR_SIZE as u32;
             let sectors_read = self
-                .controller
-                .read_sectors(select, first_sector, buffer)
+                .channel
+                .read_pio(select, first_sector, buffer)
                 .map_err(|_| IOError::FileSystemError)?;
             let bytes_read = sectors_read * SECTOR_SIZE as u32;
             return Ok(bytes_read);
@@ -94,8 +98,8 @@ impl AsyncDriver for AtaDeviceDriver {
             let bytes_remaining_in_sector: u32 = SECTOR_SIZE as u32 - sector_offset;
             let bytes_remaining_in_buffer: u32 = buffer.len() as u32 - bytes_read;
 
-            self.controller
-                .read_sectors(select, sector_index, &mut pio_buffer)
+            self.channel
+                .read_pio(select, sector_index, &mut pio_buffer)
                 .map_err(|_| IOError::FileSystemError)?;
 
             let bytes_to_copy = bytes_remaining_in_sector.min(bytes_remaining_in_buffer);
@@ -117,51 +121,78 @@ impl AsyncDriver for AtaDeviceDriver {
 /// This task is designed to be run once for each ATA controller. Controllers
 /// may have one or two drives attached. Since commands can only be issued to
 /// one drive at a time, it does not make sense to multitask the two drives.
-/// The task will read three 16-bit numbers from stdin:
-///   The unique index of the ATA controller, used for numbering device names
-///   The base port for the ATA controller
-///   The control port for the ATA controller
+/// The task will read the unique device number from stdin, followed by three
+/// bytes that describe the PCI bus location.
 pub fn run_driver() -> ! {
     let task_id = get_current_id();
 
     let stdin = Handle::new(0);
-    let mut args: [u16; 3] = [0; 3];
+    let mut args: [u8; 4] = [0; 4];
 
-    let _ = read_struct_sync(stdin, &mut args, 0);
+    let _ = read_sync(stdin, &mut args, 0);
     let driver_no = args[0];
-    let base_port = args[1];
-    let control_port = args[2];
+    let pci_address = &args[1..];
 
     crate::kprintln!(
-        "Install ATA device driver ({:#x}, {:#x}) {:?}",
-        base_port,
-        control_port,
-        task_id
+        "Install ATA driver for PCI device at {:x}:{:x}:{:x}",
+        pci_address[0],
+        pci_address[1],
+        pci_address[2]
     );
+    let pci_dev = PciDevice::read_from_bus(pci_address[0], pci_address[1], pci_address[2]);
 
-    let mut ata_count = 0;
+    /// access for primary channel
+    let mut primary_channel = AtaChannel {
+        base_port: 0x1F0,
+        control_port: 0x3F6,
+        irq_handle: Some(open_interrupt_handle(14)),
+    };
+    /// access for secondary channel
+    let mut secondary_channel = AtaChannel {
+        base_port: 0x170,
+        control_port: 0x376,
+        irq_handle: Some(open_interrupt_handle(15)),
+    };
+    let prog_if = pci_dev.programming_interface;
+    if prog_if & 1 != 0 {
+        // primary is in PCI native mode
+        // TODO: replace this unwrap() with better error handling
+        primary_channel.base_port = pci_dev.bar[0].unwrap().get_address() as u16;
+        primary_channel.control_port = pci_dev.bar[1].unwrap().get_address() as u16 + 2;
+        primary_channel.irq_handle = Some(open_interrupt_handle(pci_dev.irq.unwrap_or(14)));
+    }
+    if prog_if & 4 != 0 {
+        // secondary is in PCI native mode
+        secondary_channel.base_port = pci_dev.bar[2].unwrap().get_address() as u16;
+        secondary_channel.control_port = pci_dev.bar[3].unwrap().get_address() as u16 + 2;
+        secondary_channel.irq_handle = Some(open_interrupt_handle(pci_dev.irq.unwrap_or(15)));
+    }
+    if prog_if & 0x80 != 0 {
+        // bus mastering is enabled, use DMA
+    }
 
-    let bus = AtaController::new(base_port, control_port);
-    let disks = bus.identify();
-    let mut driver_impl = AtaDeviceDriver::new(bus);
     let mut device_count = 0;
+
+    let disks = primary_channel.identify();
+    let mut driver_impl = AtaDeviceDriver::new(primary_channel);
     for disk in disks {
         if let Some(info) = disk {
-            ata_count += 1;
             crate::kprintln!("    {}", info);
-            let ata_index = driver_no * 2 + ata_count;
-            let dev_name = alloc::format!("ATA{}", ata_index);
-            crate::kprintln!("Install driver as DEV:\\{}", dev_name);
             driver_impl.attached[device_count] = Some(info.location);
+            let dev_name = alloc::format!("ATA{}", device_count + 1);
+            crate::kprintln!("Install driver as DEV:\\{}", dev_name);
             device_count += 1;
             install_task_dev(dev_name.as_str(), task_id, device_count as u32);
         }
     }
 
-    crate::kprintln!("Detected {} ATA device(s)", ata_count);
-
     let _ = write_sync(Handle::new(1), &[1], 0);
+    let _ = close_sync(Handle::new(1));
 
+    if device_count == 0 {
+        crate::kprintln!("No ATA devices found");
+        crate::task::actions::lifecycle::terminate(0);
+    }
     // prepare message event loop
     let messages = open_message_queue();
     let mut incoming_message = Message::empty();

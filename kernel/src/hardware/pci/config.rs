@@ -1,11 +1,10 @@
 use alloc::vec::Vec;
 
-use crate::arch::port::Port;
 use super::devices::{BaseAddressRegister, PciDevice};
+use crate::arch::port::Port;
 
 pub fn read_config_u32(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
-    let config_address =
-        0x80000000 | // enable
+    let config_address = 0x80000000 | // enable
         ((bus as u32) << 16) |
         ((device as u32) << 11) |
         ((function as u32) << 8) |
@@ -17,8 +16,7 @@ pub fn read_config_u32(bus: u8, device: u8, function: u8, offset: u8) -> u32 {
 }
 
 pub fn write_config_u32(bus: u8, device: u8, function: u8, offset: u8, value: u32) {
-    let config_address =
-        0x80000000 | // enable
+    let config_address = 0x80000000 | // enable
         ((bus as u32) << 16) |
         ((device as u32) << 11) |
         ((function as u32) << 8) |
@@ -51,6 +49,7 @@ pub fn add_device(devices: &mut Vec<PciDevice>, bus: u8, device: u8, function: u
     if let Some(irq) = device.irq {
         crate::kprint!(" |    IRQ: {}\n", irq);
     }
+    crate::kprint!(" |    ProgIf: {:08b}\n", device.programming_interface);
     for i in 0..6 {
         if let Some(bar) = device.bar[i] {
             crate::kprint!(" |    BAR{}: {}\n", i, bar);
