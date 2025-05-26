@@ -15,4 +15,3 @@ macro_rules! kprintln {
     () => ($crate::kprint!("\n"));
     ($($arg:tt)*) => ($crate::kprint!("{}\n", format_args!($($arg)*)));
 }
-

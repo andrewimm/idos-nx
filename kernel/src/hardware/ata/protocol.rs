@@ -1,12 +1,13 @@
 use alloc::string::String;
 
-
 #[repr(u8)]
 pub enum AtaCommand {
     Identify = 0xec,
     IdentifyPacketDevice = 0xa1,
     ReadSectors = 0x20,
+    ReadDMA = 0xc8,
     WriteSectors = 0x30,
+    WriteDMA = 0xca,
 }
 
 /// According to the ATA spec, each pair of bytes in an ATA string is "swapped"

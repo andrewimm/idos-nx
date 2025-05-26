@@ -81,7 +81,7 @@ impl AsyncDriver for AtaDeviceDriver {
             let first_sector = offset / SECTOR_SIZE as u32;
             let sectors_read = self
                 .channel
-                .read_pio(select, first_sector, buffer)
+                .read(select, first_sector, buffer)
                 .map_err(|_| IOError::FileSystemError)?;
             let bytes_read = sectors_read * SECTOR_SIZE as u32;
             return Ok(bytes_read);
@@ -99,7 +99,7 @@ impl AsyncDriver for AtaDeviceDriver {
             let bytes_remaining_in_buffer: u32 = buffer.len() as u32 - bytes_read;
 
             self.channel
-                .read_pio(select, sector_index, &mut pio_buffer)
+                .read(select, sector_index, &mut pio_buffer)
                 .map_err(|_| IOError::FileSystemError)?;
 
             let bytes_to_copy = bytes_remaining_in_sector.min(bytes_remaining_in_buffer);
@@ -145,12 +145,14 @@ pub fn run_driver() -> ! {
     let mut primary_channel = AtaChannel {
         base_port: 0x1F0,
         control_port: 0x3F6,
+        bus_master_port: None,
         irq_handle: Some(open_interrupt_handle(14)),
     };
     /// access for secondary channel
     let mut secondary_channel = AtaChannel {
         base_port: 0x170,
         control_port: 0x376,
+        bus_master_port: None,
         irq_handle: Some(open_interrupt_handle(15)),
     };
     let prog_if = pci_dev.programming_interface;
@@ -169,6 +171,9 @@ pub fn run_driver() -> ! {
     }
     if prog_if & 0x80 != 0 {
         // bus mastering is enabled, use DMA
+        primary_channel.bus_master_port = pci_dev.bar[4].map(|bar| bar.get_address() as u16);
+        secondary_channel.bus_master_port = pci_dev.bar[4].map(|bar| bar.get_address() as u16 + 8);
+        pci_dev.enable_bus_master();
     }
 
     let mut device_count = 0;
