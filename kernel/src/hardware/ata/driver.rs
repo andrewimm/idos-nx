@@ -126,72 +126,48 @@ impl AsyncDriver for AtaDeviceDriver {
 pub fn run_driver() -> ! {
     let task_id = get_current_id();
 
-    let stdin = Handle::new(0);
-    let mut args: [u8; 4] = [0; 4];
+    let args_reader = Handle::new(0);
+    let response_writer = Handle::new(1);
 
-    let _ = read_sync(stdin, &mut args, 0);
-    let driver_no = args[0];
-    let pci_address = &args[1..];
+    let mut drive_args: [u8; 1] = [0; 1];
+    let mut port_args: [u16; 3] = [0; 3];
+    let mut irq_args: [u8; 1] = [0; 1];
+
+    let _ = read_sync(args_reader, &mut drive_args, 0);
+    let _ = read_struct_sync(args_reader, &mut port_args, 0);
+    let _ = read_sync(args_reader, &mut irq_args, 0);
 
     crate::kprintln!(
-        "Install ATA driver for PCI device at {:x}:{:x}:{:x}",
-        pci_address[0],
-        pci_address[1],
-        pci_address[2]
+        "Install ATA driver ({:X} {:X} {:X})",
+        port_args[0],
+        port_args[1],
+        port_args[2]
     );
-    let pci_dev = PciDevice::read_from_bus(pci_address[0], pci_address[1], pci_address[2]);
 
     /// access for primary channel
-    let mut primary_channel = AtaChannel {
+    let mut channel = AtaChannel {
         base_port: 0x1F0,
         control_port: 0x3F6,
         bus_master_port: None,
         irq_handle: Some(open_interrupt_handle(14)),
     };
-    /// access for secondary channel
-    let mut secondary_channel = AtaChannel {
-        base_port: 0x170,
-        control_port: 0x376,
-        bus_master_port: None,
-        irq_handle: Some(open_interrupt_handle(15)),
-    };
-    let prog_if = pci_dev.programming_interface;
-    if prog_if & 1 != 0 {
-        // primary is in PCI native mode
-        // TODO: replace this unwrap() with better error handling
-        primary_channel.base_port = pci_dev.bar[0].unwrap().get_address() as u16;
-        primary_channel.control_port = pci_dev.bar[1].unwrap().get_address() as u16 + 2;
-        primary_channel.irq_handle = Some(open_interrupt_handle(pci_dev.irq.unwrap_or(14)));
-    }
-    if prog_if & 4 != 0 {
-        // secondary is in PCI native mode
-        secondary_channel.base_port = pci_dev.bar[2].unwrap().get_address() as u16;
-        secondary_channel.control_port = pci_dev.bar[3].unwrap().get_address() as u16 + 2;
-        secondary_channel.irq_handle = Some(open_interrupt_handle(pci_dev.irq.unwrap_or(15)));
-    }
-    if prog_if & 0x80 != 0 {
-        // bus mastering is enabled, use DMA
-        primary_channel.bus_master_port = pci_dev.bar[4].map(|bar| bar.get_address() as u16);
-        secondary_channel.bus_master_port = pci_dev.bar[4].map(|bar| bar.get_address() as u16 + 8);
-        pci_dev.enable_bus_master();
-    }
-
     let mut device_count = 0;
 
-    let disks = primary_channel.identify();
-    let mut driver_impl = AtaDeviceDriver::new(primary_channel);
+    let disks = channel.identify();
+    let mut driver_impl = AtaDeviceDriver::new(channel);
     for disk in disks {
         if let Some(info) = disk {
             crate::kprintln!("    {}", info);
             driver_impl.attached[device_count] = Some(info.location);
-            let dev_name = alloc::format!("ATA{}", device_count + 1);
+            let drive_number = drive_args[0] + device_count as u8 + 1;
+            let dev_name = alloc::format!("ATA{}", drive_number);
             crate::kprintln!("Install driver as DEV:\\{}", dev_name);
             device_count += 1;
             install_task_dev(dev_name.as_str(), task_id, device_count as u32);
         }
     }
 
-    let _ = write_sync(Handle::new(1), &[1], 0);
+    let _ = write_sync(Handle::new(1), &[device_count as u8], 0);
     let _ = close_sync(Handle::new(1));
 
     if device_count == 0 {
