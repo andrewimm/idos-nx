@@ -7,6 +7,7 @@ pub mod io;
 pub mod lifecycle;
 pub mod memory;
 pub mod sync;
+pub mod vm;
 
 use crate::io::async_io::IOType;
 

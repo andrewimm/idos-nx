@@ -1,3 +1,5 @@
+use core::arch::global_asm;
+
 use crate::asm;
 use crate::memory::address::VirtualAddress;
 use crate::task::actions::lifecycle::exception;
@@ -5,6 +7,7 @@ use crate::task::paging::page_on_demand;
 use crate::task::switching::get_current_id;
 
 use super::stack::StackFrame;
+use super::syscall::SavedRegisters;
 
 /// Triggered when dividing by zero, or when the result is too large to fit in
 /// the destination register.
@@ -77,7 +80,7 @@ pub extern "x86-interrupt" fn stack_segment_fault(_stack_frame: StackFrame, _err
     loop {}
 }
 
-#[no_mangle]
+/*#[no_mangle]
 pub extern "x86-interrupt" fn gpf(stack_frame: StackFrame, error: u32) {
     if stack_frame.eflags & 0x20000 != 0 {
         // VM86 Mode
@@ -92,7 +95,7 @@ pub extern "x86-interrupt" fn gpf(stack_frame: StackFrame, error: u32) {
     crate::kprintln!("ERR: General Protection Fault, code {}", error);
     crate::kprintln!("{:?}", stack_frame);
     crate::task::actions::lifecycle::terminate(0);
-}
+}*/
 
 #[no_mangle]
 pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
@@ -155,4 +158,36 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
         crate::kprint!("SEGFAULT AT IP: {:#010X} (Access {:#010X})\n", eip, address);
     }
     crate::task::actions::lifecycle::terminate(0);
+}
+
+global_asm!(
+    r#"
+.global gpf_exception
+
+gpf_exception:
+    push eax
+    push ecx
+    push edx
+    push ebx
+    push ebp
+    push esi
+    push edi
+    mov ebx, esp
+    push ebx
+    add ebx, 7 * 4
+    push ebx
+    add ebx, 3 * 4
+    push ebx
+
+    call _gpf_exception_inner
+"#
+);
+
+#[no_mangle]
+pub extern "C" fn _gpf_exception_inner(
+    frame: &StackFrame,
+    err_code: &u32,
+    registers: &mut SavedRegisters,
+) -> ! {
+    loop {}
 }

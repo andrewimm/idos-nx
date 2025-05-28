@@ -48,6 +48,7 @@ syscall_handler:
 "#
 );
 
+#[derive(Clone)]
 #[repr(C, packed)]
 pub struct SavedRegisters {
     edi: u32,
@@ -138,6 +139,17 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
                 Ok(_) => registers.eax = 1,
                 Err(_) => registers.eax = 0xffff_ffff,
             }
+        }
+        0x07 => {
+            // enter 8086 VM mode
+            // This syscall is more complex than the rest, since it will not
+            // return. Instead it will switch to 8086 mode and begin executing
+            // somewhere else. The first time that code triggers a GPF, it will
+            // appear as though this syscall has returned.
+            // In order for that to work, we need to save the registers now.
+            // If a GPF is found to have started in the VM, we can restore the
+            // registers and IRET, returning to the callsite in userspace.
+            crate::task::actions::vm::enter_vm86_mode(registers);
         }
 
         // IO Actions

@@ -30,6 +30,7 @@ extern "x86-interrupt" {
     fn pic_irq_f(frame: StackFrame) -> ();
 
     fn syscall_handler(frame: StackFrame) -> ();
+    fn gpf_exception(frame: StackFrame, error: u32) -> ();
 }
 
 /// An IDT Entry tells the x86 CPU how to handle an interrupt.
@@ -139,7 +140,7 @@ pub unsafe fn init_idt() {
     IDT[0x0a].set_handler_with_error(exceptions::invalid_tss);
     IDT[0x0b].set_handler_with_error(exceptions::segment_not_present);
     IDT[0x0c].set_handler_with_error(exceptions::stack_segment_fault);
-    IDT[0x0d].set_handler_with_error(exceptions::gpf);
+    IDT[0x0d].set_handler_with_error(gpf_exception);
     IDT[0x0e].set_handler_with_error(exceptions::page_fault);
 
     // Interrupts through 0x1f represent exceptions that we don't handle,

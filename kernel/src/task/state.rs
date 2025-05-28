@@ -1,3 +1,4 @@
+use crate::interrupts::syscall::SavedRegisters;
 use crate::io::async_io::{AsyncIOTable, IOType};
 use crate::io::handle::HandleTable;
 use crate::loader::environment::ExecutionEnvironment;
@@ -56,6 +57,9 @@ pub struct Task {
     pub open_handles: HandleTable<u32>,
     /// Stores the actual active async IO objects
     pub async_io_table: AsyncIOTable,
+
+    /// Storage for the task's registers when it enters VM86 mode
+    pub vm86_registers: Option<SavedRegisters>,
 }
 
 impl Task {
@@ -76,6 +80,7 @@ impl Task {
             args: ExecArgs::new(),
             open_handles: HandleTable::new(),
             async_io_table: AsyncIOTable::new(),
+            vm86_registers: None,
         }
     }
 
@@ -265,66 +270,6 @@ impl Task {
             self.args.add(arg.as_ref());
         }
     }
-
-    /*
-    pub fn attach_executable(&mut self, env: ExecutionEnvironment) {
-        let ExecutionEnvironment {
-            registers,
-            relocations,
-            segments,
-            require_vm,
-        } = env;
-        self.memory_mapping.set_execution_segments(segments);
-        self.memory_mapping.set_relocations(relocations);
-
-        let mut flags = 0;
-
-        if require_vm {
-            flags |= 0x20000;
-        }
-
-        let esp_start = registers.esp.unwrap_or(0xc0000000);
-        let esp = esp_start - self.args.stack_size() as u32;
-
-        let registers = EnvironmentRegisters {
-            eax: registers.eax.unwrap_or(0),
-            ecx: registers.ecx.unwrap_or(0),
-            edx: registers.edx.unwrap_or(0),
-            ebx: registers.ebx.unwrap_or(0),
-            ebp: registers.ebp.unwrap_or(0),
-            esi: registers.esi.unwrap_or(0),
-            edi: registers.edi.unwrap_or(0),
-
-            eip: registers.eip,
-            cs: registers.cs.unwrap_or(0x18 | 3),
-            flags,
-            esp,
-            ss: registers.ss.unwrap_or(0x20 | 3),
-
-            ds: registers.ds.unwrap_or(0x20 | 3),
-            es: registers.es.unwrap_or(0x20 | 3),
-            fs: 0,
-            gs: 0,
-        };
-
-        self.stack_push_u32(registers.gs);
-        self.stack_push_u32(registers.fs);
-        self.stack_push_u32(registers.es);
-        self.stack_push_u32(registers.ds);
-        self.stack_push_u32(registers.ss);
-        self.stack_push_u32(registers.esp);
-        self.stack_push_u32(registers.flags);
-        self.stack_push_u32(registers.cs);
-        self.stack_push_u32(registers.eip);
-        self.stack_push_u32(registers.edi);
-        self.stack_push_u32(registers.esi);
-        self.stack_push_u32(registers.ebp);
-        self.stack_push_u32(registers.ebx);
-        self.stack_push_u32(registers.edx);
-        self.stack_push_u32(registers.ecx);
-        self.stack_push_u32(registers.eax);
-    }
-    */
 
     pub fn has_executable(&self) -> bool {
         false
