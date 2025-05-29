@@ -11,6 +11,8 @@ extern crate idos_api;
 pub mod panic;
 use core::arch::{asm, global_asm};
 
+use idos_api::compat::VMRegisters;
+
 global_asm!(
     r#"
 .global _start
@@ -20,24 +22,32 @@ _start:
     lea esi, [esp + 4]
     push esi
     push edi
+    push eax
     call compat_start
 "#
 );
 
 #[no_mangle]
-pub extern "C" fn compat_start(_argc: u32, _argv: *const u32) {
+pub extern "C" fn compat_start(psp_segment: u32, _argc: u32, _argv: *const u32) {
     //env::init_args(argc, argv);
 
-    let psp_segment: u16;
-    unsafe {
-        asm!(
-            "mov {psp}, fs",
-            psp = out(reg) psp_segment,
-        );
-    }
+    let mut vm_regs = VMRegisters {
+        eax: 0,
+        ebx: 0,
+        ecx: 0,
+        edx: 0,
+        esi: 0,
+        edi: 0,
+        ebp: 0,
+        eip: 0x4089,
+        cs: psp_segment as u32,
+        ds: psp_segment as u32,
+        es: psp_segment as u32,
+        ss: psp_segment as u32,
+    };
 
     loop {
-        idos_api::syscall::exec::enter_8086();
+        idos_api::syscall::exec::enter_8086(&mut vm_regs);
     }
 
     idos_api::syscall::exec::terminate(0)

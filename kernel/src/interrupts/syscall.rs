@@ -1,6 +1,6 @@
 use core::arch::global_asm;
 
-use idos_api::io::AsyncOp;
+use idos_api::{compat::VMRegisters, io::AsyncOp};
 
 use crate::{
     io::handle::Handle,
@@ -149,7 +149,8 @@ pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegis
             // In order for that to work, we need to save the registers now.
             // If a GPF is found to have started in the VM, we can restore the
             // registers and IRET, returning to the callsite in userspace.
-            crate::task::actions::vm::enter_vm86_mode(registers);
+            let regs_ptr = registers.ebx as *mut VMRegisters;
+            crate::task::actions::vm::enter_vm86_mode(registers, regs_ptr);
         }
 
         // IO Actions

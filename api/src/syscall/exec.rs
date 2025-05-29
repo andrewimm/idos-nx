@@ -1,6 +1,6 @@
 use core::sync::atomic::AtomicU32;
 
-use crate::io::handle::Handle;
+use crate::{compat::VMRegisters, io::handle::Handle};
 
 pub fn terminate(code: u32) -> ! {
     super::syscall(0, code, 0, 0);
@@ -26,6 +26,6 @@ pub fn load_executable(task_id: u32, path: &str) {
     super::syscall(0x06, task_id, path_ptr, path_len);
 }
 
-pub fn enter_8086() {
-    super::syscall(0x07, 0, 0, 0);
+pub fn enter_8086(regs: &mut VMRegisters) {
+    super::syscall(0x07, regs as *mut VMRegisters as u32, 0, 0);
 }

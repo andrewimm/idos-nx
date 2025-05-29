@@ -49,6 +49,7 @@ fn loader_resident() -> ! {
             compat_env.map_memory(incoming_request.task);
             compat_env.fill_sections(compat_handle);
             compat_env.fill_stack(incoming_request.task);
+            compat_env.registers.eax = Some(0x8000); // Set EAX to the DOS segment
             compat_env.set_registers(incoming_request.task);
 
             let _ = close_sync(compat_handle);

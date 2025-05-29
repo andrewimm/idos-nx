@@ -172,6 +172,7 @@ impl ExecutionEnvironment {
         let task_lock = get_task(task_id).unwrap();
         let mut task_guard = task_lock.write();
 
+        // TODO: GS, FS, ES, DS aren't actually popped. This is wrong.
         task_guard.stack_push_u32(0); // GS
         task_guard.stack_push_u32(self.registers.fs.unwrap_or(0));
         task_guard.stack_push_u32(self.registers.es.unwrap_or(0x20 | 3));
