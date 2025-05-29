@@ -25,3 +25,7 @@ pub fn load_executable(task_id: u32, path: &str) {
     let path_len = path.len() as u32;
     super::syscall(0x06, task_id, path_ptr, path_len);
 }
+
+pub fn enter_8086() {
+    super::syscall(0x07, 0, 0, 0);
+}

@@ -95,6 +95,7 @@ pub fn build_environment(exec_handle: Handle) -> Result<ExecutionEnvironment, Lo
             cs: None,
             ds: None,
             es: None,
+            fs: None,
             ss: None,
         },
         require_vm: false,

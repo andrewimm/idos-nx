@@ -5,6 +5,7 @@ bootbin := build/boot.bin
 kernel := build/kernel.bin
 
 command := target/i386-idos/release/command
+doslayer := target/i386-idos/release/doslayer
 
 kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
 
@@ -33,11 +34,12 @@ $(userdata):
 	@mcopy -D o -i $(userdata) userdata/disk/*.* ::
 	@mcopy -D o -i $(userdata) userdata/static/*.* ::
 
-bootdisk: $(command) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
+bootdisk: $(command) $(doslayer) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
 	@mcopy -D o -i $(diskimage) $(bootbin) ::BOOT.BIN
 	@mcopy -D o -i $(diskimage) $(kernel) ::KERNEL.BIN
 	@mcopy -D o -i $(diskimage) $(command) ::COMMAND.ELF
+	@mcopy -D o -i $(diskimage) $(doslayer) ::DOSLAYER.ELF
 
 $(bootsector):
 	@mkdir -p $(shell dirname $@)
@@ -68,4 +70,8 @@ test: testkernel run
 
 $(command):
 	@cd components/programs/command && \
-	cargo build -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-idos.json
+	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json
+
+$(doslayer):
+	@cd components/programs/doslayer && \
+	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json

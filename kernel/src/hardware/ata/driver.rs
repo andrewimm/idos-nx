@@ -146,10 +146,14 @@ pub fn run_driver() -> ! {
 
     /// access for primary channel
     let mut channel = AtaChannel {
-        base_port: 0x1F0,
-        control_port: 0x3F6,
-        bus_master_port: None,
-        irq_handle: Some(open_interrupt_handle(14)),
+        base_port: port_args[0],
+        control_port: port_args[1],
+        bus_master_port: if port_args[2] != 0 {
+            Some(port_args[2])
+        } else {
+            None
+        },
+        irq_handle: Some(open_interrupt_handle(irq_args[0])),
     };
     let mut device_count = 0;
 

@@ -6,6 +6,7 @@ members = [
   "bootloader/mbr",
   "components/drivers/testdriver",
   "components/programs/command",
+  "components/programs/doslayer",
   "components/programs/netcat",
   "kernel",
   "sdk",

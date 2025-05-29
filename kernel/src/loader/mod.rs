@@ -1,3 +1,4 @@
+pub mod com;
 pub mod elf;
 pub mod environment;
 pub mod error;

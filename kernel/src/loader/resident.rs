@@ -11,7 +11,7 @@ use crate::io::handle::Handle;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::loader::error::LoaderError;
 use crate::task::actions::handle::{create_file_handle, create_kernel_task};
-use crate::task::actions::io::{open_sync, read_struct_sync, read_sync};
+use crate::task::actions::io::{close_sync, open_sync, read_struct_sync, read_sync};
 use crate::task::id::TaskID;
 use crate::task::messaging::Message;
 use crate::task::switching::get_task;
@@ -33,13 +33,38 @@ fn loader_resident() -> ! {
 
         env.map_memory(incoming_request.task);
         env.fill_sections(file_handle);
-        env.fill_stack(incoming_request.task);
-        env.set_registers(incoming_request.task);
+        if env.require_vm {
+            // if the environment requires a VM, we need to load DOSLAYER.ELF
+            // and create a secondary environment that we also load here
+            crate::kprintln!("DOS VM: Open DOSLAYER");
 
-        let task_lock = get_task(incoming_request.task).unwrap();
-        let mut task = task_lock.write();
-        task.set_filename(&incoming_request.path);
-        task.make_runnable();
+            let (compat_handle, mut compat_env) = match load_file("C:\\DOSLAYER.ELF") {
+                Ok(handle) => handle,
+                Err(e) => {
+                    crate::kprintln!("Could not find compat layer");
+                    continue;
+                }
+            };
+
+            compat_env.map_memory(incoming_request.task);
+            compat_env.fill_sections(compat_handle);
+            compat_env.fill_stack(incoming_request.task);
+            compat_env.set_registers(incoming_request.task);
+
+            let _ = close_sync(compat_handle);
+        } else {
+            env.fill_stack(incoming_request.task);
+            env.set_registers(incoming_request.task);
+        }
+
+        {
+            let task_lock = get_task(incoming_request.task).unwrap();
+            let mut task = task_lock.write();
+            task.set_filename(&incoming_request.path);
+            task.make_runnable();
+        }
+
+        let _ = close_sync(file_handle);
     }
 }
 
@@ -59,6 +84,8 @@ fn load_file(path: &str) -> Result<(Handle, ExecutionEnvironment), LoaderError> 
         super::elf::build_environment(exec_handle)?
     } else if is_mz {
         return Err(LoaderError::UnsupportedFileFormat);
+    } else if path.to_uppercase().ends_with(".COM") {
+        super::com::build_environment(exec_handle)?
     } else {
         return Err(LoaderError::UnsupportedFileFormat);
     };

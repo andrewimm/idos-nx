@@ -33,6 +33,7 @@ impl ExecutionEnvironment {
 
         let task_pagedir = get_task(task_id).unwrap().read().page_directory;
         // TODO: store mappings on the task itself, so they can be unmapped on termination
+
         crate::kprintln!("LOADER - Memory Mapped. Pagedir at {:?}", task_pagedir);
     }
 
@@ -66,7 +67,7 @@ impl ExecutionEnvironment {
                     match section.source_location {
                         Some(section_file_offset) => {
                             // in the first page of the section, we start reading from file_offset
-                            let file_offset = if section.segment_offset > page_start_offset {
+                            let file_offset = if section.segment_offset >= page_start_offset {
                                 section_file_offset
                             } else {
                                 // in every other page of the section, we figure
@@ -172,7 +173,7 @@ impl ExecutionEnvironment {
         let mut task_guard = task_lock.write();
 
         task_guard.stack_push_u32(0); // GS
-        task_guard.stack_push_u32(0); // FS
+        task_guard.stack_push_u32(self.registers.fs.unwrap_or(0));
         task_guard.stack_push_u32(self.registers.es.unwrap_or(0x20 | 3));
         task_guard.stack_push_u32(self.registers.ds.unwrap_or(0x20 | 3));
         task_guard.stack_push_u32(self.registers.ss.unwrap_or(0x20 | 3));
@@ -190,6 +191,7 @@ impl ExecutionEnvironment {
     }
 }
 
+#[derive(Default)]
 pub struct InitialRegisters {
     pub eax: Option<u32>,
     pub ecx: Option<u32>,
@@ -205,6 +207,7 @@ pub struct InitialRegisters {
     pub cs: Option<u32>,
     pub ds: Option<u32>,
     pub es: Option<u32>,
+    pub fs: Option<u32>,
     pub ss: Option<u32>,
 }
 
