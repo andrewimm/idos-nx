@@ -32,17 +32,17 @@ pub extern "C" fn compat_start(psp_segment: u32, _argc: u32, _argv: *const u32) 
     //env::init_args(argc, argv);
 
     let mut vm_regs = VMRegisters {
-        eax: 0,
-        ebx: 0,
-        ecx: 0,
-        edx: 0,
-        esi: 0,
-        edi: 0,
-        ebp: 0,
-        eip: 0x4089,
+        eax: 0xaa,
+        ebx: 0xbb,
+        ecx: 0xcc,
+        edx: 0xdd,
+        esi: 0xee,
+        edi: 0xff,
+        ebp: 0xab,
+        eip: 0,
+        esp: 0,
+        eflags: 0x2,
         cs: psp_segment as u32,
-        ds: psp_segment as u32,
-        es: psp_segment as u32,
         ss: psp_segment as u32,
     };
 

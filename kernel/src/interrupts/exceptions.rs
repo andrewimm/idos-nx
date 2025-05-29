@@ -135,6 +135,7 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
         // User space
         if stack_frame.eflags & 0x20000 != 0 {
             // handle VM86 page faults separately
+            loop {}
             if crate::dos::memory::handle_page_fault(&stack_frame, address) {
                 return;
             }
@@ -176,7 +177,7 @@ gpf_exception:
     push ebx
     add ebx, 7 * 4
     push ebx
-    add ebx, 3 * 4
+    add ebx, 4
     push ebx
 
     call _gpf_exception_inner
@@ -185,9 +186,11 @@ gpf_exception:
 
 #[no_mangle]
 pub extern "C" fn _gpf_exception_inner(
-    frame: &StackFrame,
+    stack_frame: &StackFrame,
     err_code: &u32,
     registers: &mut SavedRegisters,
 ) -> ! {
+    crate::kprintln!("ERR: General Protection Fault, code {}", *err_code);
+    crate::kprintln!("{:?}", stack_frame);
     loop {}
 }
