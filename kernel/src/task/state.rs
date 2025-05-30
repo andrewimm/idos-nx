@@ -1,4 +1,4 @@
-use crate::interrupts::syscall::SavedRegisters;
+use crate::interrupts::syscall::FullSavedRegisters;
 use crate::io::async_io::{AsyncIOTable, IOType};
 use crate::io::handle::HandleTable;
 use crate::loader::environment::ExecutionEnvironment;
@@ -59,7 +59,7 @@ pub struct Task {
     pub async_io_table: AsyncIOTable,
 
     /// Storage for the task's registers when it enters VM86 mode
-    pub vm86_registers: Option<SavedRegisters>,
+    pub vm86_registers: Option<FullSavedRegisters>,
 }
 
 impl Task {

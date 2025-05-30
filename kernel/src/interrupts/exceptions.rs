@@ -1,13 +1,14 @@
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 
-use crate::asm;
+use idos_api::compat::VMRegisters;
+
 use crate::memory::address::VirtualAddress;
-use crate::task::actions::lifecycle::exception;
+use crate::task::actions::lifecycle::{exception, terminate};
 use crate::task::paging::page_on_demand;
 use crate::task::switching::get_current_id;
 
 use super::stack::StackFrame;
-use super::syscall::SavedRegisters;
+use super::syscall::{FullSavedRegisters, SavedRegisters};
 
 /// Triggered when dividing by zero, or when the result is too large to fit in
 /// the destination register.
@@ -192,5 +193,56 @@ pub extern "C" fn _gpf_exception_inner(
 ) -> ! {
     crate::kprintln!("ERR: General Protection Fault, code {}", *err_code);
     crate::kprintln!("{:?}", stack_frame);
-    loop {}
+
+    if stack_frame.eflags & 0x20000 != 0 {
+        // VM86 Mode
+        // return to the callsite of the enter_8086 syscall
+        let stored_regs = crate::task::switching::get_current_task()
+            .write()
+            .vm86_registers
+            .take();
+        if let Some(prev_regs) = stored_regs {
+            let vm_regs_ptr = prev_regs.ebx as *mut VMRegisters;
+            unsafe {
+                let vm_regs = &mut *vm_regs_ptr;
+                vm_regs.eax = registers.eax;
+                vm_regs.ecx = registers.ecx;
+                vm_regs.edx = registers.edx;
+                vm_regs.ebx = registers.ebx;
+                vm_regs.esi = registers.esi;
+                vm_regs.edi = registers.edi;
+                vm_regs.ebp = registers.ebp;
+
+                vm_regs.eip = stack_frame.eip;
+                vm_regs.cs = stack_frame.cs;
+                vm_regs.eflags = stack_frame.eflags;
+
+                let stack_frame_ptr = stack_frame as *const StackFrame as *const u32;
+                vm_regs.esp = core::ptr::read_volatile(stack_frame_ptr.add(3));
+                vm_regs.ss = core::ptr::read_volatile(stack_frame_ptr.add(4));
+
+                asm!(
+                    "mov esp, eax",
+                    "pop edi",
+                    "pop esi",
+                    "pop ebp",
+                    "pop ebx",
+                    "pop edx",
+                    "pop ecx",
+                    "pop eax",
+                    "iretd",
+                    in("eax") &prev_regs as *const FullSavedRegisters
+                );
+            }
+        } else {
+            crate::kprintln!("No previous regs. How did it get in 8086 mode?");
+            terminate(0);
+        }
+    }
+    if stack_frame.eip >= 0xc0000000 {
+        crate::kprintln!("Kernel GPF");
+    }
+    let current_task_id = get_current_id();
+    crate::kprintln!("Terminate task {:?}", current_task_id);
+    terminate(0);
 }

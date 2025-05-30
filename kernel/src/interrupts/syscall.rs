@@ -30,12 +30,10 @@ syscall_handler:
     push edi
     mov ebx, esp
     push ebx
-    add ebx, 7 * 4
-    push ebx
 
     call _syscall_inner
 
-    add esp, 8
+    add esp, 4
     pop edi
     pop esi
     pop ebp
@@ -51,16 +49,34 @@ syscall_handler:
 #[derive(Clone)]
 #[repr(C, packed)]
 pub struct SavedRegisters {
-    edi: u32,
-    esi: u32,
-    ebp: u32,
-    ebx: u32,
-    edx: u32,
-    ecx: u32,
-    eax: u32,
+    pub edi: u32,
+    pub esi: u32,
+    pub ebp: u32,
+    pub ebx: u32,
+    pub edx: u32,
+    pub ecx: u32,
+    pub eax: u32,
 }
 
-impl core::fmt::Debug for SavedRegisters {
+#[derive(Clone)]
+#[repr(C, packed)]
+pub struct FullSavedRegisters {
+    pub edi: u32,
+    pub esi: u32,
+    pub ebp: u32,
+    pub ebx: u32,
+    pub edx: u32,
+    pub ecx: u32,
+    pub eax: u32,
+
+    pub eip: u32,
+    pub cs: u32,
+    pub eflags: u32,
+    pub esp: u32,
+    pub ss: u32,
+}
+
+impl core::fmt::Debug for FullSavedRegisters {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let eax = self.eax;
         let ebx = self.ebx;
@@ -69,6 +85,12 @@ impl core::fmt::Debug for SavedRegisters {
         let ebp = self.ebp;
         let esi = self.esi;
         let edi = self.edi;
+
+        let eip = self.eip;
+        let cs = self.cs;
+        let eflags = self.eflags;
+        let esp = self.esp;
+        let ss = self.ss;
         f.debug_struct("Saved Registers")
             .field("eax", &format_args!("{:#010X}", eax))
             .field("ebx", &format_args!("{:#010X}", ebx))
@@ -77,12 +99,17 @@ impl core::fmt::Debug for SavedRegisters {
             .field("ebp", &format_args!("{:#010X}", ebp))
             .field("esi", &format_args!("{:#010X}", esi))
             .field("edi", &format_args!("{:#010X}", edi))
+            .field("eip", &format_args!("{:#010X}", eip))
+            .field("cs", &format_args!("{:#010X}", cs))
+            .field("eflags", &format_args!("{:#010X}", eflags))
+            .field("esp", &format_args!("{:#010X}", esp))
+            .field("ss", &format_args!("{:#010X}", ss))
             .finish()
     }
 }
 
 #[no_mangle]
-pub extern "C" fn _syscall_inner(_frame: &StackFrame, registers: &mut SavedRegisters) {
+pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
     crate::kprint!("SYSCALL REG: {:?}\n", registers);
     let eax = registers.eax;
     match eax {

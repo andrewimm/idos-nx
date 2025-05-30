@@ -14,3 +14,9 @@ pub struct VMRegisters {
     pub esp: u32,
     pub ss: u32,
 }
+
+impl VMRegisters {
+    pub fn ah(&self) -> u8 {
+        ((self.eax & 0xff00) >> 8) as u8
+    }
+}
