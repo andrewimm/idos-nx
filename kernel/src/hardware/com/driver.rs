@@ -13,7 +13,7 @@ use crate::{
     task::{
         actions::{
             handle::{open_interrupt_handle, open_message_queue},
-            io::{append_io_op, write_sync},
+            io::{append_io_op, driver_io_complete, write_sync},
             lifecycle::create_kernel_task,
             send_message,
             sync::{block_on_wake_set, create_wake_set},
@@ -50,13 +50,20 @@ pub fn run_driver() -> ! {
         if interrupt_read.is_complete() {
             let _ = write_sync(irq_handle, &[1], 0);
 
-            driver_impl.init_read();
+            match driver_impl.init_read() {
+                Some((request_id, result)) => driver_io_complete(request_id, Ok(result)),
+                None => (),
+            }
 
             interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
             let _ = append_io_op(irq_handle, &interrupt_read, Some(wake_set));
         } else if message_read.is_complete() {
             let sender = message_read.return_value.load(Ordering::SeqCst);
-            driver_impl.handle_request(incoming_message, TaskID::new(sender));
+            let request_id = incoming_message.unique_id;
+            match driver_impl.handle_request(incoming_message, TaskID::new(sender)) {
+                Some(result) => driver_io_complete(request_id, result),
+                None => (),
+            }
 
             message_read = AsyncOp::new(
                 ASYNC_OP_READ,
@@ -108,12 +115,12 @@ impl ComDeviceDriver {
         }
     }
 
-    pub fn handle_request(&mut self, message: Message, sender: TaskID) {
+    pub fn handle_request(&mut self, message: Message, sender: TaskID) -> Option<IOResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::OpenRaw => {
                 let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
                 self.open_instances.insert(instance, OpenFile {});
-                self.send_response(sender, message.unique_id, Ok(instance));
+                Some(Ok(instance))
             }
             DriverCommand::Read => {
                 let buffer_ptr = message.args[1] as *mut u8;
@@ -126,7 +133,9 @@ impl ComDeviceDriver {
                     written: 0,
                 });
                 if self.read_list.len() == 1 {
-                    self.init_read();
+                    self.init_read().map(|(_, result)| Ok(result))
+                } else {
+                    None
                 }
             }
             DriverCommand::Write => {
@@ -137,42 +146,16 @@ impl ComDeviceDriver {
                         self.serial.send_byte(*buffer_ptr.add(i));
                     }
                 }
-                self.send_response(sender, message.unique_id, Ok(buffer_len as u32));
+                Some(Ok(buffer_len as u32))
             }
-            _ => self.send_response(
-                sender,
-                message.unique_id,
-                Err(IOError::UnsupportedOperation),
-            ),
+            _ => Some(Err(IOError::UnsupportedOperation)),
         }
     }
 
-    fn send_response(&self, task: TaskID, request_id: u32, result: IOResult) {
-        let message = match result {
-            Ok(result) => {
-                let code = result & 0x7fffffff;
-                Message {
-                    message_type: DRIVER_RESPONSE_MAGIC,
-                    unique_id: request_id,
-                    args: [code, 0, 0, 0, 0, 0],
-                }
-            }
-            Err(err) => {
-                let code = Into::<u32>::into(err) | 0x80000000;
-                Message {
-                    message_type: DRIVER_RESPONSE_MAGIC,
-                    unique_id: request_id,
-                    args: [code, 0, 0, 0, 0, 0],
-                }
-            }
-        };
-        send_message(task, message, 0xffffffff);
-    }
-
-    fn init_read(&mut self) {
+    fn init_read(&mut self) -> Option<(u32, u32)> {
         let first = match self.read_list.get_mut(0) {
             Some(pending) => pending,
-            None => return,
+            None => return None,
         };
         while first.written < first.buffer_len {
             match self.serial.read_byte() {
@@ -187,13 +170,9 @@ impl ComDeviceDriver {
             }
         }
         if first.written < first.buffer_len {
-            return;
+            return None;
         }
         let completed = self.read_list.pop_front().unwrap();
-        self.send_response(
-            completed.respond_to,
-            completed.request_id,
-            Ok(completed.written as u32),
-        );
+        Some((completed.request_id, completed.written as u32))
     }
 }

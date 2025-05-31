@@ -220,6 +220,10 @@ pub extern "C" fn _gpf_exception_inner(
                 let stack_frame_ptr = stack_frame as *const StackFrame as *const u32;
                 vm_regs.esp = core::ptr::read_volatile(stack_frame_ptr.add(3));
                 vm_regs.ss = core::ptr::read_volatile(stack_frame_ptr.add(4));
+                vm_regs.es = core::ptr::read_volatile(stack_frame_ptr.add(5));
+                vm_regs.ds = core::ptr::read_volatile(stack_frame_ptr.add(6));
+                vm_regs.fs = core::ptr::read_volatile(stack_frame_ptr.add(7));
+                vm_regs.gs = core::ptr::read_volatile(stack_frame_ptr.add(8));
 
                 asm!(
                     "mov esp, eax",

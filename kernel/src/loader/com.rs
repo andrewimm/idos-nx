@@ -21,7 +21,7 @@ pub fn build_environment(exec_handle: Handle) -> Result<ExecutionEnvironment, Lo
     .map_err(|_| LoaderError::InternalError)?;
 
     let section = ExecutionSection {
-        segment_offset: 0,
+        segment_offset: 0x100,
         size: file_status.byte_size,
         source_location: Some(0),
     };
