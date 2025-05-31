@@ -22,7 +22,9 @@ use crate::net::resident::register_network_device;
 use crate::task::actions::handle::{
     create_pipe_handles, open_interrupt_handle, open_message_queue, transfer_handle,
 };
-use crate::task::actions::io::{append_io_op, close_sync, read_sync, write_sync};
+use crate::task::actions::io::{
+    append_io_op, close_sync, driver_io_complete, read_sync, write_sync,
+};
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::send_message;
@@ -212,25 +214,7 @@ fn run_driver() -> ! {
 }
 
 fn send_response(task: TaskID, request_id: u32, result: IOResult) {
-    let message = match result {
-        Ok(result) => {
-            let code = result & 0x7fffffff;
-            Message {
-                message_type: DRIVER_RESPONSE_MAGIC,
-                unique_id: request_id,
-                args: [code, 0, 0, 0, 0, 0],
-            }
-        }
-        Err(err) => {
-            let code = Into::<u32>::into(err) | 0x80000000;
-            Message {
-                message_type: DRIVER_RESPONSE_MAGIC,
-                unique_id: request_id,
-                args: [code, 0, 0, 0, 0, 0],
-            }
-        }
-    };
-    send_message(task, message, 0xffffffff);
+    driver_io_complete(request_id, result);
 }
 
 pub fn install_driver() {

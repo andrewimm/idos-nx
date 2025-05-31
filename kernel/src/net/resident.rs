@@ -31,7 +31,7 @@ struct RegisteredNetDevice {
     mac: HardwareAddress,
     is_open: bool,
     current_read: Box<AsyncOp>,
-    current_writes: VecDeque<Box<AsyncOp>>,
+    current_writes: VecDeque<(Vec<u8>, Box<AsyncOp>)>,
     read_buffer: Vec<u8>,
     arp_table: ARPTable,
     dhcp_state: DHCPState,
@@ -148,14 +148,18 @@ impl RegisteredNetDevice {
 
     /// Special handling for sending DHCP payloads through ethernet broadcasts.
     /// We don't open a true socket for DHCP navigation. We just fake it.
-    pub fn dhcp_broadcast(&self, payload: &[u8]) -> Box<AsyncOp> {
+    pub fn dhcp_broadcast(&self, payload: &[u8]) -> (Vec<u8>, Box<AsyncOp>) {
         let eth_header = EthernetFrameHeader::new_ipv4(self.mac, HardwareAddress::broadcast());
         let ip_packet =
             create_datagram(IPV4Address([0; 4]), 68, IPV4Address([255; 4]), 67, payload);
         self.send_raw(eth_header, &ip_packet)
     }
 
-    pub fn send_raw(&self, eth_header: EthernetFrameHeader, payload: &[u8]) -> Box<AsyncOp> {
+    pub fn send_raw(
+        &self,
+        eth_header: EthernetFrameHeader,
+        payload: &[u8],
+    ) -> (Vec<u8>, Box<AsyncOp>) {
         let mut total_frame = Vec::with_capacity(EthernetFrameHeader::get_size() + payload.len());
         total_frame.extend_from_slice(eth_header.as_u8_buffer());
         total_frame.extend(payload);
@@ -168,7 +172,8 @@ impl RegisteredNetDevice {
         ));
         let _ = append_io_op(self.handle, &async_op, Some(self.wake_set));
 
-        async_op
+        // pass the vec so it can be stored, and not immediately dropped
+        (total_frame, async_op)
     }
 }
 
@@ -218,7 +223,7 @@ pub fn net_stack_resident() -> ! {
         for net_dev in network_devices.iter_mut() {
             // clear out any completed writes
             loop {
-                let pop = if let Some(pending_write) = net_dev.current_writes.front() {
+                let pop = if let Some((_, pending_write)) = net_dev.current_writes.front() {
                     pending_write.is_complete()
                 } else {
                     false
@@ -290,8 +295,7 @@ pub fn net_stack_resident() -> ! {
             }
         }
 
-        // block on notify queue
-        block_on_wake_set(wake_set, Some(5000));
+        block_on_wake_set(wake_set, None);
     }
 }
 
