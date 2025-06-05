@@ -51,9 +51,9 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
         .get_mapping_containing_address(&address)
         .cloned()?;
 
-    /// offset of the page within the mapping
+    // offset of the page within the mapping
     let page_offset = address.prev_page_barrier() - mem_mapping.address;
-    /// offset of the address within the page
+    // offset of the address within the page
     let local_offset = address.as_u32() & 0xfff;
     let flags = get_flags_for_region(mem_mapping);
 

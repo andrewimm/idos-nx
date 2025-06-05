@@ -51,36 +51,42 @@ pub enum MemoryBacking {
     DMA,
 }
 
-pub struct TaskMemory {
-    /// Collection of mem-mapped regions allocated to the task
-    mapped_regions: BTreeMap<VirtualAddress, MemMappedRegion>,
+/// MappedMemory is a collection of memory mappings. The const parameter
+/// represents the upper bound of the memory mapped region.
+pub struct MappedMemory<const U: u32> {
+    regions: BTreeMap<VirtualAddress, MemMappedRegion>,
 }
 
-impl TaskMemory {
-    pub fn new() -> Self {
+impl<const U: u32> MappedMemory<U> {
+    pub const fn new() -> Self {
         Self {
-            mapped_regions: BTreeMap::new(),
+            regions: BTreeMap::new(),
         }
     }
 
-    /// Create a memory mapping for this task. This does not actually modify
-    /// the page table, but the next time a page fault occurs in this region
-    /// the kernel will be able to use this information to fill in the page.
+    /// Create a memory mapping. This does not actually modify the page table,
+    /// but the next time a page fault occurs in this region the kernel will be
+    /// able to use this information to fill in the page.
+    /// If a virtual address is provided, the algorithm will attempt to find the
+    /// closest available space that is large enough to fit the requested size.
+    /// Otherwise, it iterates downwards from the top of the memory mapping
+    /// area.
     /// On success, it returns the address that the region has been mapped to.
     pub fn map_memory(
         &mut self,
         addr: Option<VirtualAddress>,
-        size: u32,
+        requested_size: u32,
         backing: MemoryBacking,
-    ) -> Result<VirtualAddress, TaskMemoryError> {
-        // Find an appropriate spot in virtual memory. If the caller specified
-        // a location, we want to find the closest available space; otherwise,
-        // crawl through the existing allocations until an appropriately sized
-        // space is found.
+    ) -> Result<VirtualAddress, MemMapError> {
+        if requested_size == 0 {
+            return Err(MemMapError::InvalidSize);
+        }
+        let size = (requested_size + 0xfff) & 0xfffff000;
+
         let location: Option<VirtualAddress> = match addr {
             Some(request_start) => {
                 if !request_start.is_page_aligned() {
-                    return Err(TaskMemoryError::MappingWrongAlignment);
+                    return Err(MemMapError::MappingWrongAlignment);
                 }
                 let request_end = request_start + size;
                 if self.can_fit_range(request_start..request_end) {
@@ -92,14 +98,14 @@ impl TaskMemory {
             None => self.find_free_mapping_space(size),
         };
 
-        let free_space = location.ok_or(TaskMemoryError::NotEnoughMemory)?;
+        let free_space = location.ok_or(MemMapError::NotEnoughMemory)?;
 
         let mapping = MemMappedRegion {
             address: free_space,
             size,
             backed_by: backing,
         };
-        self.mapped_regions.insert(free_space, mapping);
+        self.regions.insert(free_space, mapping);
         Ok(free_space)
     }
 
@@ -107,22 +113,25 @@ impl TaskMemory {
         &mut self,
         addr: VirtualAddress,
         length: u32,
-    ) -> Result<Range<VirtualAddress>, TaskMemoryError> {
+    ) -> Result<Range<VirtualAddress>, MemMapError> {
         if length & 0xfff != 0 {
-            return Err(TaskMemoryError::UnmapNotPageMultiple);
+            return Err(MemMapError::UnmapNotPageMultiple);
         }
-        if addr.as_u32() >= 0xc0000000u32 || addr.as_u32() + length > 0xc0000000 {
-            return Err(TaskMemoryError::MapOutOfBounds);
+        if addr.as_u32() >= U as u32 || addr.as_u32() + length > U as u32 {
+            return Err(MemMapError::MapOutOfBounds);
         }
 
-        // Hmm... should really replace this BTree with an Interval Tree.
-        // Iterate over all regions, and find the ones that need to be modified
+        // Is there a more efficient data structure?
+        // Something like an "interval tree" which contains non-overlapping
+        // ranges.
+
+        // Iterate over all regions, and find the ones that need to be modified.
         // Once that set has been computed, all intersected regions will be
-        // removed from the map, and any remaining sub-regions will be put back
+        // removed from the map, and any remaining sub-regions will be put back.
         let mut unmap_start = addr;
         let mut unmap_length = length;
-        let mut modified_regions: Vec<(VirtualAddress, Range<u32>)> = Vec::new();
-        for (_, region) in self.mapped_regions.iter() {
+        let mut modified_regions: Vec<(VirtualAddress, u32, u32)> = Vec::new();
+        for (_, region) in self.regions.iter() {
             let region_range = region.get_address_range();
             if unmap_start < region_range.start && (unmap_start + unmap_length) > region_range.start
             {
@@ -140,47 +149,48 @@ impl TaskMemory {
                 unmap_length = remaining;
                 let remove_start = unmap_start - region_range.start;
                 let remove_end = remove_start + to_remove;
-                modified_regions.push((region_range.start, remove_start..remove_end));
+                modified_regions.push((region_range.start, remove_start, remove_end));
                 unmap_start = unmap_start + to_remove;
                 if remaining == 0 {
                     break;
                 }
             }
         }
-        for modification in modified_regions {
+
+        for (modification_key, range_start, range_end) in modified_regions {
             let region = self
-                .mapped_regions
-                .remove(&modification.0)
+                .regions
+                .remove(&modification_key)
                 .expect("Attempted to unmap region that is not mapped");
-            if modification.1.start > 0 {
+            if range_start > 0 {
                 let before = MemMappedRegion {
                     address: region.address,
-                    size: modification.1.start,
+                    size: range_start,
                     backed_by: region.backed_by,
                 };
-                self.mapped_regions.insert(region.address, before);
+                self.regions.insert(region.address, before);
             }
-            if modification.1.end < region.size {
-                let new_size = region.size - modification.1.end;
+            if range_end < region.size {
+                let new_size = region.size - range_end;
                 let new_address = region.address + (region.size - new_size);
                 let after = MemMappedRegion {
                     address: new_address,
                     size: new_size,
                     backed_by: region.backed_by,
                 };
-                self.mapped_regions.insert(new_address, after);
+                self.regions.insert(new_address, after);
             }
         }
         Ok(addr..(addr + length))
     }
 
-    /// Return a reference to a mmap region if it contains the requested
-    /// address. This is useful for handling a page fault.
+    /// Returns a reference to a mmap region if it contains the requested
+    /// virtual address. This is useful for handling a page fault.
     pub fn get_mapping_containing_address(
         &self,
         addr: &VirtualAddress,
     ) -> Option<&MemMappedRegion> {
-        for (_, region) in self.mapped_regions.iter() {
+        for (_, region) in self.regions.iter() {
             if region.contains_address(addr) {
                 return Some(region);
             }
@@ -188,11 +198,13 @@ impl TaskMemory {
         None
     }
 
+    /// Same as get_mapping_containing_address, but returns a mutable reference
+    /// to the region if it is found.
     pub fn get_mut_mapping_containing_address(
         &mut self,
         addr: &VirtualAddress,
     ) -> Option<&mut MemMappedRegion> {
-        for (_, region) in self.mapped_regions.iter_mut() {
+        for (_, region) in self.regions.iter_mut() {
             if region.contains_address(addr) {
                 return Some(region);
             }
@@ -200,9 +212,11 @@ impl TaskMemory {
         None
     }
 
+    /// Checks if the specified range can fit without overlapping any currently
+    /// mapped regions.
     fn can_fit_range(&self, range: Range<VirtualAddress>) -> bool {
         // Check for intersection with each mmap'd range
-        for (_, mapping) in self.mapped_regions.iter() {
+        for (_, mapping) in self.regions.iter() {
             if ranges_overlap(&mapping.get_address_range(), &range) {
                 return false;
             }
@@ -211,26 +225,28 @@ impl TaskMemory {
         true
     }
 
+    /// Finds a free mapping space for the requested size.
+    /// Iterate backwards through the mapped set. If the space between the
+    /// current region and the previous one is large enough to fit the requested
+    /// size, return an address in that space.
     pub fn find_free_mapping_space(&self, size: u32) -> Option<VirtualAddress> {
-        // Iterate backwards through the mapped set. If the space between the
-        // current region and the previous one is large enough to fit the
-        // requested size,
-
-        // No memory can be mapped above this point, because of the stack and
-        // kernel memory
-        let memory_top = 0xbfffe000;
-        let mut prev_start = VirtualAddress::new(memory_top);
-        for (_, region) in self.mapped_regions.iter().rev() {
+        // Start at the top of the memory space and work downwards
+        let mut prev_start = VirtualAddress::new(U);
+        // The mapped regions are sorted by address, and they don't overlap, so
+        // a reverse iterator over all values will visit them in descending
+        // order.
+        // prev_start represents the last visited mapped region, and is the
+        // top of any possible allocation area.
+        for (_, region) in self.regions.iter().rev() {
             let region_end = (region.address + region.size).next_page_barrier();
             let free_space = prev_start - region_end;
             if free_space >= size {
                 let addr = (prev_start - size).prev_page_barrier();
-                // TODO: Confirm that this doesn't intersect with other memory
-                // regions like execution segments
                 return Some(addr);
             }
             prev_start = region.address;
         }
+
         Some((prev_start - size).prev_page_barrier())
     }
 }
@@ -244,21 +260,28 @@ pub fn ranges_overlap(a: &Range<VirtualAddress>, b: &Range<VirtualAddress>) -> b
 }
 
 #[derive(Debug)]
-pub enum TaskMemoryError {
+pub enum MemMapError {
+    /// Invalid size for memory mapping (must be > 0)
+    InvalidSize,
+    /// Attempted to map a region of memory beyond the highest possible location
     MapOutOfBounds,
+    /// Attempted to map a region of memory that is not page-aligned
     MappingWrongAlignment,
-    NoTask,
+    /// Not enough free virtual memory to satisfy the mapping request
     NotEnoughMemory,
-    NotMapped,
-    SegmentWrongAlignment,
-    SectionOutOfBounds,
+    /// Unmap requests must be a multiple of the page size
     UnmapNotPageMultiple,
+    /// Attempted to map memory for a task that does not exist
+    NoTask,
+    /// Attempted to remap a region that was not mapped
+    NotMapped,
+    /// Some error occurred while mapping memory for a task
     MappingFailed,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ranges_overlap, MemoryBacking, TaskMemory, VirtualAddress};
+    use super::{ranges_overlap, MappedMemory, MemoryBacking, VirtualAddress};
 
     #[test_case]
     fn overlapping_ranges() {
@@ -290,7 +313,7 @@ mod tests {
 
     #[test_case]
     fn explicit_mmap() {
-        let mut regions = TaskMemory::new();
+        let mut regions = MappedMemory::new();
         assert_eq!(
             regions
                 .map_memory(
@@ -325,7 +348,7 @@ mod tests {
 
     #[test_case]
     fn auto_allocated_mmap() {
-        let mut regions = TaskMemory::new();
+        let mut regions = MappedMemory::new();
         assert_eq!(
             regions
                 .map_memory(None, 0x1000, MemoryBacking::Anonymous)
@@ -342,7 +365,7 @@ mod tests {
 
     #[test_case]
     fn unmapping() {
-        let mut regions = TaskMemory::new();
+        let mut regions = MappedMemory::new();
         regions
             .map_memory(
                 Some(VirtualAddress::new(0x1000)),

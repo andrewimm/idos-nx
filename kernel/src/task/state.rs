@@ -1,7 +1,6 @@
 use crate::interrupts::syscall::FullSavedRegisters;
 use crate::io::async_io::{AsyncIOTable, IOType};
 use crate::io::handle::HandleTable;
-use crate::loader::environment::ExecutionEnvironment;
 use crate::memory::address::PhysicalAddress;
 use crate::sync::wake_set::WakeSet;
 use crate::time::system::{get_system_time, Timestamp};
@@ -11,7 +10,7 @@ use alloc::sync::Arc;
 
 use super::args::ExecArgs;
 use super::id::TaskID;
-use super::memory::TaskMemory;
+use super::memory::MappedMemory;
 use super::messaging::{Message, MessagePacket, MessageQueue};
 use super::registers::EnvironmentRegisters;
 use super::stack::free_stack;
@@ -41,7 +40,7 @@ pub struct Task {
     /// Physical address of the task's page directory
     pub page_directory: PhysicalAddress,
     /// Stores all of the memory mappings for the Task
-    pub memory_mapping: TaskMemory,
+    pub memory_mapping: MappedMemory<0xbfffe000>,
 
     /// Store Messages that have been sent to this task
     pub message_queue: MessageQueue,
@@ -73,7 +72,7 @@ impl Task {
             kernel_stack: Some(stack),
             stack_pointer,
             page_directory: PhysicalAddress::new(0),
-            memory_mapping: TaskMemory::new(),
+            memory_mapping: MappedMemory::new(),
             message_queue: MessageQueue::new(),
             wake_sets: HandleTable::new(),
             filename: String::new(),
