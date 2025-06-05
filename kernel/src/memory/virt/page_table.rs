@@ -14,6 +14,11 @@ impl PageTable {
         unsafe { &mut *ptr }
     }
 
+    pub fn current_directory() -> &'static mut PageTable {
+        let ptr = 0xfffff000 as *mut PageTable;
+        unsafe { &mut *ptr }
+    }
+
     pub fn zero(&mut self) {
         for index in 0..1024 {
             self.0[index].zero();

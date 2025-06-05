@@ -49,41 +49,40 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
         .read()
         .memory_mapping
         .get_mapping_containing_address(&address)
-        .cloned();
+        .cloned()?;
 
-    if let Some(mapping) = mem_mapping {
-        let offset = address.prev_page_barrier() - mapping.address;
-        let flags = get_flags_for_region(mapping);
+    /// offset of the page within the mapping
+    let page_offset = address.prev_page_barrier() - mem_mapping.address;
+    /// offset of the address within the page
+    let local_offset = address.as_u32() & 0xfff;
+    let flags = get_flags_for_region(mem_mapping);
 
-        match mapping.backed_by {
-            MemoryBacking::DMA => {
-                // if a memory region is DMA, we want to allocate the entire
-                // span as a contiguous set of pages
-                let page_count = mapping.page_count();
-                let map_to = mapping.address;
-                let allocated_range =
-                    allocate_frames(page_count).expect("Failed to allocate DMA memory");
-                let range_start = allocated_range.to_physical_address();
+    let frame_start = match mem_mapping.backed_by {
+        MemoryBacking::DMA => {
+            // DMA regions must be allocated as a contiguous block, so we
+            // allocate the entire region at once
+            let page_count = mem_mapping.page_count();
+            let map_to = mem_mapping.address;
+            let allocated_range =
+                allocate_frames(page_count).expect("Failed to allocate DMA memory");
+            let range_start = allocated_range.to_physical_address();
 
-                for i in 0..page_count {
-                    let offset = i as u32 * 0x1000;
-                    current_pagedir_map_explicit(range_start + offset, map_to + offset, flags);
-                }
-                Some(range_start)
+            for i in 0..page_count {
+                let offset = i as u32 * 0x1000;
+                current_pagedir_map_explicit(range_start + offset, map_to + offset, flags);
             }
-            _ => {
-                let allocated_frame = get_frame_for_region(mapping, offset)
-                    .expect("Failed to allocate memory for page");
-                Some(current_pagedir_map(
-                    allocated_frame,
-                    address.prev_page_barrier(),
-                    flags,
-                ))
-            }
+            range_start + page_offset
         }
-    } else {
-        None
-    }
+        MemoryBacking::Direct(_) | MemoryBacking::Anonymous => {
+            // Direct or Anonymous memory regions can be allocated on demand
+            // as needed, so we allocate a single page for the requested address
+            let allocated_frame = get_frame_for_region(mem_mapping, page_offset)
+                .expect("Failed to allocate memory for page");
+            current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags)
+        }
+    };
+
+    Some(frame_start + local_offset)
 }
 
 /// Create a new page directory, copying the kernel-space entries from the
@@ -189,25 +188,34 @@ pub fn current_pagedir_unmap(vaddr: VirtualAddress) -> Option<PhysicalAddress> {
 }
 
 /// Get the physical address backing a virtual address in the current page
-/// directory.
-/// If that part of memory is not backed by anything, this method returns None.
+/// directory. If there is a valid mapping but the page has not been assigned
+/// yet, it will be allocated and placed in the page table.
+/// If there is no valid mapping for the given virtual address, returns None.
 pub fn get_current_physical_address(vaddr: VirtualAddress) -> Option<PhysicalAddress> {
-    let offset = vaddr.as_u32() & 0xfff;
+    if let Some(paddr) = maybe_get_current_physical_address(vaddr) {
+        return Some(paddr);
+    }
+    page_on_demand(vaddr)
+}
 
+/// Similar to `get_current_physical_address(vaddr)`, but does not allocate
+/// memory if the page table does not have an entry yet.
+pub fn maybe_get_current_physical_address(vaddr: VirtualAddress) -> Option<PhysicalAddress> {
     let dir_index = vaddr.get_page_directory_index();
-    let table_index = vaddr.get_page_table_index();
-    let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
+    let current_dir = PageTable::current_directory();
     let dir_entry = current_dir.get(dir_index);
     if !dir_entry.is_present() {
         return None;
     }
     let table_address = VirtualAddress::new(0xffc00000 + (dir_index as u32 * 0x1000));
     let table = PageTable::at_address(table_address);
+    let table_index = vaddr.get_page_table_index();
     let table_entry = table.get(table_index);
     if !table_entry.is_present() {
         return None;
     }
 
+    let offset = vaddr.as_u32() & 0xfff;
     Some(table_entry.get_address() + offset)
 }
 

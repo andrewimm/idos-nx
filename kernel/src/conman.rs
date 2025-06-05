@@ -26,7 +26,8 @@ pub fn register_console_manager(wake_set: Handle) -> Result<VirtualAddress, ()> 
     }
 
     let buffer_page = map_memory(None, 0x1000, MemoryBacking::Anonymous).map_err(|_| ())?;
-    let buffer_phys = get_current_physical_address(buffer_page);
+    let buffer_phys =
+        get_current_physical_address(buffer_page).expect("Failed to allocate CONMAN input buffer");
 
     Ok(buffer_page)
 }
