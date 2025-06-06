@@ -39,10 +39,14 @@ SECTIONS
 
     . = ALIGN(0x1000);
 
+    __input_buffers = . - KERNEL_VADDR_OFFSET;
+
+    . += 0x1000;
+
     __stack_start = . - KERNEL_VADDR_OFFSET;
 
     . += 0x1000;
-    
+
     __stack_end = . - KERNEL_VADDR_OFFSET;
   }
 

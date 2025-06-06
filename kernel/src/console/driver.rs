@@ -3,6 +3,7 @@ use alloc::string::String;
 use spin::RwLock;
 
 use crate::collections::SlotList;
+use crate::conman::wake_console_manager;
 use crate::files::path::Path;
 use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
@@ -11,7 +12,6 @@ use crate::io::IOError;
 use crate::task::actions::yield_coop;
 
 use super::buffers::ConsoleBuffers;
-use super::wake_console_manager;
 
 pub struct ConsoleDriver {
     open_instances: RwLock<SlotList<OpenInstance>>,

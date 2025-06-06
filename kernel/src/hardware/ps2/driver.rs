@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use crate::memory::address::VirtualAddress;
 use crate::sync::futex::futex_wait;
 use crate::task::actions::yield_coop;
-use crate::{collections::RingBuffer, console::wake_console_manager};
+use crate::{collections::RingBuffer, conman::wake_console_manager};
 
 use super::keyboard::{KeyboardState, OPEN_KEYBOARD_HANDLES};
 
@@ -37,7 +37,7 @@ pub fn ps2_driver_task() -> ! {
                 keyboard_bytes.push(a);
                 keyboard_bytes.push(b);
 
-                crate::console::INPUT_BUFFER.write(action);
+                crate::conman::write_key_action(a, b);
                 wake_manager = true;
             }
         }

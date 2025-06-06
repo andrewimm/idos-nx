@@ -1,13 +1,12 @@
 use alloc::vec::Vec;
 
 use crate::arch::port::Port;
-use crate::hardware::ps2::keyboard::KeyAction;
 use crate::memory::address::VirtualAddress;
 use crate::task::actions::yield_coop;
 use crate::time::system::Timestamp;
 
-use super::console::{Console, Color, ColorCode, TextCell};
-use super::input::KeyState;
+use super::console::{Color, ColorCode, Console, TextCell};
+use super::input::{KeyAction, KeyState};
 
 pub struct ConsoleManager {
     key_state: KeyState,
@@ -43,7 +42,11 @@ impl ConsoleManager {
             let input = &input_bytes[..len];
             let input_buffer = loop {
                 if let Some(buffers) = super::IO_BUFFERS.try_read() {
-                    break buffers.get(self.current_console).unwrap().input_buffer.clone();
+                    break buffers
+                        .get(self.current_console)
+                        .unwrap()
+                        .input_buffer
+                        .clone();
                 }
                 yield_coop();
             };
@@ -66,7 +69,7 @@ impl ConsoleManager {
                 match output_buffer.read() {
                     Some(value) => {
                         console.write_character(value);
-                    },
+                    }
                     None => break,
                 }
             }
@@ -74,7 +77,11 @@ impl ConsoleManager {
     }
 
     pub fn update_cursor(&self) {
-        let cursor_offset = self.consoles.get(self.current_console).unwrap().get_cursor_offset();
+        let cursor_offset = self
+            .consoles
+            .get(self.current_console)
+            .unwrap()
+            .get_cursor_offset();
         let register = Port::new(0x3d4);
         let register_value = Port::new(0x3d5);
 
@@ -87,10 +94,7 @@ impl ConsoleManager {
     pub fn render_top_bar(&self) {
         let width = 80;
         let top_slice = unsafe {
-            core::slice::from_raw_parts_mut(
-                self.text_buffer_base.as_ptr_mut::<TextCell>(),
-                width,
-            )
+            core::slice::from_raw_parts_mut(self.text_buffer_base.as_ptr_mut::<TextCell>(), width)
         };
         let title = " IDOS-NX ".as_bytes();
         for i in 0..title.len() {
@@ -109,22 +113,34 @@ impl ConsoleManager {
 
     pub fn update_clock(&mut self) {
         let current_time = crate::time::system::get_system_time().to_timestamp();
-        if self.current_time.total_minutes() != current_time.total_minutes() {
+        if self.current_time != current_time {
             self.current_time = current_time;
             self.print_time();
         }
+        /*if self.current_time.total_minutes() != current_time.total_minutes() {
+            self.current_time = current_time;
+            self.print_time();
+        }*/
     }
 
     pub fn print_time(&self) {
         let width = 80;
         let mut clock_buffer: [u8; 7] = [0x20; 7];
-        self.current_time.to_datetime().time.print_short_to_buffer(&mut clock_buffer[1..6]);
+        self.current_time
+            .to_datetime()
+            .time
+            .print_short_to_buffer(&mut clock_buffer[1..6]);
+        if self.current_time.as_u32() & 1 != 0 {
+            clock_buffer[3] = b' ';
+        }
         let clock_color = ColorCode::new(Color::White, Color::Blue);
         let clock_start = width - clock_buffer.len();
         let top_slice = unsafe {
             core::slice::from_raw_parts_mut(
-                self.text_buffer_base.as_ptr_mut::<TextCell>().add(clock_start),
-                clock_buffer.len()
+                self.text_buffer_base
+                    .as_ptr_mut::<TextCell>()
+                    .add(clock_start),
+                clock_buffer.len(),
             )
         };
         for i in 0..clock_buffer.len() {
@@ -142,7 +158,10 @@ impl ConsoleManager {
         for i in 0..(width * height) {
             unsafe {
                 let ptr = self.text_buffer_base.as_ptr_mut::<TextCell>().add(i);
-                *ptr = TextCell { glyph: 0x20, color: ColorCode::new(Color::LightGrey, Color::Black) };
+                *ptr = TextCell {
+                    glyph: 0x20,
+                    color: ColorCode::new(Color::LightGrey, Color::Black),
+                };
             }
         }
     }
