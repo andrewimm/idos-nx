@@ -41,10 +41,5 @@ pub fn init_async_io_system() {
     let task_fs = self::filesystem::taskfs::TaskFileSystem::new();
     self::filesystem::install_kernel_fs("TASK", Box::new(task_fs));
 
-    {
-        let (driver, name) = crate::console::driver::create_new_console();
-        self::filesystem::install_kernel_dev(name.as_str(), driver);
-    }
-
     crate::pipes::driver::install();
 }

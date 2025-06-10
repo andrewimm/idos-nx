@@ -1,6 +1,8 @@
-use alloc::{vec::Vec, sync::Arc};
+use alloc::{sync::Arc, vec::Vec};
 
-use crate::{memory::address::VirtualAddress, collections::RingBuffer};
+use crate::{collections::RingBuffer, memory::address::VirtualAddress};
+
+use super::buffers::ConsoleBuffers;
 
 pub struct Console {
     cursor_x: u8,
@@ -34,7 +36,7 @@ impl Console {
             pending_input: Vec::new(),
         }
     }
-    
+
     pub fn get_text_buffer_base_ptr(&self) -> *mut TextCell {
         self.text_buffer_base.as_ptr_mut::<TextCell>()
     }
@@ -79,11 +81,13 @@ impl Console {
         should_flush
     }
 
-    pub fn flush_pending_input(&mut self, buffer: Arc<RingBuffer<u8>>) {
+    pub fn flush_pending_input(&mut self, buffers: &ConsoleBuffers) -> usize {
         for ch in self.pending_input.iter() {
-            buffer.write(*ch);
+            buffers.input_buffer.write(*ch);
         }
+        let len = self.pending_input.len();
         self.pending_input.clear();
+        len
     }
 
     pub fn write_character(&mut self, ch: u8) {
@@ -113,9 +117,9 @@ impl Console {
     }
 
     pub fn get_cursor_offset(&self) -> usize {
-        self.text_buffer_offset +
-        self.cursor_y as usize * self.text_buffer_stride +
-        self.cursor_x as usize
+        self.text_buffer_offset
+            + self.cursor_y as usize * self.text_buffer_stride
+            + self.cursor_x as usize
     }
 
     pub fn carriage_return(&mut self) {
@@ -146,7 +150,8 @@ impl Console {
                 core::slice::from_raw_parts_mut(to_ptr, self.width as usize)
             };
             let from = unsafe {
-                let row_offset = self.text_buffer_offset + self.text_buffer_stride * (row + scroll_delta) as usize;
+                let row_offset = self.text_buffer_offset
+                    + self.text_buffer_stride * (row + scroll_delta) as usize;
                 let from_ptr = self.get_text_buffer_base_ptr().add(row_offset);
                 core::slice::from_raw_parts(from_ptr, self.width as usize)
             };
@@ -206,4 +211,3 @@ pub enum Color {
     LightBrown,
     White,
 }
-

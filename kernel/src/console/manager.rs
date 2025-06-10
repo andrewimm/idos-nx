@@ -1,12 +1,56 @@
+use alloc::collections::VecDeque;
 use alloc::vec::Vec;
+use idos_api::io::error::IOError;
+use spin::RwLock;
 
 use crate::arch::port::Port;
+use crate::collections::SlotList;
+use crate::io::driver::comms::DriverCommand;
+use crate::io::filesystem::install_task_dev;
+use crate::io::provider::IOResult;
 use crate::memory::address::VirtualAddress;
+use crate::memory::shared::release_buffer;
+use crate::task::actions::io::driver_io_complete;
 use crate::task::actions::yield_coop;
+use crate::task::messaging::Message;
+use crate::task::switching::get_current_id;
 use crate::time::system::Timestamp;
 
+use super::buffers::ConsoleBuffers;
 use super::console::{Color, ColorCode, Console, TextCell};
 use super::input::{KeyAction, KeyState};
+
+pub static IO_BUFFERS: RwLock<Vec<ConsoleBuffers>> = RwLock::new(Vec::new());
+
+struct PendingRead {
+    request_id: u32,
+    buffer_start: *mut u8,
+    max_length: usize,
+}
+
+impl PendingRead {
+    pub fn complete(self, console_buffers: &ConsoleBuffers) -> usize {
+        let input_buffer = &console_buffers.input_buffer;
+        let write_buffer =
+            unsafe { core::slice::from_raw_parts_mut(self.buffer_start, self.max_length) };
+        let mut written = 0;
+        while let Some(byte) = input_buffer.read() {
+            write_buffer[written] = byte;
+            written += 1;
+            if written >= write_buffer.len() {
+                break;
+            }
+        }
+
+        release_buffer(
+            VirtualAddress::new(self.buffer_start as u32),
+            self.max_length,
+        );
+        driver_io_complete(self.request_id, Ok(written as u32));
+
+        written
+    }
+}
 
 pub struct ConsoleManager {
     key_state: KeyState,
@@ -15,13 +59,15 @@ pub struct ConsoleManager {
 
     current_console: usize,
     consoles: Vec<Console>,
+
+    /// Mapping of open handles to the consoles they reference
+    open_io: SlotList<usize>,
+    pending_reads: SlotList<VecDeque<PendingRead>>,
 }
 
 impl ConsoleManager {
     pub fn new(text_buffer_base: VirtualAddress) -> Self {
-        let first_console = Console::new(text_buffer_base);
         let mut consoles = Vec::with_capacity(1);
-        consoles.push(first_console);
 
         Self {
             key_state: KeyState::new(),
@@ -30,50 +76,175 @@ impl ConsoleManager {
 
             current_console: 0,
             consoles,
+
+            open_io: SlotList::new(),
+            pending_reads: SlotList::new(),
         }
     }
 
-    pub fn handle_action(&mut self, action: KeyAction) {
+    pub fn add_console(&mut self) -> usize {
+        let new_console = Console::new(self.text_buffer_base);
+        self.consoles.push(new_console);
+        let index = self.consoles.len() - 1;
+        loop {
+            if let Some(mut buffers) = IO_BUFFERS.try_write() {
+                buffers.push(ConsoleBuffers::new());
+                break;
+            }
+            yield_coop();
+        }
+
+        let name = alloc::format!("CON{}", index + 1);
+        install_task_dev(&name, get_current_id(), index as u32);
+
+        index
+    }
+
+    /// Take a key action from the keyboard interrupt handler and send it to the
+    /// current console for processing. Depending on the key pressed and the
+    /// mode of the console, it may trigger a flush. If any content is flushed
+    /// to the IO buffers, it will also check for pending reads and copy bytes
+    /// to them if available.
+    pub fn handle_key_action(&mut self, action: KeyAction) {
         let mut input_bytes: [u8; 4] = [0; 4];
         let result = self.key_state.process_key_action(action, &mut input_bytes);
         if let Some(len) = result {
             // send input buffer to current console
-            let console = self.consoles.get_mut(self.current_console).unwrap();
-            let input = &input_bytes[..len];
-            let input_buffer = loop {
-                if let Some(buffers) = super::IO_BUFFERS.try_read() {
-                    break buffers
-                        .get(self.current_console)
-                        .unwrap()
-                        .input_buffer
-                        .clone();
-                }
-                yield_coop();
-            };
+            let console: &mut Console = self.consoles.get_mut(self.current_console).unwrap();
+            let mut input = &input_bytes[..len];
             if console.send_input(input) {
-                console.flush_pending_input(input_buffer);
+                // if the console should flush, send input to the IO buffer.
+                loop {
+                    if let Some(mut buffers) = IO_BUFFERS.try_write() {
+                        let console_buffers = buffers.get_mut(self.current_console).unwrap();
+                        let available = console.flush_pending_input(console_buffers);
+
+                        if available > 0 {
+                            let pending_reads = self.pending_reads.get_mut(self.current_console);
+                            if let Some(queue) = pending_reads {
+                                while let Some(mut front) = queue.pop_front() {
+                                    front.complete(console_buffers);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    yield_coop();
+                }
             }
         }
     }
 
-    pub fn process_buffers(&mut self) {
-        for index in 0..self.consoles.len() {
-            let console = self.consoles.get_mut(index).unwrap();
-            let output_buffer = loop {
-                if let Some(buffers) = super::IO_BUFFERS.try_read() {
-                    break buffers.get(index).unwrap().output_buffer.clone();
+    pub fn handle_request(&mut self, message: &Message) -> Option<IOResult> {
+        match DriverCommand::from_u32(message.message_type) {
+            DriverCommand::OpenRaw => {
+                let console_id = message.args[0] as usize;
+                let handle = self.open_io.insert(console_id);
+                Some(Ok(handle as u32))
+            }
+            DriverCommand::Close => {
+                let instance = message.args[0];
+                match self.open_io.remove(instance as usize) {
+                    Some(_) => Some(Ok(1)),
+                    None => Some(Err(IOError::FileHandleInvalid)),
                 }
-                yield_coop();
-            };
-            loop {
-                match output_buffer.read() {
-                    Some(value) => {
-                        console.write_character(value);
-                    }
-                    None => break,
+            }
+            DriverCommand::Read => {
+                let request_id = message.unique_id;
+                let instance = message.args[0];
+                let buffer_ptr = message.args[1] as *mut u8;
+                let buffer_len = message.args[2] as usize;
+                let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
+                self.read(request_id, instance, buffer).inspect(|_| {
+                    release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
+                })
+            }
+            DriverCommand::Write => {
+                let instance = message.args[0];
+                let buffer_ptr = message.args[1] as *const u8;
+                let buffer_len = message.args[2] as usize;
+                let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_len) };
+                let result = self.write(instance, buffer);
+                release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
+                Some(result)
+            }
+            _ => Some(Err(IOError::UnsupportedCommand)),
+        }
+    }
+
+    pub fn read(&mut self, request_id: u32, instance: u32, buffer: &mut [u8]) -> Option<IOResult> {
+        let console_id = match self.open_io.get(instance as usize) {
+            Some(id) => id,
+            None => return Some(Err(IOError::FileHandleInvalid)),
+        };
+        let mut bytes_written = 0;
+
+        {
+            if let Some(queue) = self.pending_reads.get_mut(*console_id) {
+                if !queue.is_empty() {
+                    // there are other pending reads, enqueue this one
+                    let pending_read = PendingRead {
+                        request_id,
+                        buffer_start: buffer.as_mut_ptr(),
+                        max_length: buffer.len(),
+                    };
+                    queue.push_back(pending_read);
+                    return None;
                 }
             }
         }
+
+        let input_buffer = loop {
+            if let Some(buffers) = IO_BUFFERS.try_read() {
+                break buffers.get(*console_id).unwrap().input_buffer.clone();
+            }
+            yield_coop();
+        };
+        while bytes_written < buffer.len() {
+            match input_buffer.read() {
+                Some(ch) => {
+                    buffer[bytes_written] = ch;
+                    bytes_written += 1;
+                }
+                None => {
+                    break;
+                }
+            }
+        }
+        if bytes_written < buffer.len() {
+            let pending_read = PendingRead {
+                request_id,
+                buffer_start: buffer.as_mut_ptr(),
+                max_length: buffer.len(),
+            };
+            match self.pending_reads.get_mut(*console_id) {
+                Some(queue) => {
+                    queue.push_back(pending_read);
+                }
+                None => {
+                    let mut queue = VecDeque::new();
+                    queue.push_back(pending_read);
+                    self.pending_reads.replace(*console_id, queue);
+                }
+            }
+            return None;
+        }
+        Some(Ok(bytes_written as u32))
+    }
+
+    pub fn write(&mut self, instance: u32, buffer: &[u8]) -> IOResult {
+        let console_id = self
+            .open_io
+            .get(instance as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
+
+        let console = self.consoles.get_mut(*console_id).unwrap();
+        let mut i = 0;
+        while i < buffer.len() {
+            console.write_character(buffer[i]);
+            i += 1;
+        }
+        Ok(buffer.len() as u32)
     }
 
     pub fn update_cursor(&self) {
