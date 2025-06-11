@@ -107,11 +107,13 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
             out(reg) address,
         );
     }
+    let cs = stack_frame.cs;
     let eip = stack_frame.eip;
     let cur_id = get_current_id();
     crate::kprint!(
-        "\nPage Fault ({:?}: {:#010X}) at {:#010X} ({:X})\n",
+        "\nPage Fault ({:?}  {:X}:{:#010X}) at {:#010X} ({:X})\n",
         cur_id,
+        cs,
         eip,
         address,
         error
@@ -134,13 +136,6 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
         }
     } else {
         // User space
-        if stack_frame.eflags & 0x20000 != 0 {
-            // handle VM86 page faults separately
-            loop {}
-            if crate::dos::memory::handle_page_fault(&stack_frame, address) {
-                return;
-            }
-        }
 
         if error & 1 == 0 {
             // Page was not present

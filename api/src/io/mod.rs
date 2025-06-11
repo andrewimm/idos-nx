@@ -3,7 +3,11 @@ use core::sync::atomic::{AtomicU32, Ordering};
 pub mod error;
 pub mod file;
 pub mod handle;
+pub mod message;
 pub mod sync;
+
+pub use handle::Handle;
+pub use message::Message;
 
 pub const ASYNC_OP_OPEN: u32 = 1;
 pub const ASYNC_OP_READ: u32 = 2;
@@ -58,5 +62,16 @@ pub fn read_op(buffer: &mut [u8], offset: u32) -> AsyncOp {
         signal: AtomicU32::new(0),
         return_value: AtomicU32::new(0),
         args: [buffer_ptr, buffer_len, offset],
+    }
+}
+
+pub fn read_message_op(message: &mut Message) -> AsyncOp {
+    let message_ptr = message as *mut Message as u32;
+    let message_len = core::mem::size_of::<Message>() as u32;
+    AsyncOp {
+        op_code: ASYNC_OP_READ,
+        signal: AtomicU32::new(0),
+        return_value: AtomicU32::new(0),
+        args: [message_ptr, message_len, 0],
     }
 }

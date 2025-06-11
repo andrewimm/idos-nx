@@ -2,7 +2,7 @@ use core::sync::atomic::Ordering;
 
 use super::error::{IOError, IOResult};
 use super::handle::Handle;
-use super::AsyncOp;
+use super::{AsyncOp, Message};
 
 use crate::syscall::exec::futex_wait_u32;
 use crate::syscall::io::append_io_op;
@@ -39,6 +39,14 @@ pub fn read_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IOResult {
     let buffer_ptr = buffer.as_ptr() as u32;
     let buffer_len = buffer.len() as u32;
     io_sync(handle, ASYNC_OP_READ, buffer_ptr, buffer_len, offset)
+}
+
+pub fn read_message_sync(handle: Handle, message: &mut Message) -> IOResult {
+    use crate::io::ASYNC_OP_READ;
+
+    let message_ptr = message as *mut Message as u32;
+    let message_len = core::mem::size_of::<Message>() as u32;
+    io_sync(handle, ASYNC_OP_READ, message_ptr, message_len, 0)
 }
 
 pub fn write_sync(handle: Handle, buffer: &[u8], offset: u32) -> IOResult {

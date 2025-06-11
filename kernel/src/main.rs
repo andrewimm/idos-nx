@@ -118,6 +118,20 @@ fn init_system() -> ! {
         let loader_id = loader::resident::get_loader_id();
     }
 
+    {
+        let (_, gfx_task) = task::actions::handle::create_task();
+        loader::load_executable(gfx_task, "C:\\GFX.ELF");
+        task::actions::send_message(
+            gfx_task,
+            task::messaging::Message {
+                unique_id: 0,
+                message_type: 1,
+                args: [0; 6],
+            },
+            0xffff_ffff,
+        );
+    }
+
     /*{
         // TCP test
         use net::socket::SocketPort;
