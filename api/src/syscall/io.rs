@@ -11,6 +11,10 @@ pub fn create_file_handle() -> Handle {
     Handle::new(syscall(0x23, 0, 0, 0))
 }
 
+pub fn futex_wake(address: u32, count: u32) {
+    syscall(0x14, address, count, 0);
+}
+
 pub fn create_wake_set() -> Handle {
     Handle::new(syscall(0x15, 0, 0, 0))
 }

@@ -23,6 +23,9 @@ pub fn ps2_driver_task() -> ! {
 
     let mut keyboard_state = KeyboardState::new();
 
+    let mut mouse_packet_seq = 0;
+    let mut mouse_packet: [u8; 3] = [0; 3];
+
     loop {
         let mut wake_manager = false;
 
@@ -45,7 +48,17 @@ pub fn ps2_driver_task() -> ! {
             match MOUSE_BUFFER.read() {
                 Some(data) => {
                     crate::kprint!("M{:X}", data);
-                    mouse_bytes.push(data);
+
+                    mouse_packet[mouse_packet_seq] = data;
+                    mouse_packet_seq += 1;
+                    if mouse_packet_seq >= 3 {
+                        crate::conman::write_mouse_action(
+                            mouse_packet[0],
+                            mouse_packet[1],
+                            mouse_packet[2],
+                        );
+                        mouse_packet_seq = 0;
+                    }
                 }
                 None => break,
             }

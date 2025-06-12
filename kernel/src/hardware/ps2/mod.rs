@@ -28,17 +28,28 @@ pub fn install_drivers() {
     self::controller::send_ps2_command(0xd4);
     if self::controller::reset_device() {
         // initialize mouse
+
+        // set sample rate
+        self::controller::send_ps2_command(0xd4);
+        self::controller::write_ps2_data(0xf3);
+        while !self::controller::data_read_ready() {}
+        self::controller::read_ps2_data();
+        self::controller::send_ps2_command(0xd4);
+        self::controller::write_ps2_data(60);
+        while !self::controller::data_read_ready() {}
+        self::controller::read_ps2_data();
+
+        // enable streaming
+        self::controller::send_ps2_command(0xd4);
+        self::controller::write_ps2_data(0xf4);
+        while !self::controller::data_read_ready() {}
+        self::controller::read_ps2_data();
+
+        install_interrupt_handler(12, interrupt_handler, None);
     }
 
     let task_id = create_kernel_task(self::driver::ps2_driver_task, Some("PS2DEV"));
     DRIVER_ID.store(task_id.into(), Ordering::SeqCst);
-
-    // ======
-
-    self::controller::send_ps2_command(0xd4);
-    self::controller::write_ps2_data(0xf4);
-    while !self::controller::data_read_ready() {}
-    self::controller::read_ps2_data();
 
     crate::kprint!("PS/2 set up complete.\n");
 }
@@ -51,9 +62,11 @@ fn interrupt_handler(irq: u32) {
             crate::kprint!("Keyboard overflow\n");
         }
     } else if irq == 12 {
-        let data = self::controller::read_ps2_data();
-        if !self::driver::MOUSE_BUFFER.write(data) {
-            crate::kprint!("Mouse overflow\n");
+        while self::controller::data_read_ready() {
+            let data = self::controller::read_ps2_data();
+            if !self::driver::MOUSE_BUFFER.write(data) {
+                crate::kprint!("Mouse overflow\n");
+            }
         }
     } else {
         return;

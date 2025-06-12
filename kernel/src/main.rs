@@ -121,15 +121,79 @@ fn init_system() -> ! {
     {
         let (_, gfx_task) = task::actions::handle::create_task();
         loader::load_executable(gfx_task, "C:\\GFX.ELF");
+
+        struct VbeModeInfo {
+            width: u16,
+            height: u16,
+            pitch: u16,
+            bpp: u8,
+            framebuffer: u32,
+        }
+
+        let mut signal = alloc::boxed::Box::<u32>::new(0);
+        let signal_addr =
+            crate::memory::address::VirtualAddress::new(&*signal as *const u32 as u32);
+
+        let mut mode_info = alloc::boxed::Box::<VbeModeInfo>::new(VbeModeInfo {
+            width: 0,
+            height: 0,
+            pitch: 0,
+            bpp: 0,
+            framebuffer: 0,
+        });
+        let mode_info_addr =
+            crate::memory::address::VirtualAddress::new(&*mode_info as *const VbeModeInfo as u32);
+
         task::actions::send_message(
             gfx_task,
             task::messaging::Message {
                 unique_id: 0,
-                message_type: 1,
-                args: [0; 6],
+                message_type: 0x11, // get VBE mode info
+                args: [
+                    0x0103, // 800px x 600px x 256 colors
+                    task::paging::get_current_physical_address(signal_addr)
+                        .unwrap()
+                        .as_u32(),
+                    task::paging::get_current_physical_address(mode_info_addr)
+                        .unwrap()
+                        .as_u32(),
+                    0,
+                    0,
+                    0,
+                ],
             },
             0xffff_ffff,
         );
+        sync::futex::futex_wait(signal_addr, 0, None);
+
+        crate::kprintln!(
+            "GOT VBE INFO: {}x{}x{} @ {:#010X}",
+            mode_info.width,
+            mode_info.height,
+            mode_info.bpp,
+            mode_info.framebuffer
+        );
+        crate::kprintln!("  pitch: {}", mode_info.pitch);
+
+        task::actions::send_message(
+            gfx_task,
+            task::messaging::Message {
+                unique_id: 0,
+                message_type: 0x12,
+                args: [
+                    0x0103, // 800px x 600px x 256 colors
+                    task::paging::get_current_physical_address(signal_addr)
+                        .unwrap()
+                        .as_u32(),
+                    0,
+                    0,
+                    0,
+                    0,
+                ],
+            },
+            0xffff_ffff,
+        );
+        sync::futex::futex_wait(signal_addr, 0, None);
     }
 
     /*{

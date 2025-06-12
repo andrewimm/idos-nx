@@ -29,6 +29,8 @@ pub mod console;
 pub mod input;
 pub mod manager;
 
+type ConsoleInputBuffer = InputBuffer<{ crate::conman::INPUT_BUFFER_SIZE }>;
+
 pub fn manager_task() -> ! {
     let response_writer = Handle::new(0);
 
@@ -42,9 +44,9 @@ pub fn manager_task() -> ! {
         }
     };
 
-    let keyboard_buffer_ptr =
-        input_buffer_addr.as_ptr::<InputBuffer<{ crate::conman::INPUT_BUFFER_SIZE }>>();
+    let keyboard_buffer_ptr = input_buffer_addr.as_ptr::<ConsoleInputBuffer>();
     let keyboard_buffer = unsafe { &*keyboard_buffer_ptr };
+    let mouse_buffer = unsafe { &*(keyboard_buffer_ptr.add(1)) };
 
     let text_buffer_base = map_memory(
         None,
@@ -52,6 +54,25 @@ pub fn manager_task() -> ! {
         MemoryBacking::Direct(PhysicalAddress::new(0xb8000)),
     )
     .unwrap();
+
+    const framebuffer_bytes: u32 = 800 * 600;
+    const framebuffer_pages: u32 = (framebuffer_bytes + 0xfff) / 0x1000;
+
+    let graphics_buffer_base = map_memory(
+        Some(VirtualAddress::new(0x10_0000)),
+        0x1000 * framebuffer_pages,
+        MemoryBacking::Direct(PhysicalAddress::new(0xfd00_0000)),
+    )
+    .unwrap();
+    let framebuffer = unsafe {
+        core::slice::from_raw_parts_mut(
+            graphics_buffer_base.as_ptr_mut::<u8>(),
+            0x1000 * framebuffer_pages as usize,
+        )
+    };
+
+    let mut mouse_x = 400;
+    let mut mouse_y = 300;
 
     let mut conman = ConsoleManager::new(text_buffer_base);
     conman.add_console(); // create the first console (CON1)
@@ -75,6 +96,7 @@ pub fn manager_task() -> ! {
 
     let mut last_action_type: u8 = 0;
     loop {
+        draw_desktop(framebuffer);
         loop {
             // read input actions and pass them to the current console
             let next_action = match keyboard_buffer.read() {
@@ -92,6 +114,15 @@ pub fn manager_task() -> ! {
                 }
                 last_action_type = 0;
             }
+        }
+
+        loop {
+            let next_action = match mouse_buffer.read() {
+                Some(action) => action,
+                None => break,
+            };
+            crate::kprintln!("DRAW MOUSE");
+            draw_mouse(framebuffer, mouse_x, mouse_y);
         }
 
         if message_read.is_complete() {
@@ -128,5 +159,54 @@ pub fn init_console() {
 }
 
 pub fn console_ready() {
-    crate::command::start_command(0);
+    //crate::command::start_command(0);
 }
+
+fn draw_desktop(framebuffer: &mut [u8]) {
+    for y in 0..600 {
+        for x in 0..800 {
+            let offset = (y * 800 + x) as usize;
+            framebuffer[offset] = 0x4f;
+        }
+    }
+}
+
+fn draw_mouse(framebuffer: &mut [u8], mouse_x: u32, mouse_y: u32) {
+    let offset = (mouse_y * 800 + mouse_x) as usize;
+    for row in 0..16 {
+        let row_offset = offset + row * 800;
+        let mut cursor_row = CURSOR[row];
+        let mut shadow = false;
+        for col in 0..16 {
+            if cursor_row & 1 != 0 {
+                shadow = true;
+                framebuffer[row_offset + col] = 0x0f;
+            } else if shadow {
+                shadow = false;
+                framebuffer[row_offset + col] = 0x13;
+            } else {
+                shadow = false;
+            }
+            cursor_row = cursor_row >> 1;
+        }
+    }
+}
+
+const CURSOR: [u16; 16] = [
+    0b0000000000000001,
+    0b0000000000000011,
+    0b0000000000000111,
+    0b0000000000001111,
+    0b0000000000011111,
+    0b0000000000111111,
+    0b0000000001111111,
+    0b0000000011111111,
+    0b0000000111111111,
+    0b0000001111111111,
+    0b0000011111111111,
+    0b0000000001111111,
+    0b0000000001100111,
+    0b0000000001100011,
+    0b0000000011000001,
+    0b0000000011000000,
+];

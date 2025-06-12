@@ -115,3 +115,11 @@ pub fn write_key_action(action_byte: u8, keycode_byte: u8) {
     keyboard_buffer.write(keycode_byte);
     wake_console_manager();
 }
+
+pub fn write_mouse_action(mouse_data: u8, dx: u8, dy: u8) {
+    let (_, mouse_buffer) = unsafe { get_buffers() };
+    mouse_buffer.write(mouse_data);
+    mouse_buffer.write(dx);
+    mouse_buffer.write(dy);
+    wake_console_manager();
+}
