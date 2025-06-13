@@ -29,6 +29,8 @@ pub mod console;
 pub mod input;
 pub mod manager;
 
+pub mod graphics;
+
 type ConsoleInputBuffer = InputBuffer<{ crate::conman::INPUT_BUFFER_SIZE }>;
 
 pub fn manager_task() -> ! {
@@ -182,6 +184,44 @@ fn draw_desktop(framebuffer: &mut [u8]) {
     for x in 0..DISPLAY_WIDTH {
         framebuffer[DISPLAY_WIDTH * (TOP_BAR_HEIGHT - 1) + x] = 0x5b;
     }
+
+    // glyph test
+    const GLYPH_DATA: [u8; 16] = [
+        0b00110000, //
+        0b01001000, //
+        0b10000100, //
+        0b11111100, //
+        0b10000100, //
+        0b10000100, //
+        0b10000100, //
+        0b00000000, //
+        //
+        0b11111000, //
+        0b10000100, //
+        0b10000100, //
+        0b11111000, //
+        0b10000100, //
+        0b10000100, //
+        0b11111000, //
+        0b00000000, //
+    ];
+
+    let mut glyph_a = self::graphics::font::Glyph::with_capacity(7, 8, 8);
+    for i in 0..8 {
+        glyph_a.bitmap.push(GLYPH_DATA[i]);
+    }
+    let mut glyph_b = self::graphics::font::Glyph::with_capacity(7, 0, 8);
+    for i in 8..16 {
+        glyph_b.bitmap.push(GLYPH_DATA[i]);
+    }
+
+    let mut fb = graphics::framebuffer::Framebuffer {
+        width: 800,
+        height: 600,
+        stride: 800,
+        buffer: VirtualAddress::new(&framebuffer[0] as *const u8 as u32),
+    };
+    graphics::font::draw_string(&fb, 0, 0, &[&glyph_a, &glyph_b, &glyph_a, &glyph_b], 0x0f);
 
     // clear the rest of the desktop
 
