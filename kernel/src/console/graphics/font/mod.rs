@@ -1,5 +1,6 @@
 //! Handling of bitmap fonts
-//!
+
+pub mod psf;
 
 use alloc::vec::Vec;
 
@@ -23,6 +24,14 @@ impl Glyph {
             width,
             height,
             bitmap: Vec::with_capacity(bitmap_bytes),
+        }
+    }
+
+    pub fn from_bitmap(width: u8, height: u8, bitmap: Vec<u8>) -> Self {
+        Self {
+            width,
+            height,
+            bitmap,
         }
     }
 
@@ -51,17 +60,43 @@ impl Glyph {
     }
 }
 
-pub fn draw_string(framebuffer: &Framebuffer, x: u16, y: u16, glyphs: &[&Glyph], color: u8) {
-    let mut offset = (y as usize) * (framebuffer.stride as usize) + (x as usize);
-    let raw_buffer = framebuffer.get_buffer_mut();
-    // assumes all glyphs are the same height...
-    let height = glyphs[0].height;
-    for row in 0..height {
-        let mut run_offset = 0;
+pub trait Font {
+    fn get_glyph(&self, byte: u8) -> Option<&Glyph>;
+
+    fn get_height(&self) -> u8;
+
+    fn compute_width(&self, byte_string: &[u8]) -> u16 {
+        let glyphs = byte_string.iter().filter_map(|byte| self.get_glyph(*byte));
+        let mut width = 0;
         for glyph in glyphs {
-            glyph.draw_row(framebuffer, x + run_offset, y + row as u16, row, color);
-            run_offset += glyph.width as u16;
+            width += glyph.width as u16;
         }
-        offset += framebuffer.stride as usize;
+        width
+    }
+
+    fn draw_string(
+        &self,
+        framebuffer: &Framebuffer,
+        x: u16,
+        y: u16,
+        byte_string: &[u8],
+        color: u8,
+    ) {
+        if byte_string.len() < 1 {
+            return;
+        }
+        let height = self.get_glyph(byte_string[0]).unwrap().height;
+        let mut offset = (y as usize) * (framebuffer.stride as usize) + (x as usize);
+        let raw_buffer = framebuffer.get_buffer_mut();
+        // assumes all glyphs are the same height...
+        for row in 0..height {
+            let glyphs = byte_string.iter().filter_map(|byte| self.get_glyph(*byte));
+            let mut run_offset = 0;
+            for glyph in glyphs {
+                glyph.draw_row(framebuffer, x + run_offset, y + row as u16, row, color);
+                run_offset += glyph.width as u16;
+            }
+            offset += framebuffer.stride as usize;
+        }
     }
 }

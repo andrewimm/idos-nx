@@ -5,6 +5,9 @@ use idos_api::io::AsyncOp;
 use spin::RwLock;
 
 use crate::conman::{register_console_manager, InputBuffer};
+use crate::console::graphics::font::psf::PsfFont;
+use crate::console::graphics::font::Font;
+use crate::graphics::{get_vbe_mode_info, set_vbe_mode, VbeModeInfo};
 use crate::io::async_io::ASYNC_OP_READ;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
@@ -20,6 +23,7 @@ use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::messaging::Message;
 
+use self::graphics::framebuffer::Framebuffer;
 use self::input::KeyAction;
 use self::manager::ConsoleManager;
 
@@ -57,21 +61,38 @@ pub fn manager_task() -> ! {
     )
     .unwrap();
 
-    const framebuffer_bytes: u32 = 800 * 600;
-    const framebuffer_pages: u32 = (framebuffer_bytes + 0xfff) / 0x1000;
+    let mut vbe_mode_info: VbeModeInfo = VbeModeInfo::default();
+    get_vbe_mode_info(&mut vbe_mode_info, 0x0103);
+    set_vbe_mode(0x0103);
+
+    let framebuffer_bytes = (vbe_mode_info.width as u32) * (vbe_mode_info.height as u32);
+    let framebuffer_pages = (framebuffer_bytes + 0xfff) / 0x1000;
 
     let graphics_buffer_base = map_memory(
         Some(VirtualAddress::new(0x10_0000)),
         0x1000 * framebuffer_pages,
-        MemoryBacking::Direct(PhysicalAddress::new(0xfd00_0000)),
+        MemoryBacking::Direct(PhysicalAddress::new(vbe_mode_info.framebuffer)),
     )
     .unwrap();
-    let framebuffer = unsafe {
-        core::slice::from_raw_parts_mut(
-            graphics_buffer_base.as_ptr_mut::<u8>(),
-            0x1000 * framebuffer_pages as usize,
-        )
+    let mut fb = Framebuffer {
+        width: 800,
+        height: 600,
+        stride: 800,
+        buffer: graphics_buffer_base,
     };
+
+    {
+        let buffer = fb.get_buffer_mut();
+        for row in 0..vbe_mode_info.height as usize {
+            let offset = row * vbe_mode_info.width as usize;
+            for col in 0..vbe_mode_info.width as usize {
+                buffer[offset + col] = if (row ^ col) & 2 == 0 { 0x00 } else { 0x0f };
+            }
+        }
+    }
+
+    let console_font =
+        graphics::font::psf::PsfFont::from_file("C:\\TERM14.PSF").expect("Failed to load font");
 
     let mut mouse_x = 400;
     let mut mouse_y = 300;
@@ -98,9 +119,9 @@ pub fn manager_task() -> ! {
 
     let mut last_action_type: u8 = 0;
     loop {
-        draw_desktop(framebuffer);
+        draw_desktop(&fb, &console_font);
 
-        draw_window(framebuffer, 40, 40, 480, 320);
+        draw_window(fb.get_buffer_mut(), 40, 40, 480, 320);
         loop {
             // read input actions and pass them to the current console
             let next_action = match keyboard_buffer.read() {
@@ -126,7 +147,7 @@ pub fn manager_task() -> ! {
                 None => break,
             };
             crate::kprintln!("DRAW MOUSE");
-            draw_mouse(framebuffer, mouse_x, mouse_y);
+            draw_mouse(fb.get_buffer_mut(), mouse_x, mouse_y);
         }
 
         if message_read.is_complete() {
@@ -166,69 +187,41 @@ pub fn console_ready() {
     //crate::command::start_command(0);
 }
 
-fn draw_desktop(framebuffer: &mut [u8]) {
+fn draw_desktop(framebuffer: &Framebuffer, font: &PsfFont) {
     const TOP_BAR_HEIGHT: usize = 24;
     const DISPLAY_WIDTH: usize = 800;
     const DISPLAY_HEIGHT: usize = 600;
+
+    let raw_buffer = framebuffer.get_buffer_mut();
 
     // draw the top bar
     for y in 0..(TOP_BAR_HEIGHT - 2) {
         let offset = y * DISPLAY_WIDTH;
         for x in 0..DISPLAY_WIDTH {
-            framebuffer[offset + x] = 0x12;
+            raw_buffer[offset + x] = 0x12;
         }
     }
     for x in 0..DISPLAY_WIDTH {
-        framebuffer[DISPLAY_WIDTH * (TOP_BAR_HEIGHT - 2) + x] = 0x5b;
+        raw_buffer[DISPLAY_WIDTH * (TOP_BAR_HEIGHT - 2) + x] = 0x5b;
     }
     for x in 0..DISPLAY_WIDTH {
-        framebuffer[DISPLAY_WIDTH * (TOP_BAR_HEIGHT - 1) + x] = 0x5b;
+        raw_buffer[DISPLAY_WIDTH * (TOP_BAR_HEIGHT - 1) + x] = 0x5b;
     }
 
-    // glyph test
-    const GLYPH_DATA: [u8; 16] = [
-        0b00110000, //
-        0b01001000, //
-        0b10000100, //
-        0b11111100, //
-        0b10000100, //
-        0b10000100, //
-        0b10000100, //
-        0b00000000, //
-        //
-        0b11111000, //
-        0b10000100, //
-        0b10000100, //
-        0b11111000, //
-        0b10000100, //
-        0b10000100, //
-        0b11111000, //
-        0b00000000, //
-    ];
-
-    let mut glyph_a = self::graphics::font::Glyph::with_capacity(7, 8, 8);
-    for i in 0..8 {
-        glyph_a.bitmap.push(GLYPH_DATA[i]);
-    }
-    let mut glyph_b = self::graphics::font::Glyph::with_capacity(7, 0, 8);
-    for i in 8..16 {
-        glyph_b.bitmap.push(GLYPH_DATA[i]);
-    }
-
-    let mut fb = graphics::framebuffer::Framebuffer {
-        width: 800,
-        height: 600,
-        stride: 800,
-        buffer: VirtualAddress::new(&framebuffer[0] as *const u8 as u32),
-    };
-    graphics::font::draw_string(&fb, 0, 0, &[&glyph_a, &glyph_b, &glyph_a, &glyph_b], 0x0f);
-
+    let topbar_text_y = (TOP_BAR_HEIGHT - 2 - font.get_height() as usize) / 2;
+    font.draw_string(
+        framebuffer,
+        10,
+        topbar_text_y as u16,
+        "Hello IDOS!".as_bytes(),
+        0x0f,
+    );
     // clear the rest of the desktop
 
     for y in TOP_BAR_HEIGHT..DISPLAY_HEIGHT {
         let offset = y * DISPLAY_WIDTH;
         for x in 0..DISPLAY_WIDTH {
-            framebuffer[offset + x] = 0x14;
+            raw_buffer[offset + x] = 0x14;
         }
     }
 }

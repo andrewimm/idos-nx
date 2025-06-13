@@ -77,6 +77,7 @@ impl DiskAccess {
         if let Some(index) = found {
             return index;
         }
+        crate::kprintln!("FAT CACHE MISS");
         let cache_index = if self.cache_entries.len() < self.get_max_cache_entries() {
             for entry in self.cache_entries.iter_mut() {
                 entry.age += 1;
@@ -92,6 +93,13 @@ impl DiskAccess {
                 if entry.age > oldest.1 {
                     oldest.0 = index;
                     oldest.1 = entry.age;
+                }
+            }
+            for (index, entry) in self.cache_entries.iter_mut().enumerate() {
+                if index == oldest.0 {
+                    entry.age = 0;
+                    entry.lba = lba;
+                    break;
                 }
             }
             oldest.0

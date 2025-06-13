@@ -42,6 +42,7 @@ bootdisk: $(command) $(doslayer) $(gfx) $(diskimage) $(userdata) $(bootsector) $
 	@mcopy -D o -i $(diskimage) $(command) ::COMMAND.ELF
 	@mcopy -D o -i $(diskimage) $(doslayer) ::DOSLAYER.ELF
 	@mcopy -D o -i $(diskimage) $(gfx) ::GFX.ELF
+	@mcopy -D o -i $(diskimage) resources/ter-i14n.psf ::TERM14.PSF
 
 $(bootsector):
 	@mkdir -p $(shell dirname $@)
