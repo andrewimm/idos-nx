@@ -35,7 +35,7 @@ pub fn install_drivers() {
         while !self::controller::data_read_ready() {}
         self::controller::read_ps2_data();
         self::controller::send_ps2_command(0xd4);
-        self::controller::write_ps2_data(60);
+        self::controller::write_ps2_data(60); // 60 samples per second
         while !self::controller::data_read_ready() {}
         self::controller::read_ps2_data();
 
@@ -62,11 +62,9 @@ fn interrupt_handler(irq: u32) {
             crate::kprint!("Keyboard overflow\n");
         }
     } else if irq == 12 {
-        while self::controller::data_read_ready() {
-            let data = self::controller::read_ps2_data();
-            if !self::driver::MOUSE_BUFFER.write(data) {
-                crate::kprint!("Mouse overflow\n");
-            }
+        let data = self::controller::read_ps2_data();
+        if !self::driver::MOUSE_BUFFER.write(data) {
+            crate::kprint!("Mouse overflow\n");
         }
     } else {
         return;

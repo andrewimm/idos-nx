@@ -77,8 +77,8 @@ pub fn manager_task() -> ! {
     let mut conman = ConsoleManager::new(text_buffer_base);
     conman.add_console(); // create the first console (CON1)
 
-    conman.clear_screen();
-    conman.render_top_bar();
+    //conman.clear_screen();
+    //conman.render_top_bar();
 
     let _ = write_sync(response_writer, &[0], 0);
     let _ = close_sync(response_writer);
@@ -97,6 +97,8 @@ pub fn manager_task() -> ! {
     let mut last_action_type: u8 = 0;
     loop {
         draw_desktop(framebuffer);
+
+        draw_window(framebuffer, 40, 40, 480, 320);
         loop {
             // read input actions and pass them to the current console
             let next_action = match keyboard_buffer.read() {
@@ -143,7 +145,7 @@ pub fn manager_task() -> ! {
         }
 
         conman.update_cursor();
-        conman.update_clock();
+        //conman.update_clock();
 
         block_on_wake_set(wake_set, Some(1000));
     }
@@ -163,11 +165,73 @@ pub fn console_ready() {
 }
 
 fn draw_desktop(framebuffer: &mut [u8]) {
-    for y in 0..600 {
-        for x in 0..800 {
-            let offset = (y * 800 + x) as usize;
-            framebuffer[offset] = 0x4f;
+    const TOP_BAR_HEIGHT: usize = 24;
+    const DISPLAY_WIDTH: usize = 800;
+    const DISPLAY_HEIGHT: usize = 600;
+
+    // draw the top bar
+    for y in 0..(TOP_BAR_HEIGHT - 2) {
+        let offset = y * DISPLAY_WIDTH;
+        for x in 0..DISPLAY_WIDTH {
+            framebuffer[offset + x] = 0x12;
         }
+    }
+    for x in 0..DISPLAY_WIDTH {
+        framebuffer[DISPLAY_WIDTH * (TOP_BAR_HEIGHT - 2) + x] = 0x5b;
+    }
+    for x in 0..DISPLAY_WIDTH {
+        framebuffer[DISPLAY_WIDTH * (TOP_BAR_HEIGHT - 1) + x] = 0x5b;
+    }
+
+    // clear the rest of the desktop
+
+    for y in TOP_BAR_HEIGHT..DISPLAY_HEIGHT {
+        let offset = y * DISPLAY_WIDTH;
+        for x in 0..DISPLAY_WIDTH {
+            framebuffer[offset + x] = 0x14;
+        }
+    }
+}
+
+fn draw_window(
+    framebuffer: &mut [u8],
+    window_x: u32,
+    window_y: u32,
+    inner_width: u32,
+    inner_height: u32,
+) {
+    const BORDER_WIDTH: usize = 2;
+    let total_width: usize = inner_width as usize + BORDER_WIDTH * 2;
+
+    let mut offset = ((window_y + 24) * 800 + window_x) as usize;
+
+    for _ in 0..20 {
+        for x in 0..total_width {
+            framebuffer[offset + x] = 0x1d;
+        }
+        offset += 800;
+    }
+
+    for _ in 0..inner_height {
+        framebuffer[offset] = 0x1d;
+        framebuffer[offset + 1] = 0x1d;
+
+        for x in 2..(total_width - 2) {
+            framebuffer[offset + x] = 0x13;
+        }
+
+        framebuffer[offset + total_width - 2] = 0x1d;
+        framebuffer[offset + total_width - 1] = 0x1d;
+
+        offset += 800;
+    }
+
+    for x in 0..total_width {
+        framebuffer[offset + x] = 0x1d;
+    }
+    offset += 800;
+    for x in 0..total_width {
+        framebuffer[offset + x] = 0x1d;
     }
 }
 
