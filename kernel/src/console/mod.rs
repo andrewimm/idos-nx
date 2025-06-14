@@ -98,7 +98,7 @@ pub fn manager_task() -> ! {
     let mut mouse_y = 300;
 
     let mut conman = ConsoleManager::new(text_buffer_base);
-    conman.add_console(); // create the first console (CON1)
+    let con1 = conman.add_console(); // create the first console (CON1)
 
     //conman.clear_screen();
     //conman.render_top_bar();
@@ -121,7 +121,6 @@ pub fn manager_task() -> ! {
     loop {
         draw_desktop(&fb, &console_font);
 
-        draw_window(fb.get_buffer_mut(), 40, 40, 480, 320);
         loop {
             // read input actions and pass them to the current console
             let next_action = match keyboard_buffer.read() {
@@ -141,15 +140,6 @@ pub fn manager_task() -> ! {
             }
         }
 
-        loop {
-            let next_action = match mouse_buffer.read() {
-                Some(action) => action,
-                None => break,
-            };
-            crate::kprintln!("DRAW MOUSE");
-            draw_mouse(fb.get_buffer_mut(), mouse_x, mouse_y);
-        }
-
         if message_read.is_complete() {
             let sender = message_read.return_value.load(Ordering::SeqCst);
             let request_id = incoming_message.unique_id;
@@ -167,10 +157,20 @@ pub fn manager_task() -> ! {
             let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
         }
 
-        conman.update_cursor();
-        //conman.update_clock();
+        conman.draw_window(0, &mut fb, &console_font);
 
-        block_on_wake_set(wake_set, Some(1000));
+        loop {
+            let next_action = match mouse_buffer.read() {
+                Some(action) => action,
+                None => break,
+            };
+        }
+        draw_mouse(fb.get_buffer_mut(), mouse_x, mouse_y);
+
+        conman.update_cursor();
+        conman.update_clock(&mut fb, &console_font);
+
+        block_on_wake_set(wake_set, None);
     }
 }
 
@@ -184,7 +184,7 @@ pub fn init_console() {
 }
 
 pub fn console_ready() {
-    //crate::command::start_command(0);
+    crate::command::start_command(0);
 }
 
 fn draw_desktop(framebuffer: &Framebuffer, font: &PsfFont) {
@@ -213,7 +213,7 @@ fn draw_desktop(framebuffer: &Framebuffer, font: &PsfFont) {
         framebuffer,
         10,
         topbar_text_y as u16,
-        "Hello IDOS!".as_bytes(),
+        "IDOS - CONSOLE MANAGER".bytes(),
         0x0f,
     );
     // clear the rest of the desktop
@@ -223,48 +223,6 @@ fn draw_desktop(framebuffer: &Framebuffer, font: &PsfFont) {
         for x in 0..DISPLAY_WIDTH {
             raw_buffer[offset + x] = 0x14;
         }
-    }
-}
-
-fn draw_window(
-    framebuffer: &mut [u8],
-    window_x: u32,
-    window_y: u32,
-    inner_width: u32,
-    inner_height: u32,
-) {
-    const BORDER_WIDTH: usize = 2;
-    let total_width: usize = inner_width as usize + BORDER_WIDTH * 2;
-
-    let mut offset = ((window_y + 24) * 800 + window_x) as usize;
-
-    for _ in 0..20 {
-        for x in 0..total_width {
-            framebuffer[offset + x] = 0x1d;
-        }
-        offset += 800;
-    }
-
-    for _ in 0..inner_height {
-        framebuffer[offset] = 0x1d;
-        framebuffer[offset + 1] = 0x1d;
-
-        for x in 2..(total_width - 2) {
-            framebuffer[offset + x] = 0x13;
-        }
-
-        framebuffer[offset + total_width - 2] = 0x1d;
-        framebuffer[offset + total_width - 1] = 0x1d;
-
-        offset += 800;
-    }
-
-    for x in 0..total_width {
-        framebuffer[offset + x] = 0x1d;
-    }
-    offset += 800;
-    for x in 0..total_width {
-        framebuffer[offset + x] = 0x1d;
     }
 }
 

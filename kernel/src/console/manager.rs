@@ -11,13 +11,17 @@ use crate::io::provider::IOResult;
 use crate::memory::address::VirtualAddress;
 use crate::memory::shared::release_buffer;
 use crate::task::actions::io::driver_io_complete;
+use crate::task::actions::memory::map_memory;
 use crate::task::actions::yield_coop;
+use crate::task::memory::MemoryBacking;
 use crate::task::messaging::Message;
 use crate::task::switching::get_current_id;
 use crate::time::system::Timestamp;
 
 use super::buffers::ConsoleBuffers;
 use super::console::{Color, ColorCode, Console, TextCell};
+use super::graphics::font::Font;
+use super::graphics::framebuffer::Framebuffer;
 use super::input::{KeyAction, KeyState};
 
 pub static IO_BUFFERS: RwLock<Vec<ConsoleBuffers>> = RwLock::new(Vec::new());
@@ -83,7 +87,9 @@ impl ConsoleManager {
     }
 
     pub fn add_console(&mut self) -> usize {
-        let new_console = Console::new(self.text_buffer_base);
+        let console_buffer = map_memory(None, 0x2000, MemoryBacking::Anonymous).unwrap();
+        let new_console = Console::new(console_buffer);
+        new_console.clear_buffer();
         self.consoles.push(new_console);
         let index = self.consoles.len() - 1;
         loop {
@@ -247,6 +253,69 @@ impl ConsoleManager {
         Ok(buffer.len() as u32)
     }
 
+    pub fn draw_window<F: Font>(&self, index: usize, fb: &mut Framebuffer, font: &F) {
+        let console: &Console = self.consoles.get(index).unwrap();
+
+        let window_x: u16 = 40;
+        let window_y: u16 = 40;
+        let inner_width: u16 = 640;
+        let inner_height: u16 = 400;
+
+        let framebuffer = fb.get_buffer_mut();
+
+        const BORDER_WIDTH: usize = 2;
+        let total_width: usize = inner_width as usize + BORDER_WIDTH * 2;
+
+        let mut offset = ((window_y + 24) * 800 + window_x) as usize;
+
+        for _ in 0..20 {
+            for x in 0..total_width {
+                framebuffer[offset + x] = 0x1d;
+            }
+            offset += 800;
+        }
+
+        for _ in 0..inner_height {
+            framebuffer[offset] = 0x1d;
+            framebuffer[offset + 1] = 0x1d;
+
+            for x in 2..(total_width - 2) {
+                framebuffer[offset + x] = 0x13;
+            }
+
+            framebuffer[offset + total_width - 2] = 0x1d;
+            framebuffer[offset + total_width - 1] = 0x1d;
+
+            offset += 800;
+        }
+
+        for x in 0..total_width {
+            framebuffer[offset + x] = 0x1d;
+        }
+        offset += 800;
+        for x in 0..total_width {
+            framebuffer[offset + x] = 0x1d;
+        }
+
+        font.draw_string(
+            fb,
+            window_x + 4,
+            window_y + 24 + 4,
+            "C:\\COMMAND.ELF".bytes(),
+            0x00,
+        );
+
+        for row in 0..25 {
+            font.draw_string(
+                fb,
+                window_x + 4,
+                (window_y + 24 + 4) + (row as u16 * 16),
+                console.row_text_iter(row),
+                0x0f,
+            );
+        }
+    }
+
     pub fn update_cursor(&self) {
         let cursor_offset = self
             .consoles
@@ -279,31 +348,29 @@ impl ConsoleManager {
             };
         }
 
-        self.print_time();
+        //self.print_time();
     }
 
-    pub fn update_clock(&mut self) {
+    pub fn update_clock<F: Font>(&mut self, fb: &mut Framebuffer, font: &F) {
         let current_time = crate::time::system::get_system_time().to_timestamp();
         if self.current_time != current_time {
             self.current_time = current_time;
-            self.print_time();
         }
+        self.print_time(fb, font);
         /*if self.current_time.total_minutes() != current_time.total_minutes() {
             self.current_time = current_time;
             self.print_time();
         }*/
     }
 
-    pub fn print_time(&self) {
+    pub fn print_time<F: Font>(&self, fb: &mut Framebuffer, font: &F) {
         let width = 80;
         let mut clock_buffer: [u8; 7] = [0x20; 7];
         self.current_time
             .to_datetime()
             .time
             .print_short_to_buffer(&mut clock_buffer[1..6]);
-        if self.current_time.as_u32() & 1 != 0 {
-            clock_buffer[3] = b' ';
-        }
+        /*
         let clock_color = ColorCode::new(Color::White, Color::Blue);
         let clock_start = width - clock_buffer.len();
         let top_slice = unsafe {
@@ -320,6 +387,9 @@ impl ConsoleManager {
                 color: clock_color,
             }
         }
+        */
+        let width = 7 * 8;
+        font.draw_string(fb, 800 - width - 2, 4, clock_buffer.iter().cloned(), 0x0f);
     }
 
     pub fn clear_screen(&self) {

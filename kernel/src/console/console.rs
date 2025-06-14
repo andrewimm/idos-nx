@@ -26,14 +26,22 @@ impl Console {
             cursor_x: 0,
             cursor_y: 22,
 
-            width: 78,
-            height: 23,
+            width: 80,
+            height: 24,
 
             text_buffer_base,
-            text_buffer_offset: 81,
+            text_buffer_offset: 80,
             text_buffer_stride: 80,
 
             pending_input: Vec::new(),
+        }
+    }
+
+    pub fn clear_buffer(&self) {
+        let buffer = self.get_text_buffer();
+        for cell in buffer.iter_mut() {
+            cell.glyph = 0x20;
+            cell.color = ColorCode::new(Color::LightGrey, Color::Black);
         }
     }
 
@@ -47,6 +55,21 @@ impl Console {
             let len = 80 * 25;
             core::slice::from_raw_parts_mut(ptr, len)
         }
+    }
+
+    pub fn row_text_iter(
+        &self,
+        row: usize,
+    ) -> core::iter::StepBy<core::iter::Cloned<core::slice::Iter<'_, u8>>> {
+        let row_size = self.text_buffer_stride as usize * 2;
+        let offset = self.text_buffer_stride * row * 2;
+
+        let buffer = unsafe {
+            let ptr = self.text_buffer_base.as_ptr_mut::<u8>().add(offset);
+            core::slice::from_raw_parts_mut(ptr, row_size)
+        };
+
+        buffer.iter().cloned().step_by(2)
     }
 
     pub fn get_width(&self) -> u8 {

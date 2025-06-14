@@ -74,23 +74,20 @@ pub trait Font {
         width
     }
 
-    fn draw_string(
+    fn draw_string<T: Iterator<Item = u8> + Clone>(
         &self,
         framebuffer: &Framebuffer,
         x: u16,
         y: u16,
-        byte_string: &[u8],
+        bytes: T,
         color: u8,
     ) {
-        if byte_string.len() < 1 {
-            return;
-        }
-        let height = self.get_glyph(byte_string[0]).unwrap().height;
+        let height = self.get_height();
         let mut offset = (y as usize) * (framebuffer.stride as usize) + (x as usize);
         let raw_buffer = framebuffer.get_buffer_mut();
         // assumes all glyphs are the same height...
         for row in 0..height {
-            let glyphs = byte_string.iter().filter_map(|byte| self.get_glyph(*byte));
+            let glyphs = bytes.clone().filter_map(|byte| self.get_glyph(byte));
             let mut run_offset = 0;
             for glyph in glyphs {
                 glyph.draw_row(framebuffer, x + run_offset, y + row as u16, row, color);
