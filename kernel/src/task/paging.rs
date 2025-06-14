@@ -127,7 +127,7 @@ pub fn current_pagedir_map_explicit(
     vaddr: VirtualAddress,
     flags: PermissionFlags,
 ) {
-    crate::kprint!("Mapping {:?} to {:?}\n", vaddr, paddr);
+    //crate::kprint!("Mapping {:?} to {:?}\n", vaddr, paddr);
     let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
     let dir_index = vaddr.get_page_directory_index();
     let table_index = vaddr.get_page_table_index();
@@ -169,7 +169,7 @@ pub fn current_pagedir_map_explicit(
 }
 
 pub fn current_pagedir_unmap(vaddr: VirtualAddress) -> Option<PhysicalAddress> {
-    crate::kprint!("Unmapping {:?}\n", vaddr);
+    //crate::kprint!("Unmapping {:?}\n", vaddr);
     let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
     let dir_index = vaddr.get_page_directory_index();
     let table_index = vaddr.get_page_table_index();
@@ -303,7 +303,7 @@ impl ExternalPageDirectory {
     }
 
     pub fn unmap(&self, address: VirtualAddress) -> Option<PhysicalAddress> {
-        crate::kprint!("Unmap {:?} for {:?}\n", address, self.id);
+        //crate::kprint!("Unmap {:?} for {:?}\n", address, self.id);
         let dir_index = address.get_page_directory_index();
         let table_index = address.get_page_table_index();
 

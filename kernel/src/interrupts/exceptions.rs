@@ -110,14 +110,14 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
     let cs = stack_frame.cs;
     let eip = stack_frame.eip;
     let cur_id = get_current_id();
-    crate::kprint!(
+    /*crate::kprint!(
         "\nPage Fault ({:?}  {:X}:{:#010X}) at {:#010X} ({:X})\n",
         cur_id,
         cs,
         eip,
         address,
         error
-    );
+    );*/
 
     if address >= 0xc0000000 {
         // Kernel region

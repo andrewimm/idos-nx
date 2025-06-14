@@ -344,14 +344,18 @@ impl Directory {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct File {
     dir_entry: DirEntry,
+    cluster_cache: Vec<u32>,
 }
 
 impl File {
     pub fn from_dir_entry(dir_entry: DirEntry) -> Self {
-        Self { dir_entry }
+        Self {
+            dir_entry,
+            cluster_cache: Vec::new(),
+        }
     }
 
     pub fn file_name(&self) -> String {
@@ -369,8 +373,25 @@ impl File {
         self.dir_entry.get_modification_timestamp().as_u32()
     }
 
+    pub fn cache_cluster_chain(
+        &mut self,
+        table: AllocationTable,
+        start_cluster: u32,
+        disk: &mut DiskAccess,
+    ) {
+        self.cluster_cache.clear();
+        let mut current_cluster = start_cluster;
+        while current_cluster != 0xfff {
+            self.cluster_cache.push(current_cluster);
+            current_cluster = match table.get_next_cluster(current_cluster, disk) {
+                Some(next) => next,
+                None => return,
+            }
+        }
+    }
+
     pub fn read(
-        &self,
+        &mut self,
         buffer: &mut [u8],
         initial_offset: u32,
         table: AllocationTable,
@@ -383,12 +404,22 @@ impl File {
             let current_relative_cluster = offset / table.bytes_per_cluster();
             let cluster_offset = offset % table.bytes_per_cluster();
 
+            if self.cluster_cache.is_empty() {
+                self.cache_cluster_chain(table, self.dir_entry.first_file_cluster as u32, disk);
+            }
+
+            /*
             let current_cluster = match table.get_nth_cluster(
                 self.dir_entry.first_file_cluster as u32,
                 current_relative_cluster,
                 disk,
             ) {
                 Some(cluster) => cluster,
+                None => return bytes_written as u32,
+            };
+            */
+            let current_cluster = match self.cluster_cache.get(current_relative_cluster as usize) {
+                Some(&cluster) => cluster,
                 None => return bytes_written as u32,
             };
             let cluster_location = table.get_cluster_location(current_cluster);

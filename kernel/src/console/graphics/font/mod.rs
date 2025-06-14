@@ -35,6 +35,14 @@ impl Glyph {
         }
     }
 
+    pub fn from_slice(width: u8, height: u8, bitmap: &[u8]) -> Self {
+        Self {
+            width,
+            height,
+            bitmap: Vec::from(bitmap),
+        }
+    }
+
     pub fn draw_row(&self, framebuffer: &Framebuffer, x: u16, y: u16, row: u8, color: u8) {
         let mut offset = (y as usize) * (framebuffer.stride as usize) + (x as usize);
         let glyph_stride = (self.width as usize + 7) / 8;

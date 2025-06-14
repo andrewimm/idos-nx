@@ -34,17 +34,29 @@ impl PsfFont {
         let glyph_count = if (mode & 1) == 0 { 256 } else { 512 };
         let width = 8; // PSF1 is 8 px wide
 
-        let mut bitmap = Vec::with_capacity(height as usize);
-        for _ in 0..height {
+        const GLYPH_PER_READ: usize = 16;
+
+        let mut bitmap = Vec::with_capacity(GLYPH_PER_READ * height as usize);
+        for _ in 0..(height as usize * GLYPH_PER_READ) {
             bitmap.push(0);
         }
+        let mut bitmap_offset = 0;
         let mut glyphs = Vec::with_capacity(glyph_count);
         let mut read_offset = 4;
         for _ in 0..glyph_count {
-            let _ = read_sync(handle, bitmap.as_mut_slice(), read_offset);
-            let glyph = Glyph::from_bitmap(width, height, bitmap.clone());
+            if bitmap_offset == 0 {
+                let _ = read_sync(handle, bitmap.as_mut_slice(), read_offset);
+            }
+            let slice_offset = bitmap_offset * height as usize;
+            let glyph = Glyph::from_slice(
+                width,
+                height,
+                &bitmap[slice_offset..(slice_offset + height as usize)],
+            );
             glyphs.push(glyph);
             read_offset += height as u32;
+            bitmap_offset += 1;
+            bitmap_offset %= GLYPH_PER_READ;
         }
 
         Ok(Self {

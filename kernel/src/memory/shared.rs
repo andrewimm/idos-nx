@@ -105,13 +105,13 @@ impl SharedMemoryRange {
                 map_memory_for_task(id, None, 4096, MemoryBacking::Direct(self.physical_frame))
                     .unwrap();
 
-            crate::kprint!(
+            /*crate::kprint!(
                 "SHARING to {:?}. {:?} / {:?} -> {:?}\n",
                 id,
                 self.mapped_to,
                 mapped_to,
                 self.physical_frame
-            );
+            );*/
 
             Self {
                 unmap_on_drop: true,
@@ -198,12 +198,12 @@ pub fn share_buffer(task: TaskID, vaddr: VirtualAddress, byte_size: usize) -> Vi
             MemoryBacking::Direct(frame_start),
         )
         .unwrap();
-        crate::kprintln!(
+        /*crate::kprintln!(
             "SHARE: Map {:?} to {:?} for {:?}",
             mapped_offset,
             frame_start,
             task
-        );
+        );*/
         offset += 0x1000;
     }
     let mapping_offset = vaddr.as_u32() & 0xfff;
@@ -220,7 +220,7 @@ pub fn share_string(task_id: TaskID, s: &str) -> VirtualAddress {
 
 pub fn release_buffer(vaddr: VirtualAddress, byte_size: usize) {
     let cur_task = get_current_id();
-    crate::kprintln!("SHARE: Release buffer at {:?} for {:?}", vaddr, cur_task);
+    //crate::kprintln!("SHARE: Release buffer at {:?} for {:?}", vaddr, cur_task);
     for page_start in PageIter::for_vaddr_range(vaddr, byte_size) {
         let frame_start =
             get_current_physical_address(page_start).expect("Cannot release unmapped memory");
