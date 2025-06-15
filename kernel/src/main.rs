@@ -79,11 +79,9 @@ pub extern "C" fn _start() -> ! {
     }
 }
 
-fn system_log(console_handle: crate::io::handle::Handle, message: &str) {
-    let _ = task::actions::io::write_sync(console_handle, message.as_bytes(), 0);
-}
-
 fn init_system() -> ! {
+    let mut logger = log::Logger::new();
+
     let id = task::switching::get_current_id();
     crate::kprintln!("INIT task: {:?}", id);
     // initialize drivers that rely on multitasking
@@ -94,21 +92,22 @@ fn init_system() -> ! {
 
         hardware::ps2::install_drivers();
 
-        //system_log(con, "Installing ATA Drivers...\n");
+        logger.log("Installing ATA Drivers...\n");
         hardware::ata::install();
 
-        //system_log(con, "Installing Floppy Drivers...\n");
+        logger.log("Installing Floppy Drivers...\n");
         hardware::floppy::install();
 
-        //system_log(con, "Installing Network Device Drivers...\n");
+        logger.log("Installing Network Device Drivers...\n");
         hardware::ethernet::dev::install_driver();
 
-        //system_log(con, "Initializing Net Stack...\n");
+        logger.log("Initializing Net Stack...\n");
         net::start_net_stack();
 
-        //system_log(con, "Mounting FAT FS...\n");
+        logger.log("Mounting FAT FS...\n");
         io::filesystem::fatfs::mount_fat_fs();
 
+        logger.log("Initializing Graphics Driver...\n");
         graphics::register_graphics_driver("C:\\GFX.ELF");
 
         console::init_console();
@@ -116,7 +115,8 @@ fn init_system() -> ! {
         let con = task::actions::handle::create_file_handle();
         task::actions::io::open_sync(con, "DEV:\\CON1").unwrap();
 
-        system_log(con, "System ready! Welcome to IDOS\n\n");
+        logger.log("\nSystem ready! Welcome to IDOS\n\n");
+        logger.flush_to_file(con);
         console::console_ready();
     }
 
