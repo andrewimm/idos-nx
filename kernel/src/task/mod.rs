@@ -1,6 +1,7 @@
+use crate::log::TaggedLogger;
+
 pub mod actions;
 pub mod args;
-pub mod files;
 pub mod id;
 pub mod memory;
 pub mod messaging;
@@ -9,6 +10,8 @@ pub mod registers;
 pub mod stack;
 pub mod state;
 pub mod switching;
+
+const LOGGER: TaggedLogger = TaggedLogger::new("TASK", 35);
 
 #[cfg(test)]
 mod tests {

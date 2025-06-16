@@ -32,7 +32,7 @@ pub struct OpenHandle {
 
 impl AsyncDriver for FatDriver {
     fn open(&mut self, path: &str) -> Result<u32, IOError> {
-        crate::kprint!("FAT: Open \"{}\"\n", path);
+        super::LOGGER.log(format_args!("Open \"{}\"", path));
 
         let root = self.fs.borrow().get_root_directory();
         let entity = if path.is_empty() {

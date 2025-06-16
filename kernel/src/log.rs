@@ -20,13 +20,13 @@ macro_rules! kprintln {
     ($($arg:tt)*) => ($crate::kprint!("{}\n", format_args!($($arg)*)));
 }
 
-pub struct Logger {
+pub struct BufferedLogger {
     log_lines: Vec<String>,
 }
 
-impl Logger {
+impl BufferedLogger {
     pub fn new() -> Self {
-        Logger {
+        Self {
             log_lines: Vec::new(),
         }
     }
@@ -42,5 +42,39 @@ impl Logger {
             let _ = crate::task::actions::io::write_sync(handle, line.as_bytes(), 0);
         }
         self.log_lines.clear();
+    }
+}
+
+pub struct TaggedLogger {
+    tag: [u8; 8],
+    color: u8,
+}
+
+impl TaggedLogger {
+    pub const fn new(tag_str: &str, color: u8) -> Self {
+        let tag_bytes = tag_str.as_bytes();
+        let mut tag = [0x20u8; 8];
+        let copy_len = if tag_bytes.len() < 8 {
+            tag_bytes.len()
+        } else {
+            8
+        };
+        // copy from slice is not const stable yet
+        let mut i = 0;
+        while i < copy_len {
+            tag[i] = tag_bytes[i];
+            i += 1;
+        }
+        TaggedLogger { tag, color }
+    }
+
+    pub fn log(&self, args: fmt::Arguments) {
+        kprint!(
+            "\x1b[{}m{}\x1b[0m: ",
+            self.color,
+            core::str::from_utf8(&self.tag).unwrap(),
+        );
+        _kprint(args);
+        kprint!("\n");
     }
 }

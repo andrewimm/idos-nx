@@ -9,12 +9,15 @@ use self::driver::FatDriver;
 use super::install_task_fs;
 use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::handle::Handle;
+use crate::log::TaggedLogger;
 use crate::task::actions::handle::{create_pipe_handles, open_message_queue, transfer_handle};
 use crate::task::actions::io::{
     close_sync, driver_io_complete, read_struct_sync, read_sync, write_sync,
 };
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::messaging::Message;
+
+const LOGGER: TaggedLogger = TaggedLogger::new("FATFS", 34);
 
 fn run_driver() -> ! {
     let args_reader = Handle::new(0);
@@ -32,7 +35,7 @@ fn run_driver() -> ! {
 
     let dev_name = unsafe { core::str::from_utf8_unchecked(&dev_name_buffer[..dev_name_len]) };
 
-    crate::kprint!("Mount FAT FS on {}\n", dev_name);
+    LOGGER.log(format_args!("Mount FAT FS on {}", dev_name));
 
     let messages = open_message_queue();
     let mut incoming_message = Message::empty();

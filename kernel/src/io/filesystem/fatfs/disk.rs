@@ -77,7 +77,7 @@ impl DiskAccess {
         if let Some(index) = found {
             return index;
         }
-        crate::kprintln!("FAT CACHE MISS");
+        super::LOGGER.log(format_args!("FAT CACHE HIT: {}", lba));
         let cache_index = if self.cache_entries.len() < self.get_max_cache_entries() {
             for entry in self.cache_entries.iter_mut() {
                 entry.age += 1;

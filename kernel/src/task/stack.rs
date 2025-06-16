@@ -110,7 +110,10 @@ pub fn free_stack(stack: Box<[u8]>) {
     invalidate_page(stack_start);
     release_frame(frame_address).unwrap();
 
-    crate::kprint!("FREE STACK: {:?} {:?}\n", stack_start, frame_address);
+    super::LOGGER.log(format_args!(
+        "Free kernel stack {:?} {:?}",
+        stack_start, frame_address
+    ));
 }
 
 /// Request a kernel stack for a new task. This finds a free area of virtual
@@ -129,7 +132,10 @@ pub fn allocate_stack() -> Box<[u8]> {
     page_table.get_mut(table_index).set_present();
     invalidate_page(stack_start);
 
-    crate::kprint!("ALLOC STACK: {:?} {:?}\n", stack_start, frame_address);
+    super::LOGGER.log(format_args!(
+        "Alloc kernel stack: {:?} {:?}",
+        stack_start, frame_address
+    ));
 
     stack
 }

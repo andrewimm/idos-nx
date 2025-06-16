@@ -15,7 +15,7 @@ use crate::task::paging::{current_pagedir_map, PermissionFlags};
 ///
 ///     FREE NODE:
 ///     | magic | size | next | random bytes ........ |
-/// 
+///
 /// An allocated node needs to store some size data for when it is deallocated.
 /// We need to know how much space after the pointer was allocated in the
 /// initial alloc call. There may also be some extra padding before the
@@ -24,7 +24,7 @@ use crate::task::paging::{current_pagedir_map, PermissionFlags};
 /// 8 bytes, then has an area for alignment padding. The padding is at least
 /// 4 bytes long -- the last 4 bytes store the size of the padding. Following
 /// the padding is the actual data area, to which the allocated pointer refers.
-/// 
+///
 ///     ALLOCATED NODE:
 ///     | magic | size | padding ... | padding_size | data ......... |
 ///
@@ -163,7 +163,10 @@ impl ListAllocator {
             let frame = allocate_frame().unwrap();
             current_pagedir_map(frame, page_start, PermissionFlags::empty());
         }
-        crate::kprint!("Heap expanded by {} pages\n", page_count);
+        super::super::LOGGER.log(format_args!(
+            "Heap expanded by {} pages, new size: {:#X}",
+            page_count, self.size
+        ));
     }
 
     pub unsafe fn alloc(&mut self, layout: Layout) -> *mut u8 {
@@ -208,7 +211,11 @@ impl ListAllocator {
                     let end = self.start + self.size;
                     self.size += 0x1000;
                     let frame = allocate_frame().unwrap();
-                    current_pagedir_map(frame, VirtualAddress::new(end as u32), PermissionFlags::empty());
+                    current_pagedir_map(
+                        frame,
+                        VirtualAddress::new(end as u32),
+                        PermissionFlags::empty(),
+                    );
                     let new_empty = end as *mut AllocNode;
                     (&mut *new_empty).init(0x1000);
                     self.first_free = end;

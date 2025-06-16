@@ -4,8 +4,8 @@ use alloc::alloc::{GlobalAlloc, Layout};
 use list_allocator::ListAllocator;
 use spin::Mutex;
 
-use crate::task::paging::{get_current_physical_address, current_pagedir_map, PermissionFlags};
 use crate::memory::physical::allocate_frame;
+use crate::task::paging::{current_pagedir_map, get_current_physical_address, PermissionFlags};
 
 use super::address::VirtualAddress;
 
@@ -56,18 +56,29 @@ pub fn init_allocator(location: VirtualAddress) {
     // initialization tasks.
     if get_current_physical_address(location).is_none() {
         let frame = allocate_frame().unwrap();
-        current_pagedir_map(frame, location.prev_page_barrier(), PermissionFlags::empty());
+        current_pagedir_map(
+            frame,
+            location.prev_page_barrier(),
+            PermissionFlags::empty(),
+        );
     }
     // add at least one more page
     let extra_page = location + 0x1000;
     let extra_frame = allocate_frame().unwrap();
-    current_pagedir_map(extra_frame, extra_page.prev_page_barrier(), PermissionFlags::empty());
+    current_pagedir_map(
+        extra_frame,
+        extra_page.prev_page_barrier(),
+        PermissionFlags::empty(),
+    );
     let heap_end = (location + 0x1000).next_page_barrier();
     let byte_size = heap_end.as_u32() - location.as_u32();
 
     ALLOCATOR.update_implementation(location.as_u32() as usize, byte_size as usize);
 
-    crate::kprint!("Kernel Heap at {:?}, {:#X} bytes\n", location, byte_size);
+    super::LOGGER.log(format_args!(
+        "Kernel Heap at {:?}, {:#X} bytes",
+        location, byte_size
+    ));
 }
 
 #[alloc_error_handler]

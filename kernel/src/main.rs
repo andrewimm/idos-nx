@@ -80,7 +80,7 @@ pub extern "C" fn _start() -> ! {
 }
 
 fn init_system() -> ! {
-    let mut logger = log::Logger::new();
+    let mut logger = log::BufferedLogger::new();
 
     let id = task::switching::get_current_id();
     crate::kprintln!("INIT task: {:?}", id);

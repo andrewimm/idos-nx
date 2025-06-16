@@ -1,6 +1,6 @@
-use super::range::FrameRange;
-use super::bios::{self, MapEntry};
 use super::super::address::PhysicalAddress;
+use super::bios::{self, MapEntry};
+use super::range::FrameRange;
 
 #[derive(PartialEq)]
 pub enum BitmapError {
@@ -35,9 +35,7 @@ pub struct FrameBitmap {
 impl FrameBitmap {
     /// Creates an empty, invalid Frame Bitmap
     pub const fn empty() -> Self {
-        Self {
-            map: &mut [],
-        }
+        Self { map: &mut [] }
     }
 
     /// Initialize a Frame Bitmap at a specific location in memory.
@@ -62,9 +60,7 @@ impl FrameBitmap {
     pub fn move_to_highmem(&mut self) {
         let location = (self.map.as_ptr() as usize) | 0xc0000000;
         let size = self.map.len();
-        self.map = unsafe {
-            core::slice::from_raw_parts_mut(location as *mut u8, size)
-        };
+        self.map = unsafe { core::slice::from_raw_parts_mut(location as *mut u8, size) };
     }
 
     /// Reset the entire table to being allocated. This is the first step when
@@ -87,10 +83,7 @@ impl FrameBitmap {
         for entry in map.iter() {
             if entry.region_type == bios::REGION_TYPE_FREE {
                 let length = entry.length as u32;
-                let range = FrameRange::new(
-                    PhysicalAddress::new(entry.base as u32),
-                    length,
-                );
+                let range = FrameRange::new(PhysicalAddress::new(entry.base as u32), length);
                 self.free_range(range)?;
                 total_length += length
             }
@@ -143,6 +136,7 @@ impl FrameBitmap {
         while frame < total_count {
             let index = frame >> 3;
             let map_value = self.map[index];
+            // TODO: Optimize this with a lookup table
             if map_value != 0xff {
                 let mut mask = 1;
                 while mask != 0 {
@@ -204,12 +198,10 @@ impl FrameBitmap {
                 if remaining == 0 {
                     let starting_address = (search_start << 12) as u32;
                     let length = ((frame + 1 - search_start) << 12) as u32;
-                    return Some(
-                        FrameRange::new(
-                            PhysicalAddress::new(starting_address),
-                            length,
-                        ),
-                    );
+                    return Some(FrameRange::new(
+                        PhysicalAddress::new(starting_address),
+                        length,
+                    ));
                 }
             }
 
@@ -237,7 +229,9 @@ impl FrameBitmap {
     /// If you don't need a contiguous block of memory, it may be better to
     /// request one frame at a time.
     pub fn allocate_frames(&mut self, frame_count: usize) -> Result<FrameRange, BitmapError> {
-        let range = self.find_free_range(frame_count).ok_or(BitmapError::NoAvailableSpace)?;
+        let range = self
+            .find_free_range(frame_count)
+            .ok_or(BitmapError::NoAvailableSpace)?;
         self.allocate_range(range).map(|_| range)
     }
 }
@@ -249,10 +243,8 @@ mod tests {
     #[test_case]
     fn bitmap_creation() {
         let memory: [u8; 4] = [0; 4];
-        let bitmap = FrameBitmap::at_location(
-            PhysicalAddress::new(&memory[1] as *const u8 as u32),
-            10,
-        );
+        let bitmap =
+            FrameBitmap::at_location(PhysicalAddress::new(&memory[1] as *const u8 as u32), 10);
         assert!(bitmap.is_range_free(FrameRange::new(PhysicalAddress::new(0), 0xa000)));
         assert!(bitmap.is_range_free(FrameRange::new(PhysicalAddress::new(0x5000), 0x3000)));
         assert!(!bitmap.is_range_free(FrameRange::new(PhysicalAddress::new(0), 0x11000)));
@@ -261,13 +253,15 @@ mod tests {
     #[test_case]
     fn bitmap_allocate() {
         let memory: [u8; 2] = [0; 2];
-        let mut bitmap = FrameBitmap::at_location(
-            PhysicalAddress::new(&memory[0] as *const u8 as u32),
-            10,
-        );
-        bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0), 0x2000)).unwrap();
+        let mut bitmap =
+            FrameBitmap::at_location(PhysicalAddress::new(&memory[0] as *const u8 as u32), 10);
+        bitmap
+            .allocate_range(FrameRange::new(PhysicalAddress::new(0), 0x2000))
+            .unwrap();
         assert_eq!(memory, [3, 0]);
-        bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0x6000), 0x3000)).unwrap();
+        bitmap
+            .allocate_range(FrameRange::new(PhysicalAddress::new(0x6000), 0x3000))
+            .unwrap();
         assert_eq!(memory, [0xc3, 1]);
         assert_eq!(
             bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0x10000), 0x7000)),
@@ -279,35 +273,38 @@ mod tests {
     #[test_case]
     fn bitmap_free() {
         let memory: [u8; 2] = [0; 2];
-        let mut bitmap = FrameBitmap::at_location(
-            PhysicalAddress::new(&memory[0] as *const u8 as u32),
-            10,
-        );
-        bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0), 0xa000)).unwrap();
+        let mut bitmap =
+            FrameBitmap::at_location(PhysicalAddress::new(&memory[0] as *const u8 as u32), 10);
+        bitmap
+            .allocate_range(FrameRange::new(PhysicalAddress::new(0), 0xa000))
+            .unwrap();
         assert_eq!(memory, [0xff, 0x03]);
-        bitmap.free_range(FrameRange::new(PhysicalAddress::new(0), 0x3000)).unwrap();
+        bitmap
+            .free_range(FrameRange::new(PhysicalAddress::new(0), 0x3000))
+            .unwrap();
         assert_eq!(memory, [0xf8, 0x03]);
-        bitmap.free_range(FrameRange::new(PhysicalAddress::new(0x8000), 0x2000)).unwrap();
+        bitmap
+            .free_range(FrameRange::new(PhysicalAddress::new(0x8000), 0x2000))
+            .unwrap();
         assert_eq!(memory, [0xf8, 0x00]);
     }
 
     #[test_case]
     fn find_free_range() {
         let memory: [u8; 8] = [0; 8];
-        let mut bitmap = FrameBitmap::at_location(
-            PhysicalAddress::new(&memory[0] as *const u8 as u32),
-            60,
-        );
+        let mut bitmap =
+            FrameBitmap::at_location(PhysicalAddress::new(&memory[0] as *const u8 as u32), 60);
         assert_eq!(
             bitmap.find_free_range(4),
             Some(FrameRange::new(PhysicalAddress::new(0), 0x4000)),
         );
-        assert_eq!(
-            bitmap.find_free_range(80),
-            None,
-        );
-        bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0), 0x2000)).unwrap();
-        bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0x4000), 0x3000)).unwrap();
+        assert_eq!(bitmap.find_free_range(80), None,);
+        bitmap
+            .allocate_range(FrameRange::new(PhysicalAddress::new(0), 0x2000))
+            .unwrap();
+        bitmap
+            .allocate_range(FrameRange::new(PhysicalAddress::new(0x4000), 0x3000))
+            .unwrap();
         assert_eq!(
             bitmap.find_free_range(3),
             Some(FrameRange::new(PhysicalAddress::new(0x7000), 0x3000)),
@@ -316,7 +313,9 @@ mod tests {
             bitmap.find_free_range(1),
             Some(FrameRange::new(PhysicalAddress::new(0x2000), 0x1000)),
         );
-        bitmap.allocate_range(FrameRange::new(PhysicalAddress::new(0x7000), 0xb000)).unwrap();
+        bitmap
+            .allocate_range(FrameRange::new(PhysicalAddress::new(0x7000), 0xb000))
+            .unwrap();
         assert_eq!(
             bitmap.find_free_range(4),
             Some(FrameRange::new(PhysicalAddress::new(0x12000), 0x4000)),
@@ -326,12 +325,12 @@ mod tests {
     #[test_case]
     fn free_frame_count() {
         let memory: [u8; 8] = [0; 8];
-        let mut bitmap = FrameBitmap::at_location(
-            PhysicalAddress::new(&memory[0] as *const u8 as u32),
-            60,
-        );
+        let mut bitmap =
+            FrameBitmap::at_location(PhysicalAddress::new(&memory[0] as *const u8 as u32), 60);
         bitmap.reset();
-        bitmap.free_range(FrameRange::new(PhysicalAddress::new(0), 0x3c000)).unwrap();
+        bitmap
+            .free_range(FrameRange::new(PhysicalAddress::new(0), 0x3c000))
+            .unwrap();
         assert_eq!(bitmap.get_free_frame_count(), 60);
         bitmap.allocate_frames(2).unwrap();
         assert_eq!(bitmap.get_free_frame_count(), 58);
@@ -343,4 +342,3 @@ mod tests {
         assert_eq!(bitmap.get_free_frame_count(), 53);
     }
 }
-

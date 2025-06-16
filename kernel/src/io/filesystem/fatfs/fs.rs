@@ -16,13 +16,13 @@ impl FatFS {
         let mut volume_label: [u8; 11] = [0x20; 11];
         disk.read_bytes_from_disk(0x2b, &mut volume_label);
         let label_str = core::str::from_utf8(&volume_label).unwrap();
-        crate::kprint!("FAT VOLUME LABEL: \"{}\"\n", label_str);
+        super::LOGGER.log(format_args!("FAT VOLUME LABEL: \"{}\"", label_str));
 
         let mut bpb = BiosParamBlock::new();
         disk.read_struct_from_disk(0xb, &mut bpb);
 
         let total_sectors = bpb.total_sectors;
-        crate::kprint!("total sectors: {:#X}\n", total_sectors);
+        super::LOGGER.log(format_args!("FAT TOTAL SECTORS: {:#X}", total_sectors));
 
         let table = AllocationTable::from_bpb(bpb);
 

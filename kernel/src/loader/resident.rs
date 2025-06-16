@@ -21,10 +21,13 @@ use super::request::RequestQueue;
 pub static REQUEST_QUEUE: RequestQueue = RequestQueue::new();
 
 fn loader_resident() -> ! {
-    crate::kprintln!("Loader task ready to receive");
+    super::LOGGER.log(format_args!("Loader task started, ready to receive"));
     loop {
         let incoming_request = REQUEST_QUEUE.wait_on_request();
-        crate::kprintln!("Loader Request - Load \"{}\"", incoming_request.path);
+        super::LOGGER.log(format_args!(
+            "Load executable: \"{}\"",
+            incoming_request.path
+        ));
 
         let (file_handle, mut env) = match load_file(&incoming_request.path) {
             Ok(handle) => handle,
@@ -36,12 +39,12 @@ fn loader_resident() -> ! {
         if env.require_vm {
             // if the environment requires a VM, we need to load DOSLAYER.ELF
             // and create a secondary environment that we also load here
-            crate::kprintln!("DOS VM: Open DOSLAYER");
+            super::LOGGER.log(format_args!("DOS Program - Open DOSLAYER"));
 
             let (compat_handle, mut compat_env) = match load_file("C:\\DOSLAYER.ELF") {
                 Ok(handle) => handle,
                 Err(e) => {
-                    crate::kprintln!("Could not find compat layer");
+                    super::LOGGER.log(format_args!("Failed to load compat layer"));
                     continue;
                 }
             };
@@ -91,15 +94,15 @@ fn load_file(path: &str) -> Result<(Handle, ExecutionEnvironment), LoaderError> 
         return Err(LoaderError::UnsupportedFileFormat);
     };
 
-    crate::kprintln!("Loader Request - Executable loaded");
+    super::LOGGER.log(format_args!("Executable loaded"));
     for segment in &env.segments {
-        crate::kprintln!(
-            "Segment: {} {:?} - {:?} ({:#x})",
+        super::LOGGER.log(format_args!(
+            "Segment found: {} {:?} - {:?} ({:#x})",
             if segment.can_write() { "W" } else { "R" },
             segment.get_starting_address(),
             segment.get_starting_address() + segment.size_in_bytes(),
             segment.size_in_bytes()
-        );
+        ));
     }
 
     Ok((exec_handle, env))
