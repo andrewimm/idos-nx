@@ -35,11 +35,8 @@ pub extern "C" fn main() {
     .unwrap();
 
     // identity-map BIOS code (0xA0000 - 0xFFFFF)
-    let mut frame = 0x000a_0000;
-    while frame < 0x0010_0000 {
-        map_memory(Some(frame), 0x1000, Some(frame)).unwrap();
-        frame += 0x1000;
-    }
+    let bios_area_size = 0x0010_0000 - 0x000a_0000;
+    map_memory(Some(0x000a_0000), bios_area_size, Some(0x000a_0000)).unwrap();
 
     // map a page to store the stack in 8086 mode
     let stack_frame = map_memory(Some(0x0000_8000), 0x1000, None).unwrap();
