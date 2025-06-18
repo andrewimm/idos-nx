@@ -2,13 +2,16 @@ pub mod term;
 pub mod textmode;
 
 use self::term::Terminal;
-use alloc::vec::Vec;
+use alloc::{collections::VecDeque, vec::Vec};
 
 pub struct Console<const COLS: usize, const ROWS: usize> {
     pub terminal: Terminal<COLS, ROWS>,
 
     /// Stores input that has been entered but not yet flushed to a reader
-    pub pending_input: Vec<u8>,
+    pending_input: Vec<u8>,
+    /// Stores flushed input. The next read operation on this console will
+    /// pull bytes from this.
+    pub flushed_input: VecDeque<u8>,
 }
 
 impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
@@ -17,12 +20,13 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
         Self {
             terminal,
             pending_input: Vec::new(),
+            flushed_input: VecDeque::new(),
         }
     }
 
-    /// Send bytes of input from the keyboard. Returns true if the accumulated
-    /// input should be flushed to a reader.
-    pub fn send_input(&mut self, input: &[u8]) -> bool {
+    /// Send bytes of input from the keyboard. If input is flushed, all pending
+    /// input will be moved to the flushed input buffer.
+    pub fn send_input(&mut self, input: &[u8]) {
         let mut should_flush = false;
         for ch in input {
             if *ch == 0x0a {
@@ -41,7 +45,12 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
             self.pending_input.push(*ch);
         }
 
-        should_flush
+        if should_flush {
+            for byte in self.pending_input.iter() {
+                self.flushed_input.push_back(*byte);
+            }
+            self.pending_input.clear();
+        }
     }
 
     pub fn send_output(&mut self, output: &[u8]) {

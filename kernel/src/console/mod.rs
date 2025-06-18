@@ -29,7 +29,7 @@ use self::manager::ConsoleManager;
 
 pub mod buffers;
 pub mod console;
-//pub mod driver;
+pub mod driver;
 pub mod input;
 pub mod manager;
 
@@ -97,7 +97,7 @@ pub fn manager_task() -> ! {
     let mut mouse_x = 400;
     let mut mouse_y = 300;
 
-    let mut conman = ConsoleManager::new(text_buffer_base);
+    let mut conman = ConsoleManager::new();
     let con1 = conman.add_console(); // create the first console (CON1)
 
     //conman.clear_screen();
@@ -167,8 +167,8 @@ pub fn manager_task() -> ! {
         }
         draw_mouse(fb.get_buffer_mut(), mouse_x, mouse_y);
 
-        conman.update_cursor();
-        conman.update_clock(&mut fb, &console_font);
+        //conman.update_cursor();
+        //conman.update_clock(&mut fb, &console_font);
 
         block_on_wake_set(wake_set, None);
     }

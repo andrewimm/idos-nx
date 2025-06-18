@@ -17,4 +17,29 @@ impl Framebuffer {
             )
         }
     }
+
+    /// Return a smaller FrameBuffer that only contains the contents up until
+    /// the specified row
+    pub fn before_row(&self, row: u16) -> Self {
+        // width and stride should be the same, height is `row`
+        Self {
+            width: self.width,
+            height: self.height,
+            stride: self.stride,
+            buffer: self.buffer,
+        }
+    }
+
+    /// Return a smaller FrameBuffer that only contains the contents from the
+    /// specified row up until the end
+    pub fn from_row(&self, row: u16) -> Self {
+        // width and stride are the same, height is previous height - row
+        let offset = (self.stride as u32) * (row as u32);
+        Self {
+            width: self.width,
+            stride: self.stride,
+            height: self.height - row,
+            buffer: self.buffer + offset,
+        }
+    }
 }
