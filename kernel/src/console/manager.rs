@@ -19,7 +19,10 @@ use crate::task::switching::get_current_id;
 use crate::time::system::Timestamp;
 
 use super::buffers::ConsoleBuffers;
-use super::console::{Color, ColorCode, Console, TextCell};
+use super::console::{
+    textmode::{Color, ColorCode, TextCell},
+    Console,
+};
 use super::graphics::font::Font;
 use super::graphics::framebuffer::Framebuffer;
 use super::input::{KeyAction, KeyState};
@@ -56,13 +59,16 @@ impl PendingRead {
     }
 }
 
+const COLS: usize = 80;
+const ROWS: usize = 25;
+
 pub struct ConsoleManager {
     key_state: KeyState,
     text_buffer_base: VirtualAddress,
     current_time: Timestamp,
 
     current_console: usize,
-    consoles: Vec<Console>,
+    consoles: Vec<Console<COLS, ROWS>>,
 
     /// Mapping of open handles to the consoles they reference
     open_io: SlotList<usize>,
@@ -87,9 +93,8 @@ impl ConsoleManager {
     }
 
     pub fn add_console(&mut self) -> usize {
-        let console_buffer = map_memory(None, 0x2000, MemoryBacking::Anonymous).unwrap();
-        let new_console = Console::new(console_buffer);
-        new_console.clear_buffer();
+        let new_console = Console::new();
+        new_console.terminal.clear_buffer();
         self.consoles.push(new_console);
         let index = self.consoles.len() - 1;
         loop {
@@ -116,14 +121,20 @@ impl ConsoleManager {
         let result = self.key_state.process_key_action(action, &mut input_bytes);
         if let Some(len) = result {
             // send input buffer to current console
-            let console: &mut Console = self.consoles.get_mut(self.current_console).unwrap();
+            let console: &mut Console<80, 25> =
+                self.consoles.get_mut(self.current_console).unwrap();
             let mut input = &input_bytes[..len];
             if console.send_input(input) {
                 // if the console should flush, send input to the IO buffer.
                 loop {
                     if let Some(mut buffers) = IO_BUFFERS.try_write() {
                         let console_buffers = buffers.get_mut(self.current_console).unwrap();
-                        let available = console.flush_pending_input(console_buffers);
+                        let input_buffer = &console_buffers.input_buffer;
+                        let available = console.pending_input.len();
+                        for input in console.pending_input.iter() {
+                            input_buffer.write(*input);
+                        }
+                        console.pending_input.clear();
 
                         if available > 0 {
                             let pending_reads = self.pending_reads.get_mut(self.current_console);
@@ -247,14 +258,14 @@ impl ConsoleManager {
         let console = self.consoles.get_mut(*console_id).unwrap();
         let mut i = 0;
         while i < buffer.len() {
-            console.write_character(buffer[i]);
+            console.terminal.write_character(buffer[i]);
             i += 1;
         }
         Ok(buffer.len() as u32)
     }
 
     pub fn draw_window<F: Font>(&self, index: usize, fb: &mut Framebuffer, font: &F) {
-        let console: &Console = self.consoles.get(index).unwrap();
+        let console: &Console<80, 25> = self.consoles.get(index).unwrap();
 
         let window_x: u16 = 40;
         let window_y: u16 = 40;
@@ -321,6 +332,7 @@ impl ConsoleManager {
             .consoles
             .get(self.current_console)
             .unwrap()
+            .terminal
             .get_cursor_offset();
         let register = Port::new(0x3d4);
         let register_value = Port::new(0x3d5);
@@ -401,7 +413,7 @@ impl ConsoleManager {
                 let ptr = self.text_buffer_base.as_ptr_mut::<TextCell>().add(i);
                 *ptr = TextCell {
                     glyph: 0x20,
-                    color: ColorCode::new(Color::LightGrey, Color::Black),
+                    color: ColorCode::new(Color::LightGray, Color::Black),
                 };
             }
         }

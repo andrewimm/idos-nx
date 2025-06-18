@@ -1,4 +1,5 @@
 use super::textmode::{Color, ColorCode, TextBuffer};
+use alloc::vec::Vec;
 
 /// Handles terminal state management, including handling of ANSI escape codes
 /// and other terminal emulation. The Terminal struct is not responsible for
@@ -20,7 +21,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
             crate::task::memory::MemoryBacking::Anonymous,
         )
         .unwrap();
-        let text_buffer = TextBuffer::new::<COLS, ROWS>(alloc_buffer, 0x2000);
+        let text_buffer = TextBuffer::new(alloc_buffer, 0x2000);
 
         Self {
             cursor_x: 0,
@@ -45,7 +46,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         let buffer = self.text_buffer.get_text_buffer();
         for cell in buffer.iter_mut() {
             cell.glyph = 0x20; // Space character
-            cell.color = ColorCode::new(Color::LightGrey, Color::Black);
+            cell.color = ColorCode::new(Color::LightGray, Color::Black);
         }
     }
 
@@ -68,7 +69,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
             }
             AnsiParseState::Escape => {
                 if ch == b'[' {
-                    self.parse_state = AnsiParseState::Csi;
+                    self.parse_state = AnsiParseState::CSI;
                 } else {
                     // Other escape sequences aren't handled
                     self.parse_state = AnsiParseState::Normal; // Reset state
@@ -89,6 +90,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
                         self.handle_csi(ch);
                         self.parse_state = AnsiParseState::Normal;
                     }
+                    _ => {}
                 }
             }
         }
@@ -106,6 +108,15 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         if self.cursor_x >= COLS as u8 {
             self.cursor_x = 0;
             self.newline();
+        }
+    }
+
+    pub fn backspace(&mut self) {
+        if self.cursor_x > 0 {
+            self.cursor_x -= 1;
+        } else if self.cursor_y > 0 {
+            self.cursor_y -= 1;
+            self.cursor_x = (COLS - 1) as u8;
         }
     }
 

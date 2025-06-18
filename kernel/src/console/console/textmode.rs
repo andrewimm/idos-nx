@@ -101,7 +101,8 @@ impl<const COLS: usize, const ROWS: usize> TextBuffer<COLS, ROWS> {
     /// eventually push text up higher into the buffer.
     pub fn get_text_buffer(&self) -> &'static mut [TextCell] {
         let total_size = self.buffer_size - self.scrollback_start - Self::unused_tail_size();
-        let buffer_ptr: *mut TextCell = self.buffer_start.as_ptr_mut().add(self.scrollback_start);
+        let buffer_ptr: *mut TextCell =
+            (self.buffer_start + self.scrollback_start as u32).as_ptr_mut::<TextCell>();
         unsafe {
             core::slice::from_raw_parts_mut(
                 buffer_ptr,
@@ -110,24 +111,29 @@ impl<const COLS: usize, const ROWS: usize> TextBuffer<COLS, ROWS> {
         }
     }
 
-    pub fn get_visible_buffer(&self) -> &'static mut [TextCell] {
+    pub fn get_visible_buffer_byte_ptr(&self) -> *mut u8 {
         let offset = self.buffer_size - 0x1000;
-        let buffer_ptr: *mut TextCell = self.buffer_start.as_ptr_mut().add(offset);
-        unsafe { core::slice::from_raw_parts_mut(buffer_ptr, ROWS * COLS) }
+        (self.buffer_start + offset as u32).as_ptr_mut::<u8>()
     }
 
-    pub fn scroll(&self) {
+    pub fn get_visible_buffer(&self) -> &'static mut [TextCell] {
+        let offset = self.buffer_size - 0x1000;
+        let ptr = (self.buffer_start + offset as u32).as_ptr_mut::<TextCell>();
+        unsafe { core::slice::from_raw_parts_mut(ptr, ROWS * COLS) }
+    }
+
+    pub fn scroll(&mut self) {
         if self.scrollback_start >= Self::row_size() {
-            self.scrollback_start -= Self::row_size();
+            //self.scrollback_start -= Self::row_size();
         }
 
         let total_buffer = self.get_text_buffer();
         let total_rows = total_buffer.len() / COLS;
         for i in 0..(total_rows - 1) {
-            let dest_start = i * COLS;
-            let src_start = (i + 1) * COLS;
-            let copy_dest = &mut total_buffer[dest_start..src_start];
-            let copy_src = total_buffer[src_start..(src_start + COLS)];
+            let region_start = i * COLS;
+            let region_end = (i + 2) * COLS;
+            let copy_region = &mut total_buffer[region_start..region_end];
+            let (copy_dest, copy_src) = copy_region.split_at_mut(COLS);
             copy_dest.copy_from_slice(copy_src);
         }
         let final_row_offset = total_buffer.len() - COLS;
@@ -149,5 +155,5 @@ pub fn create_text_buffer() -> TextBuffer<80, 25> {
         crate::task::memory::MemoryBacking::Anonymous,
     )
     .unwrap();
-    TextBuffer::new::<80, 25>(alloc_buffer, 0x2000)
+    TextBuffer::new(alloc_buffer, 0x2000)
 }
