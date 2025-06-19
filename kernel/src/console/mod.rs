@@ -213,7 +213,7 @@ fn draw_desktop(framebuffer: &Framebuffer, font: &PsfFont) {
         framebuffer,
         10,
         topbar_text_y as u16,
-        "IDOS - CONSOLE MANAGER".bytes(),
+        "IDOS-NX".bytes(),
         0x0f,
     );
     // clear the rest of the desktop

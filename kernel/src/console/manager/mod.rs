@@ -87,9 +87,20 @@ impl ConsoleManager {
     // Move these to another location:
 
     pub fn draw_window<F: Font>(&self, index: usize, fb: &mut Framebuffer, font: &F) {
+        let console = self.consoles.get(index).unwrap();
         let mut desktop_fb = fb.from_row(24);
         let window_pos = Point { x: 5, y: 5 };
         self::decor::draw_window_bar(&mut desktop_fb, window_pos, 180, font, "C:\\COMMAND.ELF");
         self::decor::draw_window_border(&mut desktop_fb, window_pos, 640, 400);
+
+        for row in 0..ROWS {
+            font.draw_string(
+                &mut desktop_fb,
+                window_pos.x + 2,
+                (window_pos.y + 20) + (row as u16 * 16),
+                console.row_text_iter(row),
+                0x0f,
+            );
+        }
     }
 }
