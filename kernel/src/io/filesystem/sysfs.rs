@@ -2,11 +2,13 @@ use crate::{
     collections::SlotList,
     files::{path::Path, stat::FileStatus},
     io::driver::kernel_driver::KernelDriver,
+    memory::physical::with_allocator,
 };
+use alloc::string::String;
 use idos_api::io::error::{IOError, IOResult};
 use spin::RwLock;
 
-use super::driver::AsyncIOCallback;
+use super::{driver::AsyncIOCallback, get_all_drive_names};
 
 struct OpenFile {
     listing: ListingType,
@@ -14,7 +16,6 @@ struct OpenFile {
 
 enum ListingType {
     RootDir,
-    Consoles,
     CPU,
     Drives,
     Memory,
@@ -23,7 +24,6 @@ enum ListingType {
 impl ListingType {
     fn from_str(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
-            "CONSOLES" => Some(Self::Consoles),
             "CPU" => Some(Self::CPU),
             "DRIVES" => Some(Self::Drives),
             "MEMORY" => Some(Self::Memory),
@@ -32,7 +32,7 @@ impl ListingType {
     }
 }
 
-const ROOT_LISTING: &str = "CONSOLES\0CPU\0DRIVES\0MEMORY\0";
+const ROOT_LISTING: &str = "CPU\0DRIVES\0MEMORY\0";
 
 pub struct SysFS {
     open_files: RwLock<SlotList<OpenFile>>,
@@ -67,11 +67,10 @@ impl SysFS {
             .get_mut(instance as usize)
             .ok_or(IOError::FileHandleInvalid)?;
         let content_string = match open_file.listing {
-            ListingType::RootDir => ROOT_LISTING,
-            ListingType::Consoles => "Console0\0Console1\0",
-            ListingType::CPU => "CPU0: Intel(R) Core(TM) i7-9700K CPU @ 3.60GHz\0",
-            ListingType::Drives => "Drive0: 512GB SSD\0Drive1: 1TB HDD\0",
-            ListingType::Memory => "Total: 16GB\0Used: 8GB\0Free: 8GB\0",
+            ListingType::RootDir => String::from(ROOT_LISTING),
+            ListingType::CPU => Self::generate_cpu_content(),
+            ListingType::Drives => Self::generate_drives_content(),
+            ListingType::Memory => Self::generate_memory_content(),
         };
         let content_bytes = content_string.as_bytes();
         if offset >= content_bytes.len() as u32 {
@@ -81,6 +80,42 @@ impl SysFS {
         let to_write = offset_slice.len().min(buffer.len());
         buffer[..to_write].copy_from_slice(&offset_slice[..to_write]);
         Ok(to_write as u32)
+    }
+
+    fn generate_cpu_content() -> String {
+        let mut content = String::new();
+
+        let user_time = 0;
+        let kernel_time = 0;
+        let idle_time = 0;
+        content.push_str(&alloc::format!(
+            "CPU Usage:\nUser Time: {}\nKernel Time: {}\nIdle Time: {}",
+            user_time,
+            kernel_time,
+            idle_time
+        ));
+
+        content
+    }
+
+    fn generate_drives_content() -> String {
+        let mut names = get_all_drive_names();
+        names.push(String::from("DEV"));
+        names.sort();
+
+        names.join("\n")
+    }
+
+    fn generate_memory_content() -> String {
+        let (total, free) = with_allocator(|a| (a.total_frame_count(), a.get_free_frame_count()));
+        let total_memory = total * 4; // in KiB
+        let free_memory = free * 4; // in KiB
+
+        alloc::format!(
+            "Total Memory: {} KiB\nFree Memory: {} KiB",
+            total_memory,
+            free_memory,
+        )
     }
 
     fn stat_impl(&self, instance: u32, file_status: &mut FileStatus) -> IOResult {
