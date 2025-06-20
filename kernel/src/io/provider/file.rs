@@ -68,7 +68,7 @@ impl FileIOProvider {
     // not free resources prematurely
     pub fn duplicate(&self, new_task: TaskID) -> Self {
         Self {
-            source_id: self.source_id.clone(),
+            source_id: AtomicTaskID::new(new_task.into()),
             driver_id: Mutex::new(self.driver_id.lock().clone()),
             bound_instance: Mutex::new(self.bound_instance.lock().clone()),
             active: Mutex::new(None),

@@ -24,7 +24,7 @@ impl Framebuffer {
         // width and stride should be the same, height is `row`
         Self {
             width: self.width,
-            height: self.height,
+            height: row,
             stride: self.stride,
             buffer: self.buffer,
         }

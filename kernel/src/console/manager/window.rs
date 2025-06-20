@@ -1,7 +1,7 @@
 use super::super::graphics::Point;
 
 pub struct Window {
-    position: Point,
+    pub position: Point,
 }
 
 impl Window {}

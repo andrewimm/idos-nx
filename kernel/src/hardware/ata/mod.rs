@@ -78,6 +78,8 @@ pub fn install() {
             // wait for response
             let mut response_buffer = [0u8; 1];
             let _ = read_sync(response_read, &mut response_buffer, 0);
+            let _ = close_sync(args_write);
+            let _ = close_sync(response_read);
             installed_ata += response_buffer[0];
         }
     }

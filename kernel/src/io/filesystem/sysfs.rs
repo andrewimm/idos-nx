@@ -120,7 +120,7 @@ impl SysFS {
 
     fn stat_impl(&self, instance: u32, file_status: &mut FileStatus) -> IOResult {
         let open_files = self.open_files.read();
-        let open_file = open_files
+        let _ = open_files
             .get(instance as usize)
             .ok_or(IOError::FileHandleInvalid)?;
         file_status.byte_size = 0;
@@ -157,7 +157,7 @@ impl KernelDriver for SysFS {
         Some(self.stat_impl(instance, file_status))
     }
 
-    fn close(&self, instance: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
         if self.open_files.write().remove(instance as usize).is_none() {
             Some(Err(IOError::FileHandleInvalid))
         } else {

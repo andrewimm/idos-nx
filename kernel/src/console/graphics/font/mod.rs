@@ -44,7 +44,7 @@ impl Glyph {
     }
 
     pub fn draw_row(&self, framebuffer: &Framebuffer, x: u16, y: u16, row: u8, color: u8) {
-        let mut offset = (y as usize) * (framebuffer.stride as usize) + (x as usize);
+        let draw_offset = (y as usize) * (framebuffer.stride as usize) + (x as usize);
         let glyph_stride = (self.width as usize + 7) / 8;
         let mut bitmap_byte_offset = (row as usize) * glyph_stride;
         let mut bitmap_byte = self.bitmap[bitmap_byte_offset];
@@ -52,7 +52,7 @@ impl Glyph {
         let raw_buffer = framebuffer.get_buffer_mut();
         for col in 0..self.width as usize {
             if bitmap_byte & 0x80 != 0 {
-                raw_buffer[offset + col] = color;
+                raw_buffer[draw_offset + col] = color;
             }
             bitmap_byte = bitmap_byte << 1;
             shift += 1;
@@ -91,8 +91,6 @@ pub trait Font {
         color: u8,
     ) {
         let height = self.get_height();
-        let mut offset = (y as usize) * (framebuffer.stride as usize) + (x as usize);
-        let raw_buffer = framebuffer.get_buffer_mut();
         // assumes all glyphs are the same height...
         for row in 0..height {
             let glyphs = bytes.clone().filter_map(|byte| self.get_glyph(byte));
@@ -101,7 +99,6 @@ pub trait Font {
                 glyph.draw_row(framebuffer, x + run_offset, y + row as u16, row, color);
                 run_offset += glyph.width as u16;
             }
-            offset += framebuffer.stride as usize;
         }
     }
 }

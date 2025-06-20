@@ -18,7 +18,8 @@ static GFX_TASK: AtomicTaskID = AtomicTaskID::new(0xffff_ffff);
 
 pub fn register_graphics_driver(path: &str) {
     let (_, gfx_task) = create_task();
-    load_executable(gfx_task, "C:\\GFX.ELF");
+    // error messages on load_executable are useless right now
+    let _ = load_executable(gfx_task, path);
 
     GFX_TASK.swap(gfx_task, Ordering::SeqCst);
 }
@@ -35,7 +36,7 @@ pub struct VbeModeInfo {
 pub fn get_vbe_mode_info(mode_info: &mut VbeModeInfo, mode: u16) {
     let gfx_task = GFX_TASK.load(Ordering::SeqCst);
     let mut signal = Box::<u32>::new(0);
-    let signal_addr = VirtualAddress::new(&*signal as *const u32 as u32);
+    let signal_addr = VirtualAddress::new(&mut *signal as *mut u32 as u32);
     let mode_info_addr = VirtualAddress::new(mode_info as *mut VbeModeInfo as u32);
     send_message(
         gfx_task,
@@ -61,7 +62,7 @@ pub fn get_vbe_mode_info(mode_info: &mut VbeModeInfo, mode: u16) {
 pub fn set_vbe_mode(mode: u16) {
     let gfx_task = GFX_TASK.load(Ordering::SeqCst);
     let mut signal = Box::<u32>::new(0);
-    let signal_addr = VirtualAddress::new(&*signal as *const u32 as u32);
+    let signal_addr = VirtualAddress::new(&mut *signal as *mut u32 as u32);
     send_message(
         gfx_task,
         Message {

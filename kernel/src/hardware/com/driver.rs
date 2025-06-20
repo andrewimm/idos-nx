@@ -9,16 +9,14 @@ use alloc::collections::{BTreeMap, VecDeque};
 use idos_api::io::{error::IOError, AsyncOp, ASYNC_OP_READ};
 
 use crate::{
-    io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC},
+    io::driver::comms::{DriverCommand, IOResult},
     task::{
         actions::{
             handle::{open_interrupt_handle, open_message_queue},
             io::{append_io_op, driver_io_complete, write_sync},
             lifecycle::create_kernel_task,
-            send_message,
             sync::{block_on_wake_set, create_wake_set},
         },
-        id::TaskID,
         messaging::Message,
     },
 };
@@ -58,9 +56,8 @@ pub fn run_driver() -> ! {
             interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
             let _ = append_io_op(irq_handle, &interrupt_read, Some(wake_set));
         } else if message_read.is_complete() {
-            let sender = message_read.return_value.load(Ordering::SeqCst);
             let request_id = incoming_message.unique_id;
-            match driver_impl.handle_request(incoming_message, TaskID::new(sender)) {
+            match driver_impl.handle_request(incoming_message) {
                 Some(result) => driver_io_complete(request_id, result),
                 None => (),
             }
@@ -96,7 +93,6 @@ struct OpenFile {}
 
 struct PendingRead {
     request_id: u32,
-    respond_to: TaskID,
     buffer_ptr: *mut u8,
     buffer_len: usize,
     written: usize,
@@ -115,7 +111,7 @@ impl ComDeviceDriver {
         }
     }
 
-    pub fn handle_request(&mut self, message: Message, sender: TaskID) -> Option<IOResult> {
+    pub fn handle_request(&mut self, message: Message) -> Option<IOResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::OpenRaw => {
                 let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
@@ -127,7 +123,6 @@ impl ComDeviceDriver {
                 let buffer_len = message.args[2] as usize;
                 self.read_list.push_back(PendingRead {
                     request_id: message.unique_id,
-                    respond_to: sender,
                     buffer_ptr,
                     buffer_len,
                     written: 0,

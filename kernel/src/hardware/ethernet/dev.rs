@@ -12,7 +12,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::hardware::pci::devices::PciDevice;
 use crate::hardware::pci::get_bus_devices;
-use crate::io::driver::comms::{DriverCommand, IOResult, DRIVER_RESPONSE_MAGIC};
+use crate::io::driver::comms::{DriverCommand, IOResult};
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::io::IOError;
@@ -27,9 +27,7 @@ use crate::task::actions::io::{
 };
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
-use crate::task::actions::send_message;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
-use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::messaging::Message;
 use alloc::vec::Vec;
@@ -41,7 +39,7 @@ use super::driver::EthernetDriver;
 pub struct EthernetDevice {
     driver: EthernetDriver,
     next_instance: AtomicU32,
-    pending_read: Option<(*mut u8, usize, TaskID, u32)>,
+    pending_read: Option<(*mut u8, usize, u32)>,
 }
 
 impl EthernetDevice {
@@ -55,7 +53,7 @@ impl EthernetDevice {
 
     // TODO: we need some async variant of the driver trait
 
-    pub fn handle_request(&mut self, sender: TaskID, message: Message) -> Option<IOResult> {
+    pub fn handle_request(&mut self, message: Message) -> Option<IOResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::OpenRaw => Some(self.open()),
             DriverCommand::Close => Some(self.close()),
@@ -68,7 +66,7 @@ impl EthernetDevice {
                 // Response is not ready yet, store the buffer info for when the
                 // task wakes from an interrupt
                 self.pending_read
-                    .replace((buffer_ptr, buffer_len, sender, message.unique_id));
+                    .replace((buffer_ptr, buffer_len, message.unique_id));
 
                 None
             }
@@ -175,14 +173,13 @@ fn run_driver() -> ! {
             if cause != 0 {
                 // check if a buffer can be read
                 if driver_impl.driver.get_next_rx_buffer().is_some() {
-                    if let Some((buffer_ptr, buffer_len, sender_id, unique_id)) =
+                    if let Some((buffer_ptr, buffer_len, unique_id)) =
                         driver_impl.pending_read.take()
                     {
                         if let Some(response) = driver_impl.read(buffer_ptr, buffer_len) {
-                            send_response(sender_id, unique_id, response);
+                            send_response(unique_id, response);
                         } else {
-                            driver_impl.pending_read =
-                                Some((buffer_ptr, buffer_len, sender_id, unique_id));
+                            driver_impl.pending_read = Some((buffer_ptr, buffer_len, unique_id));
                         }
                     }
                 }
@@ -193,10 +190,8 @@ fn run_driver() -> ! {
             interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
             let _ = append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
         } else if message_read.is_complete() {
-            let sender = message_read.return_value.load(Ordering::SeqCst);
-            let sender_id = TaskID::new(sender);
-            match driver_impl.handle_request(sender_id, incoming_message) {
-                Some(response) => send_response(sender_id, incoming_message.unique_id, response),
+            match driver_impl.handle_request(incoming_message) {
+                Some(response) => send_response(incoming_message.unique_id, response),
                 None => (),
             }
 
@@ -213,7 +208,7 @@ fn run_driver() -> ! {
     }
 }
 
-fn send_response(task: TaskID, request_id: u32, result: IOResult) {
+fn send_response(request_id: u32, result: IOResult) {
     driver_io_complete(request_id, result);
 }
 

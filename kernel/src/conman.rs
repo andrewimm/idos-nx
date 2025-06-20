@@ -4,13 +4,11 @@ use alloc::sync::Arc;
 use spin::RwLock;
 
 use crate::{
-    hardware::ps2::mouse,
     io::handle::Handle,
     memory::address::{PhysicalAddress, VirtualAddress},
     sync::wake_set::WakeSet,
     task::{
-        actions::memory::map_memory, id::TaskID, memory::MemoryBacking,
-        paging::get_current_physical_address, switching::get_current_task,
+        actions::memory::map_memory, id::TaskID, memory::MemoryBacking, switching::get_current_task,
     },
 };
 

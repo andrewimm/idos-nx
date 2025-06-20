@@ -1,5 +1,4 @@
 use super::controller::{AtaChannel, DriveSelect, SECTOR_SIZE};
-use crate::hardware::pci::devices::PciDevice;
 use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::driver::comms::IOResult;
 use crate::io::filesystem::install_task_dev;
@@ -144,8 +143,8 @@ pub fn run_driver() -> ! {
         port_args[2]
     );
 
-    /// access for primary channel
-    let mut channel = AtaChannel {
+    // access for primary channel
+    let channel = AtaChannel {
         base_port: port_args[0],
         control_port: port_args[1],
         bus_master_port: if port_args[2] != 0 {
@@ -171,8 +170,8 @@ pub fn run_driver() -> ! {
         }
     }
 
-    let _ = write_sync(Handle::new(1), &[device_count as u8], 0);
-    let _ = close_sync(Handle::new(1));
+    let _ = write_sync(response_writer, &[device_count as u8], 0);
+    let _ = close_sync(response_writer);
 
     if device_count == 0 {
         crate::kprintln!("No ATA devices found");

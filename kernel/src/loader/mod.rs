@@ -10,7 +10,6 @@ pub mod resident;
 use crate::log::TaggedLogger;
 use crate::task::id::TaskID;
 
-use self::environment::ExecutionEnvironment;
 use self::error::LoaderError;
 
 const LOGGER: TaggedLogger = TaggedLogger::new("LOADER", 33);

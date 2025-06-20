@@ -78,7 +78,6 @@ impl ExecutionEnvironment {
                                     + (page_start_offset - section.segment_offset + 0x1000)
                                     & 0xffff_f000
                             };
-                            section_file_offset.max(page_start_offset);
                             let relative_offset = overlap_start - page_start_offset;
                             let buffer_start = unmapped_page.virtual_address() + relative_offset;
                             let buffer_len = overlap_end - overlap_start;
@@ -221,8 +220,6 @@ pub struct ExecutionSegment {
     sections: Vec<ExecutionSection>,
     /// Flag to determine whether the backing pages should be userspace writable
     user_can_write: bool,
-    /// Flag to determine whether the backing pages should be userspace executable
-    user_can_exec: bool,
     /// List of physical addresses for the backing frames. After the segment is
     /// extracted, frames of memory will be allocated for the segment, and
     /// those are stored here so that the loader Task can map those frames and
@@ -237,7 +234,6 @@ impl ExecutionSegment {
             size_in_pages,
             sections: Vec::new(),
             user_can_write: false,
-            user_can_exec: false,
             physical_frames: Vec::new(),
         }
     }
@@ -275,7 +271,8 @@ impl ExecutionSegment {
             Some(self.start_address),
             self.size_in_bytes(),
             MemoryBacking::Anonymous,
-        );
+        )
+        .unwrap();
 
         let external_dir = ExternalPageDirectory::for_task(task_id);
         for page in 0..self.size_in_pages {

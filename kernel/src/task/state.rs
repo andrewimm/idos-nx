@@ -12,7 +12,6 @@ use super::args::ExecArgs;
 use super::id::TaskID;
 use super::memory::MappedMemory;
 use super::messaging::{Message, MessagePacket, MessageQueue};
-use super::registers::EnvironmentRegisters;
 use super::stack::free_stack;
 
 pub struct Task {

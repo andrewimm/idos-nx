@@ -1,8 +1,4 @@
-use core::sync::atomic::{AtomicU32, Ordering};
-
-use alloc::vec::Vec;
 use idos_api::io::AsyncOp;
-use spin::RwLock;
 
 use crate::conman::{register_console_manager, InputBuffer};
 use crate::console::graphics::font::psf::PsfFont;
@@ -11,7 +7,6 @@ use crate::graphics::{get_vbe_mode_info, set_vbe_mode, VbeModeInfo};
 use crate::io::async_io::ASYNC_OP_READ;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
-use crate::sync::futex::{futex_wait, futex_wake};
 use crate::task::actions::handle::{create_pipe_handles, open_message_queue, transfer_handle};
 use crate::task::actions::io::{
     append_io_op, close_sync, driver_io_complete, read_sync, write_sync,
@@ -19,7 +14,6 @@ use crate::task::actions::io::{
 use crate::task::actions::lifecycle::{create_kernel_task, terminate};
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
-use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::messaging::Message;
 
@@ -54,12 +48,14 @@ pub fn manager_task() -> ! {
     let keyboard_buffer = unsafe { &*keyboard_buffer_ptr };
     let mouse_buffer = unsafe { &*(keyboard_buffer_ptr.add(1)) };
 
+    /*
     let text_buffer_base = map_memory(
         None,
         0x1000,
         MemoryBacking::Direct(PhysicalAddress::new(0xb8000)),
     )
     .unwrap();
+    */
 
     let mut vbe_mode_info: VbeModeInfo = VbeModeInfo::default();
     get_vbe_mode_info(&mut vbe_mode_info, 0x0103);
@@ -141,7 +137,6 @@ pub fn manager_task() -> ! {
         }
 
         if message_read.is_complete() {
-            let sender = message_read.return_value.load(Ordering::SeqCst);
             let request_id = incoming_message.unique_id;
             match conman.handle_request(&incoming_message) {
                 Some(result) => driver_io_complete(request_id, result),
@@ -157,10 +152,10 @@ pub fn manager_task() -> ! {
             let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
         }
 
-        conman.draw_window(0, &mut fb, &console_font);
+        conman.draw_window(con1, &mut fb, &console_font);
 
         loop {
-            let next_action = match mouse_buffer.read() {
+            let _next_action = match mouse_buffer.read() {
                 Some(action) => action,
                 None => break,
             };

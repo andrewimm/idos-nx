@@ -107,7 +107,7 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
             out(reg) address,
         );
     }
-    let cs = stack_frame.cs;
+    //let cs = stack_frame.cs;
     let eip = stack_frame.eip;
     let cur_id = get_current_id();
     /*crate::kprint!(

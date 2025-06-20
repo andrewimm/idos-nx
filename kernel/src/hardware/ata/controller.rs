@@ -104,7 +104,7 @@ impl Drop for PRDT {
     fn drop(&mut self) {
         // free the allocated memory for the PRDT table
         let task_id = get_current_id();
-        unmap_memory_for_task(task_id, self.table_vaddr, 0x1000);
+        unmap_memory_for_task(task_id, self.table_vaddr, 0x1000).unwrap();
     }
 }
 
@@ -220,7 +220,7 @@ impl AtaChannel {
             return Err(());
         }
         match self.bus_master_port {
-            Some(port) => {
+            Some(_port) => {
                 // Use DMA transfer if bus mastering is available
                 crate::kprintln!("ATA READ: Using DMA transfer");
                 return self.read_dma(drive, first_sector, buffer);

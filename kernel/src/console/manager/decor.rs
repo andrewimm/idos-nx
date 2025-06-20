@@ -84,14 +84,14 @@ pub fn draw_window_border(
         ((window_pos.y + WINDOW_BAR_HEIGHT as u16) * fb.stride + window_pos.x) as usize;
     let framebuffer = fb.get_buffer_mut();
 
-    for y in 0..BORDER_WIDTH {
+    for _ in 0..BORDER_WIDTH {
         for x in 0..total_width {
             framebuffer[fb_offset + x] = 0x1d;
         }
         fb_offset += fb.stride as usize;
     }
 
-    for y in 0..inner_height as usize {
+    for _ in 0..inner_height as usize {
         for x in 0..BORDER_WIDTH {
             framebuffer[fb_offset + x] = 0x1d;
         }
@@ -101,7 +101,7 @@ pub fn draw_window_border(
         fb_offset += fb.stride as usize;
     }
 
-    for y in 0..BORDER_WIDTH {
+    for _ in 0..BORDER_WIDTH {
         for x in 0..total_width {
             framebuffer[fb_offset + x] = 0x1d;
         }

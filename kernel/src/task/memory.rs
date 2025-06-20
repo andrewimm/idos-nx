@@ -1,7 +1,4 @@
-use crate::{
-    loader::relocation::Relocation,
-    memory::address::{PhysicalAddress, VirtualAddress},
-};
+use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::Range;
 

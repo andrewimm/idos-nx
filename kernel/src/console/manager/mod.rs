@@ -31,7 +31,7 @@ pub struct ConsoleManager {
 
 impl ConsoleManager {
     pub fn new() -> Self {
-        let mut consoles = Vec::with_capacity(1);
+        let consoles = Vec::with_capacity(1);
 
         Self {
             key_state: KeyState::new(),

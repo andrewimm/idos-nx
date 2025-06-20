@@ -49,7 +49,7 @@ impl KeyboardDriver {
         Ok(to_write)
     }
 
-    fn open(&self) -> Result<u32, IOError> {
+    pub fn open(&self) -> Result<u32, IOError> {
         let handle = OpenHandle {
             reader_id: get_current_id(),
             is_reading: false,
@@ -59,7 +59,7 @@ impl KeyboardDriver {
         Ok(index as u32)
     }
 
-    fn read(&self, index: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
+    pub fn read(&self, index: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
         self.begin_reading(index)?;
 
         let mut bytes_written = 0;
@@ -74,11 +74,11 @@ impl KeyboardDriver {
         Ok(bytes_written as u32)
     }
 
-    fn write(&self, _index: u32, _buffer: &[u8]) -> Result<u32, IOError> {
+    pub fn write(&self, _index: u32, _buffer: &[u8]) -> Result<u32, IOError> {
         Err(IOError::UnsupportedOperation)
     }
 
-    fn close(&self, index: u32) -> Result<(), IOError> {
+    pub fn close(&self, index: u32) -> Result<(), IOError> {
         if OPEN_KEYBOARD_HANDLES
             .write()
             .remove(index as usize)

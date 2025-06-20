@@ -25,9 +25,9 @@ use super::virt::page_iter::PageIter;
 use crate::collections::RefCountMap;
 use crate::task::actions::memory::{map_memory_for_task, unmap_memory_for_task};
 use crate::task::id::TaskID;
-use crate::task::memory::{MemMapError, MemoryBacking};
+use crate::task::memory::MemoryBacking;
 use crate::task::paging::get_current_physical_address;
-use crate::task::switching::{get_current_id, get_current_task, get_task};
+use crate::task::switching::{get_current_id, get_task};
 
 static SHARED_MEMORY_REFCOUNT: Mutex<RefCountMap<PhysicalAddress>> = Mutex::new(RefCountMap::new());
 

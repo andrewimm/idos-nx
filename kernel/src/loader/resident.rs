@@ -11,9 +11,8 @@ use crate::io::handle::Handle;
 use crate::loader::environment::ExecutionEnvironment;
 use crate::loader::error::LoaderError;
 use crate::task::actions::handle::{create_file_handle, create_kernel_task};
-use crate::task::actions::io::{close_sync, open_sync, read_struct_sync, read_sync};
+use crate::task::actions::io::{close_sync, open_sync, read_sync};
 use crate::task::id::TaskID;
-use crate::task::messaging::Message;
 use crate::task::switching::get_task;
 
 use super::request::RequestQueue;
@@ -31,7 +30,7 @@ fn loader_resident() -> ! {
 
         let (file_handle, mut env) = match load_file(&incoming_request.path) {
             Ok(handle) => handle,
-            Err(e) => continue,
+            Err(_) => continue,
         };
 
         env.map_memory(incoming_request.task);
@@ -43,7 +42,7 @@ fn loader_resident() -> ! {
 
             let (compat_handle, mut compat_env) = match load_file("C:\\DOSLAYER.ELF") {
                 Ok(handle) => handle,
-                Err(e) => {
+                Err(_) => {
                     super::LOGGER.log(format_args!("Failed to load compat layer"));
                     continue;
                 }
@@ -107,10 +106,6 @@ fn load_file(path: &str) -> Result<(Handle, ExecutionEnvironment), LoaderError> 
 
     Ok((exec_handle, env))
 }
-
-struct Loader {}
-
-impl Loader {}
 
 pub static LOADER_ID: Once<TaskID> = Once::new();
 

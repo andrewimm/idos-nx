@@ -210,7 +210,7 @@ fn try_exec(
     let stdin_dup = crate::task::actions::handle::dup_handle(stdin).unwrap();
     let stdout_dup = crate::task::actions::handle::dup_handle(stdout).unwrap();
 
-    crate::loader::load_executable(child_id, name);
+    let _ = crate::loader::load_executable(child_id, name);
 
     crate::task::actions::handle::transfer_handle(stdin_dup, child_id).unwrap();
     crate::task::actions::handle::transfer_handle(stdout_dup, child_id).unwrap();

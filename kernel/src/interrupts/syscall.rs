@@ -14,8 +14,6 @@ use crate::{
     },
 };
 
-use super::stack::StackFrame;
-
 global_asm!(
     r#"
 .global syscall_handler
@@ -147,6 +145,7 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             let task_id = TaskID::new(registers.ebx);
             match get_task(task_id) {
                 Some(task) => {
+                    // TODO: implement arg appends
                     registers.eax = 1;
                 }
                 None => {
@@ -188,11 +187,12 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             let op = unsafe { &*op_ptr };
             let wake_set = match registers.edx {
                 0xffff_ffff => None,
-                edx => Some(Handle::new(registers.edx as usize)),
+                edx => Some(Handle::new(edx as usize)),
             };
             match actions::io::append_io_op(handle, op, wake_set) {
                 Ok(_) => registers.eax = 1,
-                Err(e) => registers.eax = 0x8000_0000,
+                // TODO: error codes
+                Err(_e) => registers.eax = 0x8000_0000,
             }
         }
         0x11 => {
@@ -312,7 +312,7 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
                 Ok(vaddr) => {
                     registers.eax = vaddr.into();
                 }
-                Err(e) => {
+                Err(_e) => {
                     // TODO: we need error codes
                     registers.eax = 0xffff_ffff;
                 }

@@ -7,13 +7,11 @@ use crate::task::actions::{
     io::{open_sync, read_sync},
 };
 
-use super::super::framebuffer::Framebuffer;
 use super::{Font, Glyph};
 use alloc::vec::Vec;
 use idos_api::io::error::IOError;
 
 pub struct PsfFont {
-    width: u8,
     height: u8,
     glyphs: Vec<Glyph>,
 }
@@ -59,11 +57,7 @@ impl PsfFont {
             bitmap_offset %= GLYPH_PER_READ;
         }
 
-        Ok(Self {
-            width,
-            height,
-            glyphs,
-        })
+        Ok(Self { height, glyphs })
     }
 }
 
