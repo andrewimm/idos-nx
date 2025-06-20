@@ -462,7 +462,7 @@ mod tests {
         let write_buffer: [u8; 4] = [0xaa, 0xbb, 0xcc, 0xdd];
 
         let callback = (TaskID::new(0), 1, AsyncOpID::new(2));
-        let mut read_result = pipe.read(&mut read_buffer, ReadMode::Blocking(callback));
+        let read_result = pipe.read(&mut read_buffer, ReadMode::Blocking(callback));
         assert_eq!(read_result, None);
 
         let write_result = pipe.write(&write_buffer);
@@ -479,7 +479,7 @@ mod tests {
         let write_buffer: [u8; 3] = [0xaa, 0xbb, 0xcc];
 
         let callback = (TaskID::new(0), 1, AsyncOpID::new(2));
-        let mut read_result = pipe.read(&mut read_buffer, ReadMode::Blocking(callback));
+        let read_result = pipe.read(&mut read_buffer, ReadMode::Blocking(callback));
         assert_eq!(read_result, None);
 
         let write_result = pipe.write(&write_buffer);
@@ -495,7 +495,7 @@ mod tests {
         let write_buffer: [u8; 2] = [0xaa, 0xbb];
 
         let callback = (TaskID::new(0), 1, AsyncOpID::new(2));
-        let mut read_result = pipe.read(&mut read_buffer, ReadMode::Blocking(callback));
+        let read_result = pipe.read(&mut read_buffer, ReadMode::Blocking(callback));
         assert_eq!(read_result, None);
 
         let mut write_result = pipe.write(&write_buffer);
@@ -609,7 +609,6 @@ mod tests {
     fn write_when_read_closed() {
         let (reader, writer) = create_pipe_handles();
         handle_op_close(reader).submit_io().wait_for_completion();
-        let write_buffer: [u8; 3] = [12, 14, 18];
         let write_op = handle_op_write(writer, &[12, 14, 18]);
         write_op.submit_io();
         assert_eq!(

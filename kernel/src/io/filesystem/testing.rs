@@ -81,7 +81,7 @@ pub mod sync_fs {
             Some(Ok(buffer.len() as u32))
         }
 
-        fn close(&self, instance: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+        fn close(&self, _instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
             panic!("not implemented");
         }
     }
@@ -141,7 +141,7 @@ pub mod async_fs {
             Ok(buffer.len() as u32)
         }
 
-        fn close(&mut self, instance: u32) -> IOResult {
+        fn close(&mut self, _instance: u32) -> IOResult {
             panic!("not implemented");
         }
     }
@@ -156,7 +156,7 @@ pub mod async_fs {
         loop {
             let op = PendingHandleOp::new(message_handle, ASYNC_OP_READ, message_ptr, 0, 0);
             op.submit_io();
-            let sender = op.wait_for_completion();
+            let _sender = op.wait_for_completion();
 
             let request_id = message.unique_id;
             match driver_impl.handle_request(message) {
@@ -197,7 +197,7 @@ pub mod async_dev {
     }
 
     impl AsyncDriver for AsyncTestDev {
-        fn open(&mut self, path: &str) -> IOResult {
+        fn open(&mut self, _path: &str) -> IOResult {
             let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
             self.open_files.write().insert(instance, OpenFile::new());
             Ok(instance)
@@ -208,7 +208,6 @@ pub mod async_dev {
             let found = open_files
                 .get_mut(&instance)
                 .ok_or(IOError::FileHandleInvalid)?;
-            let offset = found.written % 4;
             let sample = [b't', b'e', b's', b't'];
             let mut written = 0;
             while written < buffer.len() {
@@ -220,7 +219,7 @@ pub mod async_dev {
             Ok(written as u32)
         }
 
-        fn close(&mut self, instance: u32) -> IOResult {
+        fn close(&mut self, _instance: u32) -> IOResult {
             panic!("not implemented");
         }
     }
@@ -235,7 +234,7 @@ pub mod async_dev {
         loop {
             let op = PendingHandleOp::new(message_handle, ASYNC_OP_READ, message_ptr, 0, 0);
             op.submit_io();
-            let sender = op.wait_for_completion();
+            let _sender = op.wait_for_completion();
 
             let request_id = message.unique_id;
             match driver_impl.handle_request(message) {

@@ -129,7 +129,7 @@ mod tests {
             let _ = read_struct_sync(message_queue, &mut message, 0);
             let addr = message.args[0];
             let size = message.args[1] as usize;
-            let mut buffer = unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, size) };
+            let buffer = unsafe { core::slice::from_raw_parts_mut(addr as *mut u8, size) };
             for i in 0..10 {
                 buffer[i] = i as u8;
                 buffer[i + 0x200] = i as u8;
@@ -143,7 +143,7 @@ mod tests {
         // create a buffer that extends across all three pages
         //       [ buffer........ ]
         // [ PAGE 0 ][ PAGE 1 ][ PAGE 2 ]
-        let mut buffer =
+        let buffer =
             unsafe { core::slice::from_raw_parts_mut((addr.as_u32() + 0xf00) as *mut u8, 0x1200) };
         for i in 0..0x1200 {
             buffer[i] = 0;

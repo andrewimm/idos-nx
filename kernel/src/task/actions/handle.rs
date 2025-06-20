@@ -450,9 +450,9 @@ mod tests {
         let path = "ATEST:\\MYFILE.TXT";
         let path_ptr = path.as_ptr() as u32;
         let path_len = path.len() as u32;
-        let mut op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+        let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
         op.submit_io();
-        let mut result = op.wait_for_completion();
+        let result = op.wait_for_completion();
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 5] = [0; 5];
@@ -495,9 +495,9 @@ mod tests {
         let path = "DEV:\\ZERO";
         let path_ptr = path.as_ptr() as u32;
         let path_len = path.len() as u32;
-        let mut op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+        let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
         op.submit_io();
-        let mut result = op.wait_for_completion();
+        let result = op.wait_for_completion();
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 3] = [0xAA; 3];
@@ -511,9 +511,9 @@ mod tests {
         let path = "DEV:\\ASYNCDEV";
         let path_ptr = path.as_ptr() as u32;
         let path_len = path.len() as u32;
-        let mut op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
+        let op = PendingHandleOp::new(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0);
         op.submit_io();
-        let mut result = op.wait_for_completion();
+        let result = op.wait_for_completion();
         assert_eq!(result, 1);
 
         let mut buffer: [u8; 4] = [0xBB; 4];
@@ -536,7 +536,7 @@ mod tests {
         let op2 = PendingHandleOp::new(
             handle,
             ASYNC_OP_READ,
-            buffer.as_ptr() as u32,
+            buffer.as_mut_ptr() as u32,
             buffer.len() as u32,
             0,
         );

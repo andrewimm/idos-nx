@@ -61,6 +61,10 @@ impl<const U: u32> MappedMemory<U> {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.regions.len()
+    }
+
     /// Create a memory mapping. This does not actually modify the page table,
     /// but the next time a page fault occurs in this region the kernel will be
     /// able to use this information to fill in the page.
@@ -310,7 +314,7 @@ mod tests {
 
     #[test_case]
     fn explicit_mmap() {
-        let mut regions = MappedMemory::new();
+        let mut regions = MappedMemory::<0xbfff_e000>::new();
         assert_eq!(
             regions
                 .map_memory(
@@ -345,7 +349,7 @@ mod tests {
 
     #[test_case]
     fn auto_allocated_mmap() {
-        let mut regions = MappedMemory::new();
+        let mut regions = MappedMemory::<0xbfff_e000>::new();
         assert_eq!(
             regions
                 .map_memory(None, 0x1000, MemoryBacking::Anonymous)
@@ -362,7 +366,7 @@ mod tests {
 
     #[test_case]
     fn unmapping() {
-        let mut regions = MappedMemory::new();
+        let mut regions = MappedMemory::<0xbfff_e000>::new();
         regions
             .map_memory(
                 Some(VirtualAddress::new(0x1000)),
@@ -376,7 +380,7 @@ mod tests {
                 .unwrap(),
             VirtualAddress::new(0x1000)..VirtualAddress::new(0x2000),
         );
-        assert!(regions.mapped_regions.is_empty());
+        assert!(regions.regions.is_empty());
 
         regions
             .map_memory(
@@ -400,15 +404,12 @@ mod tests {
         );
 
         {
-            let shrunk = regions
-                .mapped_regions
-                .get(&VirtualAddress::new(0x1000))
-                .unwrap();
+            let shrunk = regions.regions.get(&VirtualAddress::new(0x1000)).unwrap();
             assert_eq!(shrunk.address, VirtualAddress::new(0x1000));
             assert_eq!(shrunk.size, 0x1000);
         }
 
-        assert_eq!(regions.mapped_regions.len(), 2);
+        assert_eq!(regions.len(), 2);
         assert_eq!(
             regions
                 .unmap_memory(VirtualAddress::new(0x1000), 0x4000)
@@ -417,13 +418,10 @@ mod tests {
         );
 
         {
-            let shrunk = regions
-                .mapped_regions
-                .get(&VirtualAddress::new(0x5000))
-                .unwrap();
+            let shrunk = regions.regions.get(&VirtualAddress::new(0x5000)).unwrap();
             assert_eq!(shrunk.address, VirtualAddress::new(0x5000));
             assert_eq!(shrunk.size, 0x2000);
         }
-        assert_eq!(regions.mapped_regions.len(), 1);
+        assert_eq!(regions.len(), 1);
     }
 }

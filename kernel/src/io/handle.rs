@@ -147,7 +147,7 @@ mod tests {
         let mut table = HandleTable::<u32>::new();
         let a = table.insert(5);
         let b = table.insert(7);
-        let c = table.insert(12);
+        let _c = table.insert(12);
         assert_eq!(table.get(a), Some(&5));
         assert_eq!(table.remove(b), Some(7));
         assert_eq!(table.get(b), None);
