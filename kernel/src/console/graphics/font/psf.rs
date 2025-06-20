@@ -4,7 +4,7 @@
 
 use crate::task::actions::{
     handle::create_file_handle,
-    io::{open_sync, read_sync},
+    io::{close_sync, open_sync, read_sync},
 };
 
 use super::{Font, Glyph};
@@ -56,6 +56,7 @@ impl PsfFont {
             bitmap_offset += 1;
             bitmap_offset %= GLYPH_PER_READ;
         }
+        let _ = close_sync(handle);
 
         Ok(Self { height, glyphs })
     }
