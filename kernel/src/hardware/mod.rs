@@ -4,6 +4,7 @@ pub mod cpu;
 pub mod dma;
 pub mod ethernet;
 pub mod floppy;
+pub mod lapic;
 pub mod pci;
 pub mod pic;
 pub mod pit;

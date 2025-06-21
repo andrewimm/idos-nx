@@ -69,13 +69,6 @@ pub fn init() {
 
                         crate::kprintln!("     MADT: Found Local APIC");
                         crate::kprintln!("{:?}", e);
-
-                        let mut apic_phys: u32;
-                        unsafe {
-                            let msr: u32 = 0x1b;
-                            core::arch::asm!("rdmsr", in("ecx") msr, out("eax") apic_phys, out("edx") _);
-                        }
-                        crate::kprintln!("APIC PADDR: {:#X}", apic_phys & 0xfffff000);
                     }
                     MADTEntryType::IOAPIC(e) => {
                         crate::kprintln!("    MADT: Found I/O APIC");
@@ -109,5 +102,25 @@ pub fn init() {
         let copy_addr = crate::hardware::cpu::copy_trampoline();
         let trampoline_paddr = get_current_physical_address(copy_addr).unwrap();
         crate::kprintln!("Trampoline exists at {:?}", trampoline_paddr);
+
+        let mut apic_phys: u32;
+        unsafe {
+            let msr: u32 = 0x1b;
+            core::arch::asm!("rdmsr", in("ecx") msr, out("eax") apic_phys, out("edx") _);
+        }
+        apic_phys &= 0xfffff000;
+        crate::kprintln!("APIC PADDR: {:#X}", apic_phys);
+
+        let lapic = crate::hardware::lapic::LocalAPIC::new(PhysicalAddress::new(apic_phys));
+        for apic in found_apics.iter().skip(1) {
+            // boot each AP
+            crate::kprintln!("Booting AP, LAPIC ID {}", apic.id);
+            crate::kprintln!("Send INIT IPI");
+            lapic.set_icr((apic.id as u32) << 24, 0x4500);
+
+            let sipi_addr = trampoline_paddr.as_u32() >> 12;
+            crate::kprintln!("Send SIPI IPI");
+            lapic.set_icr((apic.id as u32) << 24, 0x4600 | sipi_addr);
+        }
     }
 }
