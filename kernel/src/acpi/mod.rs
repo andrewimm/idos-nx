@@ -7,8 +7,23 @@ use self::madt::{MADTEntryType, MADT};
 use self::sdt::SDTHeader;
 use self::table::TableHeader;
 use crate::memory::address::PhysicalAddress;
+use crate::task::paging::get_current_physical_address;
+use alloc::vec::Vec;
+
+struct LocalAPIC {
+    id: u8,
+    processor: u8,
+}
 
 pub fn init() {
+    // While traversing the ACPI tables, we will pull out hardware information
+    // necessary for boot.
+
+    // The MADT table contains information on APICs, which will determine what
+    // cores are available.
+    let mut found_apics: Vec<LocalAPIC> = Vec::new();
+
+    // start by searching for the RSDP
     let found_rsdp = match self::rsdp::RSDP::search(
         PhysicalAddress::new(0xe0000)..=PhysicalAddress::new(0xfffff),
     ) {
@@ -44,6 +59,14 @@ pub fn init() {
             for entry in madt.iter() {
                 match entry.refine() {
                     MADTEntryType::LocalAPIC(e) => {
+                        // if the LAPIC is enabled, count this as another core
+                        if e.flags & 1 != 0 {
+                            found_apics.push(LocalAPIC {
+                                id: e.apic_id,
+                                processor: e.processor_id,
+                            });
+                        }
+
                         crate::kprintln!("     MADT: Found Local APIC");
                         crate::kprintln!("{:?}", e);
 
@@ -79,5 +102,12 @@ pub fn init() {
             // high precision timer
             // TODO: not supported
         }
+    }
+
+    if found_apics.len() > 1 {
+        crate::kprintln!("Found {} AP(s), booting them", found_apics.len() - 1);
+        let copy_addr = crate::hardware::cpu::copy_trampoline();
+        let trampoline_paddr = get_current_physical_address(copy_addr).unwrap();
+        crate::kprintln!("Trampoline exists at {:?}", trampoline_paddr);
     }
 }

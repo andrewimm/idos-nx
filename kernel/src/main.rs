@@ -47,12 +47,12 @@ pub extern "C" fn _start() -> ! {
 
     kprint!("\nKernel Memory initialized.\n");
 
+    let initial_pagedir = memory::virt::page_table::get_current_pagedir();
+    task::switching::init(initial_pagedir);
+
     acpi::init();
 
     init::init_hardware();
-
-    let initial_pagedir = memory::virt::page_table::get_current_pagedir();
-    task::switching::init(initial_pagedir);
 
     task::actions::lifecycle::create_kernel_task(cleanup::cleanup_resident, Some("CLEANUPR"));
 

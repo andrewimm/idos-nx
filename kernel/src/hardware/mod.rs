@@ -1,5 +1,6 @@
 pub mod ata;
 pub mod com;
+pub mod cpu;
 pub mod dma;
 pub mod ethernet;
 pub mod floppy;
@@ -9,4 +10,3 @@ pub mod pit;
 pub mod ps2;
 pub mod qemu;
 pub mod rtc;
-
