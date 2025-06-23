@@ -48,17 +48,84 @@ global_asm!(
 .code16
 .global trampoline_start
 .global trampoline_end
+
 trampoline_start:
     cli
+
+    xor eax, eax
+    mov ax, cs
+    mov ds, ax
+
+    // set up pagedir
+    .equ data_offset, trampoline_data - trampoline_start
+    mov ebx, [data_offset]
+    mov cr3, ebx
+
+    // compute relocations
+    mov ax, cs
+    shl ax, 4
+
+    .equ gdtr_offset, gdtr - trampoline_start
+    xor ebx, ebx
+    lea bx, [gdtr_offset + 2]
+    add word ptr [bx], ax
+    sub bx, 2
+    lgdt [ebx]
+
+    .equ addr_offset, .jump_to_32 - trampoline_start + 1
+    lea bx, [addr_offset]
+    add word ptr [bx], ax
+
+    mov ebx, cr0
+    or ebx, 0x00000001
+    mov cr0, ebx
+
     xor ax, ax
+    mov ds, ax
+
+.jump_to_32:
+    // Even if LLVM inline assembly accepted a far jump (which it doesn't),
+    // we'd still have to compute the relocation manually. So that's what we'll
+    // do.
+    .byte 0xea // far jump opcode
+    .word trampoline_32 - trampoline_start // destination address
+    .word 0x08 // cs segment
+
+.code32
+trampoline_32:
+    mov ax, 0x10
     mov ds, ax
     mov es, ax
     mov ss, ax
-    xor sp, sp
-
 .halt_loop:
     hlt
     jmp .halt_loop
+
+gdtr:
+    .word gdt_end - gdt
+    .long gdt - trampoline_start
+
+gdt:
+    .quad 0
+
+    .word 0xffff
+    .word 0
+    .byte 0
+    .byte 0x9a
+    .byte 0xcf
+    .byte 0
+
+    .word 0xffff
+    .word 0
+    .byte 0
+    .byte 0x92
+    .byte 0xcf
+    .byte 0
+gdt_end:
+
+trampoline_data:
+    .long 0x00000000 // pagedir address
+    .long 0x10305070 // initial stack
 
 trampoline_end:
     "#
