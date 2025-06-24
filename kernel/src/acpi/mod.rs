@@ -3,11 +3,19 @@ pub mod rsdp;
 pub mod sdt;
 pub mod table;
 
+use core::arch::asm;
+use core::sync::atomic::Ordering;
+
 use self::madt::{MADTEntryType, MADT};
 use self::sdt::SDTHeader;
 use self::table::TableHeader;
-use crate::memory::address::PhysicalAddress;
+use crate::hardware::cpu::{set_trampoline_data, CPU_COUNT};
+use crate::init::init_ap;
+use crate::memory::address::{PhysicalAddress, VirtualAddress};
+use crate::memory::virt::page_table::get_current_pagedir;
 use crate::task::paging::get_current_physical_address;
+use crate::task::stack::{allocate_stack, get_stack_top};
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 struct LocalAPIC {
@@ -112,15 +120,43 @@ pub fn init() {
         crate::kprintln!("APIC PADDR: {:#X}", apic_phys);
 
         let lapic = crate::hardware::lapic::LocalAPIC::new(PhysicalAddress::new(apic_phys));
+        let current_pagedir = get_current_pagedir();
         for apic in found_apics.iter().skip(1) {
             // boot each AP
             crate::kprintln!("Booting AP, LAPIC ID {}", apic.id);
-            crate::kprintln!("Send INIT IPI");
+            let current_cpu_count = CPU_COUNT.load(Ordering::SeqCst);
+
+            // create the idle task
+            let stack = allocate_stack();
+            let stack_top = get_stack_top(&stack);
+            // Leak the stack box so it doesn't get dropped.
+            // The AP's idle task will re-form the Box and attach it to its
+            // Task struct.
+            let stack_ptr = Box::into_raw(stack);
+
+            set_trampoline_data(
+                copy_addr,
+                current_pagedir,
+                stack_top,
+                VirtualAddress::new(init_ap as *const () as u32),
+            );
             lapic.set_icr((apic.id as u32) << 24, 0x4500);
 
             let sipi_addr = trampoline_paddr.as_u32() >> 12;
-            crate::kprintln!("Send SIPI IPI");
             lapic.set_icr((apic.id as u32) << 24, 0x4600 | sipi_addr);
+
+            loop {
+                let cpu_count = CPU_COUNT.load(Ordering::SeqCst);
+                if cpu_count > current_cpu_count {
+                    break;
+                }
+                unsafe { asm!("pause") }
+            }
         }
+
+        crate::kprintln!("All CPUs booted");
+        crate::hardware::cpu::cleanup_trampoline(copy_addr);
+
+        loop {}
     }
 }

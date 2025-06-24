@@ -6,6 +6,7 @@ use crate::memory::physical::init_allocator;
 use crate::memory::physical::range::FrameRange;
 use crate::task::stack::get_kernel_stack_virtual_offset;
 use core::arch::asm;
+use core::sync::atomic::Ordering;
 
 #[allow(improper_ctypes)]
 extern "C" {
@@ -87,4 +88,14 @@ pub fn init_hardware() {
 /// Populate the DEV: FS with drivers for the devices detected on this PC
 pub fn init_device_drivers() {
     crate::hardware::com::driver::install();
+}
+
+pub fn init_bsp() {}
+
+pub extern "C" fn init_ap(id: u32) {
+    crate::kprintln!("Hello from AP {}", id);
+    crate::hardware::cpu::CPU_COUNT.fetch_add(1, Ordering::SeqCst);
+    loop {
+        unsafe { asm!("hlt") }
+    }
 }

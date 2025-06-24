@@ -140,6 +140,12 @@ pub fn allocate_stack() -> Box<[u8]> {
     stack
 }
 
+pub fn get_stack_top(stack: &Box<[u8]>) -> VirtualAddress {
+    let ptr: *const u8 = &stack[0];
+    let stack_start = VirtualAddress::new(ptr as u32);
+    stack_start + STACK_SIZE_IN_BYTES as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::{find_free_stack, mark_stack_as_free, Mutex, Vec};
