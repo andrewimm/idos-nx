@@ -1,10 +1,15 @@
+use alloc::boxed::Box;
+
 use crate::hardware::{pic::PIC, pit::PIT};
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::heap;
 use crate::memory::physical::bios::BIOS_MEMORY_MAP_LOCATION;
 use crate::memory::physical::init_allocator;
 use crate::memory::physical::range::FrameRange;
-use crate::task::stack::get_kernel_stack_virtual_offset;
+use crate::task::actions::lifecycle::create_idle_task;
+use crate::task::id::TaskID;
+use crate::task::stack::{get_kernel_stack_virtual_offset, STACK_SIZE_IN_BYTES};
+use crate::task::state::Task;
 use core::arch::asm;
 use core::sync::atomic::Ordering;
 
@@ -92,8 +97,15 @@ pub fn init_device_drivers() {
 
 pub fn init_bsp() {}
 
-pub extern "C" fn init_ap(id: u32) {
+pub extern "C" fn init_ap(id: u32, stack_top: VirtualAddress) {
     crate::kprintln!("Hello from AP {}", id);
+    let stack_bottom = stack_top - STACK_SIZE_IN_BYTES as u32;
+
+    let stack = unsafe { Box::from_raw(stack_bottom.as_ptr_mut::<[u8; STACK_SIZE_IN_BYTES]>()) };
+    let idle_id = create_idle_task(stack);
+
+    crate::kprintln!("This core's Idle task is {:?}", idle_id);
+
     crate::hardware::cpu::CPU_COUNT.fetch_add(1, Ordering::SeqCst);
     loop {
         unsafe { asm!("hlt") }

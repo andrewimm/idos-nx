@@ -156,7 +156,5 @@ pub fn init() {
 
         crate::kprintln!("All CPUs booted");
         crate::hardware::cpu::cleanup_trampoline(copy_addr);
-
-        loop {}
     }
 }

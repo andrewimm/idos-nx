@@ -154,6 +154,7 @@ trampoline_32:
     or edx, 0x80000000
     mov cr0, edx
 
+    push long ptr [ebx]
     add ebx, 4
     push long ptr [ebx]
 

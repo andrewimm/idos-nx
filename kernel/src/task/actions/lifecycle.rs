@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::string::String;
 
 use crate::cleanup::wake_cleanup_resident;
@@ -26,6 +27,16 @@ pub fn create_task() -> TaskID {
     let mut task_state = super::super::state::Task::new(task_id, cur_id, task_stack);
     task_state.page_directory = super::super::paging::create_page_directory();
     super::switching::insert_task(task_state);
+    task_id
+}
+
+pub fn create_idle_task(stack: Box<[u8]>) -> TaskID {
+    let task_id = super::super::switching::get_next_id();
+    let mut task_state = super::super::state::Task::new(task_id, TaskID::new(0), stack);
+    task_state.page_directory = super::super::paging::create_page_directory();
+    task_state.filename = String::from("IDLE");
+    super::switching::insert_task(task_state);
+
     task_id
 }
 
