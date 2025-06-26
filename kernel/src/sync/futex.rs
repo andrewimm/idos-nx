@@ -6,8 +6,9 @@ use crate::{
     task::{
         actions::yield_coop,
         id::TaskID,
+        map::get_task,
         paging::get_current_physical_address,
-        switching::{get_current_id, get_current_task, get_task},
+        switching::{get_current_id, get_current_task},
     },
 };
 use alloc::collections::{BTreeMap, VecDeque};

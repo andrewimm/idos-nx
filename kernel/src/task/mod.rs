@@ -3,6 +3,7 @@ use crate::log::TaggedLogger;
 pub mod actions;
 pub mod args;
 pub mod id;
+pub mod map;
 pub mod memory;
 pub mod messaging;
 pub mod paging;

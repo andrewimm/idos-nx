@@ -10,7 +10,7 @@ use crate::io::provider::socket::SocketIOProvider;
 use crate::io::provider::task::TaskIOProvider;
 use crate::pipes::driver::{create_pipe, get_pipe_drive_id};
 use crate::task::id::TaskID;
-use crate::task::switching::get_task;
+use crate::task::map::get_task;
 
 use super::switching::get_current_task;
 

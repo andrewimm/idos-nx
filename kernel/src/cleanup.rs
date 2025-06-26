@@ -32,7 +32,7 @@ pub fn cleanup_resident() -> ! {
     loop {
         let _ = read_struct_sync(messages, &mut incoming_message, 0);
 
-        crate::task::switching::for_each_task_mut(|t| {
+        crate::task::map::for_each_task_mutfn(|t| {
             let task = t.read();
             if task.is_terminated() {
                 terminated.push(task.id);

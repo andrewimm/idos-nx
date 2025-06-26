@@ -13,7 +13,7 @@ use crate::loader::error::LoaderError;
 use crate::task::actions::handle::{create_file_handle, create_kernel_task};
 use crate::task::actions::io::{close_sync, open_sync, read_sync};
 use crate::task::id::TaskID;
-use crate::task::switching::get_task;
+use crate::task::map::get_task;
 
 use super::request::RequestQueue;
 

@@ -13,8 +13,8 @@ use crate::io::filesystem::driver::AsyncIOCallback;
 use crate::io::filesystem::driver::DriverID;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::virt::scratch::UnmappedPage;
+use crate::task::map::get_task;
 use crate::task::paging::get_current_physical_address;
-use crate::task::switching::get_task;
 
 pub static PIPES: RwLock<SlotList<Pipe>> = RwLock::new(SlotList::new());
 pub static OPEN_PIPES: RwLock<SlotList<PipeEnd>> = RwLock::new(SlotList::new());

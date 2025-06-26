@@ -1,6 +1,7 @@
 use super::super::id::TaskID;
+use super::super::map::get_task;
 use super::super::memory::{MemMapError, MemoryBacking};
-use super::super::switching::{get_current_id, get_task};
+use super::super::switching::get_current_id;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::task::paging::{current_pagedir_unmap, page_on_demand, ExternalPageDirectory};
 

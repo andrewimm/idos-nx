@@ -11,7 +11,7 @@ fn panic(info: &PanicInfo) -> ! {
 
 #[inline(never)]
 fn print_name(id: crate::task::id::TaskID) {
-    match crate::task::switching::get_task(id) {
+    match crate::task::map::get_task(id) {
         Some(lock) => match lock.try_read() {
             Some(task) => {
                 crate::kprint!("({})", task.filename.as_str());

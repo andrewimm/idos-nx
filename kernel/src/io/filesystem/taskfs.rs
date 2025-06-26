@@ -9,7 +9,8 @@ use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::filesystem::driver::AsyncIOCallback;
 use crate::io::IOError;
 use crate::task::id::TaskID;
-use crate::task::switching::{for_each_task_id, get_task};
+use crate::task::map::for_each_task_id;
+use crate::task::map::get_task;
 
 pub struct TaskFileSystem {
     open_files: RwLock<SlotList<OpenFile>>,

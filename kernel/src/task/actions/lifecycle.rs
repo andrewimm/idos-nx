@@ -9,7 +9,7 @@ use super::yield_coop;
 
 pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> TaskID {
     let task_id = create_task();
-    let task_state_lock = super::super::switching::get_task(task_id).unwrap();
+    let task_state_lock = super::super::map::get_task(task_id).unwrap();
     {
         let mut task_state = task_state_lock.write();
         task_state.set_entry_point(task_body);
@@ -22,20 +22,20 @@ pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> TaskID {
 
 pub fn create_task() -> TaskID {
     let cur_id = super::super::switching::get_current_id();
-    let task_id = super::super::switching::get_next_id();
+    let task_id = super::super::map::get_next_task_id();
     let task_stack = super::super::stack::allocate_stack();
     let mut task_state = super::super::state::Task::new(task_id, cur_id, task_stack);
     task_state.page_directory = super::super::paging::create_page_directory();
-    super::switching::insert_task(task_state);
+    super::super::map::insert_task(task_state);
     task_id
 }
 
 pub fn create_idle_task(stack: Box<[u8]>) -> TaskID {
-    let task_id = super::super::switching::get_next_id();
+    let task_id = super::super::map::get_next_task_id();
     let mut task_state = super::super::state::Task::new(task_id, TaskID::new(0), stack);
     task_state.page_directory = super::super::paging::create_page_directory();
     task_state.filename = String::from("IDLE");
-    super::switching::insert_task(task_state);
+    super::super::map::insert_task(task_state);
 
     task_id
 }
@@ -45,13 +45,13 @@ where
     I: IntoIterator<Item = A>,
     A: AsRef<str>,
 {
-    let task_lock = super::super::switching::get_task(id).unwrap();
+    let task_lock = super::super::map::get_task(id).unwrap();
     task_lock.write().push_args(args);
 }
 
 pub fn terminate_id(id: TaskID, exit_code: u32) {
     let parent_id = {
-        let terminated_task = super::switching::get_task(id);
+        let terminated_task = super::super::map::get_task(id);
         match terminated_task {
             Some(task_lock) => {
                 let mut task = task_lock.write();
@@ -62,7 +62,7 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
         }
     };
 
-    let parent_task = super::switching::get_task(parent_id);
+    let parent_task = super::super::map::get_task(parent_id);
     if let Some(parent_lock) = parent_task {
         let io_provider = parent_lock.read().async_io_table.get_task_io(id).clone();
         if let Some((io_index, provider)) = io_provider {

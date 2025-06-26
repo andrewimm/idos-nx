@@ -12,7 +12,7 @@ pub mod vm;
 use crate::io::async_io::IOType;
 
 use super::{id, messaging, switching};
-pub use switching::yield_coop;
+pub use switching::switch as yield_coop;
 
 /// Pause the current task for a specified number of milliseconds. During that
 /// time, it will not be run by the scheduler.
@@ -25,7 +25,7 @@ pub fn sleep(ms: u32) {
 pub fn send_message(to_id: id::TaskID, message: messaging::Message, expiration: u32) {
     let current_id = switching::get_current_id();
     let current_ticks = crate::time::system::get_system_ticks();
-    let recipient_lock = switching::get_task(to_id);
+    let recipient_lock = crate::task::map::get_task(to_id);
     if let Some(recipient) = recipient_lock {
         recipient
             .write()

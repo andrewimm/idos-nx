@@ -5,11 +5,7 @@ use spin::Mutex;
 
 use crate::{
     io::{async_io::AsyncOpID, filesystem::driver::AsyncIOCallback},
-    task::{
-        actions::send_message,
-        id::TaskID,
-        switching::{get_current_id, get_task},
-    },
+    task::{actions::send_message, id::TaskID, map::get_task, switching::get_current_id},
 };
 
 use super::comms::{DriverIOAction, IOResult};

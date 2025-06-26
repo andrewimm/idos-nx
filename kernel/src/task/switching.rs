@@ -1,18 +1,11 @@
 use crate::memory::address::PhysicalAddress;
-use alloc::{collections::BTreeMap, sync::Arc};
+use alloc::sync::Arc;
 use core::arch::{asm, global_asm};
 use spin::RwLock;
 
-use super::id::{AtomicTaskID, IdGenerator, TaskID};
+use super::id::{AtomicTaskID, TaskID};
+use super::map::get_task;
 use super::state::{RunState, Task};
-
-/// A TaskMap makes it easy to look up a Task by its ID number
-pub type TaskMap = BTreeMap<TaskID, Arc<RwLock<Task>>>;
-
-pub static TASK_MAP: RwLock<TaskMap> = RwLock::new(BTreeMap::new());
-
-/// This IdGenerator is used to create a unique ID for the next Task
-pub static NEXT_ID: IdGenerator = IdGenerator::new();
 
 /// All kernel code referring to the "current" task will use this TaskID
 static CURRENT_ID: AtomicTaskID = AtomicTaskID::new(0);
@@ -21,12 +14,7 @@ pub fn init(page_directory: PhysicalAddress) {
     let mut idle_task = Task::create_initial_task();
     idle_task.page_directory = page_directory;
     crate::kprint!("Initial pagedir {:?}\n", page_directory);
-    let id: TaskID = idle_task.id;
-    let entry = Arc::new(RwLock::new(idle_task));
-    {
-        let mut map = TASK_MAP.write();
-        map.insert(id, entry);
-    }
+    super::map::insert_task(idle_task);
 }
 
 pub fn get_current_id() -> TaskID {
@@ -35,22 +23,12 @@ pub fn get_current_id() -> TaskID {
 
 pub fn get_current_task() -> Arc<RwLock<Task>> {
     let current_id = get_current_id();
-    let map = TASK_MAP.read();
-    let entry = map.get(&current_id).expect("Current task does not exist");
+    let entry = super::map::get_task(current_id).expect("Current task does not exist");
     entry.clone()
 }
 
-pub fn get_task(id: TaskID) -> Option<Arc<RwLock<Task>>> {
-    let map = TASK_MAP.read();
-    map.get(&id).as_deref().map(|inner| inner.clone())
-}
-
-pub fn get_next_id() -> TaskID {
-    NEXT_ID.next()
-}
-
-/// Cooperatively yield, forcing the scheduler to find another runnable task
-pub fn yield_coop() {
+/// Force the scheduler to switch to another task.
+pub fn switch() {
     let next = find_next_running_task();
     match next {
         Some(id) => switch_to(id),
@@ -66,7 +44,7 @@ pub fn yield_coop() {
 pub fn find_next_running_task() -> Option<TaskID> {
     let current = get_current_id();
     let mut first_runnable = None;
-    let map = TASK_MAP.read();
+    let map = super::map::GLOBAL_TASK_MAP.read();
     for (id, task) in map.iter() {
         if *id == current {
             continue;
@@ -84,49 +62,12 @@ pub fn find_next_running_task() -> Option<TaskID> {
     first_runnable
 }
 
-pub fn insert_task(task: Task) {
-    let id = task.id;
-    let entry = Arc::new(RwLock::new(task));
-    {
-        let mut map = TASK_MAP.write();
-        map.insert(id, entry);
-    }
-}
-
 pub fn update_timeouts(ms: u32) {
-    let map = TASK_MAP.read();
-    for (_, lock) in map.iter() {
+    super::map::for_each_task(|lock| {
         if let Some(mut task) = lock.try_write() {
             task.update_timeout(ms);
         }
-    }
-}
-
-pub fn for_each_task<F>(f: F)
-where
-    F: Fn(Arc<RwLock<Task>>) -> (),
-{
-    for (_, task) in TASK_MAP.read().iter() {
-        f(task.clone());
-    }
-}
-
-pub fn for_each_task_mut<F>(mut f: F)
-where
-    F: FnMut(Arc<RwLock<Task>>) -> (),
-{
-    for (_, task) in TASK_MAP.read().iter() {
-        f(task.clone());
-    }
-}
-
-pub fn for_each_task_id<F>(mut f: F)
-where
-    F: FnMut(TaskID) -> (),
-{
-    for (id, _) in TASK_MAP.read().iter() {
-        f(*id);
-    }
+    });
 }
 
 pub fn clean_up_task(_id: TaskID) {

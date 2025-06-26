@@ -72,8 +72,13 @@ pub extern "C" fn _start() -> ! {
 
     loop {
         unsafe {
+            // Disable interrupts because task switching is not safe to interrupt
             asm!("cli");
-            task::switching::yield_coop();
+            task::switching::switch();
+            // When this is reached, it means the BSP has run out of available
+            // work -- all available tasks are blocked.
+            // Resuming interrupts and halting the CPU saves power until something
+            // interesting happens.
             asm!("sti", "hlt",);
         }
     }

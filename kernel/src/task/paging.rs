@@ -1,6 +1,7 @@
 use super::id::TaskID;
+use super::map::get_task;
 use super::memory::{MemMappedRegion, MemoryBacking};
-use super::switching::{get_current_task, get_task};
+use super::switching::get_current_task;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::physical::allocated_frame::AllocatedFrame;
 use crate::memory::physical::{allocate_frame, allocate_frames};

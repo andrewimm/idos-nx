@@ -8,9 +8,9 @@ use crate::{
     task::{
         actions::{self, memory::map_memory, send_message},
         id::TaskID,
+        map::get_task,
         memory::MemoryBacking,
         messaging::Message,
-        switching::get_task,
     },
 };
 
@@ -134,10 +134,7 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
         0x04 => {
             // get parent task id
             let current = crate::task::switching::get_current_id();
-            let parent = crate::task::switching::get_task(current)
-                .unwrap()
-                .read()
-                .parent_id;
+            let parent = get_task(current).unwrap().read().parent_id;
             registers.eax = parent.into();
         }
         0x05 => {

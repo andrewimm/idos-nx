@@ -8,9 +8,9 @@ use crate::{
     task::{
         actions::{io::io_sync, memory::map_memory_for_task},
         id::TaskID,
+        map::get_task,
         memory::MemoryBacking,
         paging::{ExternalPageDirectory, PermissionFlags},
-        switching::get_task,
     },
 };
 use alloc::vec::Vec;

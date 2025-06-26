@@ -9,7 +9,7 @@ use crate::io::async_io::IOType;
 use crate::io::provider::IOProvider;
 use crate::{
     hardware::pic::PIC,
-    task::{id::TaskID, switching::get_task},
+    task::{id::TaskID, map::get_task},
 };
 
 global_asm!(

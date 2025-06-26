@@ -306,7 +306,20 @@ impl Drop for Task {
 /// or blocking until hardware or another task is ready. The Blocked state
 /// contains information on what conditions will allow the task to resume
 /// execution, as well as an optional timeout. This allows every blocking
-/// operation to
+/// operation to resume even if the condition is never met, so that tasks
+/// can avoid blocking indefinitely.
+///
+/// State alones doesn't make a task runnable. The scheduler must place the task
+/// on one of the run queues. Tasks start as Uninitialized, and are not placed
+/// on a run queue until they are marked as Initialized. The first time an
+/// Initialized task is picked up by the scheduler, it is switched to Running.
+/// As long as it remains Running, it will be placed on another run queue when
+/// it yields or its time slice is up.
+/// A task can become invalid for scheduling if it terminates or blocks. In
+/// those cases it is not removed from a run queue, but if the scheduler
+/// encounters a non-runnable task it will not re-enqueue it.
+/// When a blocked task resumes, it is placed on an available run queue, just
+/// like a newly initialized task.
 #[derive(Copy, Clone)]
 pub enum RunState {
     /// The Task has been created, but is not ready to be executed

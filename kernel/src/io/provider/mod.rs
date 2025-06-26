@@ -10,7 +10,7 @@ use crate::{
         virt::scratch::UnmappedPage,
     },
     sync::futex::futex_wake_inner,
-    task::{id::TaskID, paging::get_current_physical_address, switching::get_task},
+    task::{id::TaskID, map::get_task, paging::get_current_physical_address},
 };
 
 use super::{

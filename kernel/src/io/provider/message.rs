@@ -9,9 +9,10 @@ use crate::{
     },
     task::{
         id::TaskID,
+        map::get_task,
         messaging::{Message, MessagePacket},
         paging::get_current_physical_address,
-        switching::{get_current_id, get_task},
+        switching::get_current_id,
     },
 };
 use idos_api::io::AsyncOp;
