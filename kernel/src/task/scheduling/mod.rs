@@ -3,6 +3,7 @@
 //! In addition, all cores can pick up async tasklets, which are also added to
 //! their queues.
 
+use core::arch::asm;
 use core::sync::atomic::Ordering;
 
 use alloc::collections::VecDeque;
@@ -20,7 +21,9 @@ use super::{
 
 /// This struct is instantiated once per CPU core, and manages data necessary to
 /// run and switch tasks on that core.
+#[repr(C)]
 pub struct CPUScheduler {
+    linear_address: VirtualAddress,
     cpu_index: usize,
     current_task: AtomicTaskID,
     idle_task: TaskID,
@@ -28,8 +31,9 @@ pub struct CPUScheduler {
 }
 
 impl CPUScheduler {
-    pub const fn new(cpu_index: usize, idle_task: TaskID) -> Self {
+    pub const fn new(cpu_index: usize, idle_task: TaskID, linear_address: VirtualAddress) -> Self {
         Self {
+            linear_address,
             cpu_index,
             current_task: AtomicTaskID::new(0),
             idle_task,
@@ -64,7 +68,7 @@ pub fn create_cpu_scheduler(cpu_index: usize, idle_task: TaskID) -> VirtualAddre
 
     unsafe {
         let scheduler_ptr = mapped_to.as_ptr_mut::<CPUScheduler>();
-        scheduler_ptr.write(CPUScheduler::new(cpu_index, idle_task));
+        scheduler_ptr.write(CPUScheduler::new(cpu_index, idle_task, mapped_to));
     }
 
     mapped_to
@@ -72,8 +76,21 @@ pub fn create_cpu_scheduler(cpu_index: usize, idle_task: TaskID) -> VirtualAddre
 
 /// Get the CPUScheduler instance for the current CPU
 pub fn get_cpu_scheduler() -> &'static CPUScheduler {
-    let addr = VirtualAddress::new((KERNEL_STACKS_BOTTOM - 0x1000) as u32);
-    unsafe { &*addr.as_ptr::<CPUScheduler>() }
+    // This shouldn't be set here, but it's getting overridden by userspace
+    // programs. We should probably set it whenever entering the kernel, or
+    // when switching tasks.
+    unsafe {
+        let raw_addr: u32;
+        asm!(
+            "mov gs, {}",
+            "mov {}, gs:[0]",
+            in(reg) 0x28,
+            out(reg) raw_addr,
+        );
+        let addr = VirtualAddress::new(raw_addr);
+
+        &*addr.as_ptr::<CPUScheduler>()
+    }
 }
 
 /// Put a task back on any work queue, making it eligible for execution again.

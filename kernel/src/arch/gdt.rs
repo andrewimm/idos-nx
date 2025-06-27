@@ -156,10 +156,7 @@ pub struct TssWithBitmap {
 }
 
 // Global Tables and Structures:
-
-pub static mut GDTR: GdtDescriptor = GdtDescriptor::new();
-
-pub static mut GDT: [GdtEntry; 6] = [
+pub static mut GDT: [GdtEntry; 8] = [
     // 0x00: Null entry
     GdtEntry::new(0, 0, 0, 0),
     // 0x08: Kernel code
@@ -198,7 +195,21 @@ pub static mut GDT: [GdtEntry; 6] = [
         GDT_ACCESS_PRESENT | GDT_ACCESS_RING_3 | GDT_ACCESS_CODE_DATA_DESCRIPTOR | GDT_ACCESS_RW,
         GDT_FLAG_GRANULARITY_4KB | GDT_FLAG_SIZE_32_BIT,
     ),
-    // 0x28: TSS
+    // 0x28: Kernel Core-specific storage
+    GdtEntry::new(
+        0,
+        0xffffffff,
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING_0 | GDT_ACCESS_CODE_DATA_DESCRIPTOR | GDT_ACCESS_RW,
+        GDT_FLAG_GRANULARITY_4KB | GDT_FLAG_SIZE_32_BIT,
+    ),
+    // 0x30: Reserved for Userspace TLS
+    GdtEntry::new(
+        0,
+        0xffffffff,
+        GDT_ACCESS_PRESENT | GDT_ACCESS_RING_3 | GDT_ACCESS_CODE_DATA_DESCRIPTOR | GDT_ACCESS_RW,
+        GDT_FLAG_GRANULARITY_4KB | GDT_FLAG_SIZE_32_BIT,
+    ),
+    // 0x38: TSS
     GdtEntry::new(
         0,
         0xffffffff,
@@ -250,8 +261,8 @@ pub fn init_tss() {
     unsafe {
         TSS.tss.ss0 = 0x10;
         TSS.bitmap[127] = 0xff;
-        GDT[5].set_base(&raw const TSS as u32);
-        GDT[5].set_limit(core::mem::size_of::<TssWithBitmap>() as u32 - 1);
+        GDT[7].set_base(&raw const TSS as u32);
+        GDT[7].set_limit(core::mem::size_of::<TssWithBitmap>() as u32 - 1);
     }
 }
 

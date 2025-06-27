@@ -1,4 +1,4 @@
-use crate::memory::address::PhysicalAddress;
+use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use alloc::sync::Arc;
 use core::arch::{asm, global_asm};
 use spin::RwLock;
@@ -10,14 +10,14 @@ use super::state::{RunState, Task};
 /// All kernel code referring to the "current" task will use this TaskID
 static CURRENT_ID: AtomicTaskID = AtomicTaskID::new(0);
 
-pub fn init(page_directory: PhysicalAddress) {
+pub fn init(page_directory: PhysicalAddress) -> VirtualAddress {
     let mut idle_task = Task::create_initial_task();
     let idle_id = idle_task.id;
     idle_task.page_directory = page_directory;
     crate::kprint!("Initial pagedir {:?}\n", page_directory);
     super::map::insert_task(idle_task);
 
-    super::scheduling::create_cpu_scheduler(0, idle_id);
+    super::scheduling::create_cpu_scheduler(0, idle_id)
 }
 
 pub fn get_current_id() -> TaskID {
