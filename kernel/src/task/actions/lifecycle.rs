@@ -17,6 +17,8 @@ pub fn create_kernel_task(task_body: fn() -> !, name: Option<&str>) -> TaskID {
         task_state.filename = String::from(name.unwrap_or("KERNEL"));
     }
 
+    super::super::scheduling::reenqueue_task(task_id);
+
     task_id
 }
 

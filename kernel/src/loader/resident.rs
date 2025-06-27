@@ -65,6 +65,7 @@ fn loader_resident() -> ! {
             let mut task = task_lock.write();
             task.set_filename(&incoming_request.path);
             task.make_runnable();
+            crate::task::scheduling::reenqueue_task(task.id);
         }
 
         let _ = close_sync(file_handle);

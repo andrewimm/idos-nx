@@ -7,6 +7,7 @@ pub mod map;
 pub mod memory;
 pub mod messaging;
 pub mod paging;
+pub mod scheduling;
 pub mod stack;
 pub mod state;
 pub mod switching;

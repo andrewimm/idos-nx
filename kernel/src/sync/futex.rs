@@ -88,6 +88,7 @@ pub fn futex_wake_inner(paddr: PhysicalAddress, count: u32) {
                 if let Some(wake_id) = set.pop_front() {
                     if let Some(task) = get_task(wake_id) {
                         task.write().futex_wake();
+                        crate::task::scheduling::reenqueue_task(wake_id);
                     }
                 }
                 to_wake -= 1;

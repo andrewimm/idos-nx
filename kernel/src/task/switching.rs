@@ -27,45 +27,13 @@ pub fn get_current_task() -> Arc<RwLock<Task>> {
     entry.clone()
 }
 
-/// Force the scheduler to switch to another task.
-pub fn switch() {
-    let next = find_next_running_task();
-    match next {
-        Some(id) => switch_to(id),
-        None => (),
-    }
-}
-
-/// Find another task to switch to. If none is available (typically, if the
-/// idle task is running and all others are blocked), it will return None.
-/// Right now, the switching logic is simple: find the next largest TaskID
-/// after the current task. If there is no eligible task larger than the
-/// current ID, switch to the earliest Task ID.
-pub fn find_next_running_task() -> Option<TaskID> {
-    let current = get_current_id();
-    let mut first_runnable = None;
-    let map = super::map::GLOBAL_TASK_MAP.read();
-    for (id, task) in map.iter() {
-        if *id == current {
-            continue;
-        }
-        let can_resume = task.read().can_resume();
-        if can_resume {
-            if *id > current {
-                return Some(*id);
-            }
-            if first_runnable.is_none() {
-                first_runnable.replace(*id);
-            }
-        }
-    }
-    first_runnable
-}
-
 pub fn update_timeouts(ms: u32) {
     super::map::for_each_task(|lock| {
         if let Some(mut task) = lock.try_write() {
-            task.update_timeout(ms);
+            if task.update_timeout(ms) {
+                // task resumed, put it back in the scheduler
+                super::scheduling::reenqueue_task(task.id);
+            }
         }
     });
 }

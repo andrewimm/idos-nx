@@ -132,7 +132,7 @@ pub fn init() {
             // Leak the stack box so it doesn't get dropped.
             // The AP's idle task will re-form the Box and attach it to its
             // Task struct.
-            let stack_ptr = Box::into_raw(stack);
+            let _stack_ptr = Box::into_raw(stack);
 
             set_trampoline_data(
                 copy_addr,

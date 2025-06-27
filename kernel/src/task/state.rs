@@ -183,17 +183,23 @@ impl Task {
         }
     }
 
-    pub fn update_timeout(&mut self, ms: u32) {
+    /// Notify the task that time has passed, in case it is currently in a
+    /// blocked state. If the block has a timeout that has now expired, the
+    /// task is resumed and the method returns true. In all other cases it
+    /// returns false.
+    pub fn update_timeout(&mut self, ms: u32) -> bool {
         match self.state {
             RunState::Blocked(Some(t), block_type) => {
-                self.state = if t <= ms {
-                    RunState::Running
+                if t <= ms {
+                    self.state = RunState::Running;
+                    return true;
                 } else {
-                    RunState::Blocked(Some(t - ms), block_type)
-                };
+                    self.state = RunState::Blocked(Some(t - ms), block_type);
+                }
             }
             _ => (),
         }
+        false
     }
 
     pub fn sleep(&mut self, timeout_ms: u32) {
@@ -243,15 +249,6 @@ impl Task {
                 self.state = RunState::Running;
             }
             _ => (),
-        }
-    }
-
-    pub fn unblock(&mut self) {
-        match self.state {
-            RunState::Blocked(_, _) => {
-                self.state = RunState::Running;
-            }
-            _ => return,
         }
     }
 

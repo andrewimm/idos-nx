@@ -11,8 +11,8 @@ pub mod vm;
 
 use crate::io::async_io::IOType;
 
+pub use super::scheduling::switch as yield_coop;
 use super::{id, messaging, switching};
-pub use switching::switch as yield_coop;
 
 /// Pause the current task for a specified number of milliseconds. During that
 /// time, it will not be run by the scheduler.
