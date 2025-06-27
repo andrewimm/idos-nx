@@ -9,7 +9,10 @@ use core::sync::atomic::Ordering;
 use alloc::collections::VecDeque;
 use spin::Mutex;
 
-use crate::memory::{address::VirtualAddress, physical::allocate_frame};
+use crate::{
+    arch::gdt::GdtEntry,
+    memory::{address::VirtualAddress, physical::allocate_frame},
+};
 
 use super::{
     id::{AtomicTaskID, TaskID},
@@ -28,17 +31,31 @@ pub struct CPUScheduler {
     current_task: AtomicTaskID,
     idle_task: TaskID,
     pub work_queue: Mutex<VecDeque<WorkItem>>,
+
+    gdt: [GdtEntry; 8],
 }
 
 impl CPUScheduler {
-    pub const fn new(cpu_index: usize, idle_task: TaskID, linear_address: VirtualAddress) -> Self {
+    pub fn new(cpu_index: usize, idle_task: TaskID, linear_address: VirtualAddress) -> Self {
+        let mut gdt = unsafe { crate::arch::gdt::GDT.clone() };
+        gdt[5].set_base(linear_address.as_u32());
+
         Self {
             linear_address,
             cpu_index,
             current_task: AtomicTaskID::new(0),
             idle_task,
             work_queue: Mutex::new(VecDeque::new()),
+            gdt,
         }
+    }
+
+    pub fn load_gdt(&mut self) {
+        crate::arch::gdt::init_tss(&mut self.gdt[7]);
+        let mut gdtr = crate::arch::gdt::GdtDescriptor::new();
+        gdtr.point_to(&self.gdt);
+        gdtr.load();
+        crate::arch::gdt::ltr(0x38);
     }
 
     pub fn get_current_task(&self) -> TaskID {
@@ -69,6 +86,9 @@ pub fn create_cpu_scheduler(cpu_index: usize, idle_task: TaskID) -> VirtualAddre
     unsafe {
         let scheduler_ptr = mapped_to.as_ptr_mut::<CPUScheduler>();
         scheduler_ptr.write(CPUScheduler::new(cpu_index, idle_task, mapped_to));
+
+        let scheduler = &mut *scheduler_ptr;
+        scheduler.load_gdt();
     }
 
     mapped_to

@@ -25,28 +25,9 @@ extern "C" {
     static label_kernel_end: ();
 }
 
-/// Initialize the GDT, IDT
+/// Initialize the IDT
 pub unsafe fn init_cpu_tables() {
     crate::interrupts::idt::init_idt();
-}
-
-pub fn init_gdt(gs_offset: VirtualAddress) {
-    crate::arch::gdt::init_tss();
-    let gdt = unsafe { &mut crate::arch::gdt::GDT };
-
-    gdt[5].set_base(gs_offset.as_u32());
-
-    let mut gdtr = crate::arch::gdt::GdtDescriptor::new();
-    gdtr.point_to(gdt);
-    gdtr.load();
-    crate::arch::gdt::ltr(0x38);
-
-    unsafe {
-        asm!(
-            "mov gs, {}",
-            in(reg) 0x28,
-        );
-    }
 }
 
 /// Initialize system memory, enabling virtual memory and paging.

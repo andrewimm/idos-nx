@@ -11,6 +11,7 @@ const GDT_ACCESS_RW: u8 = 1 << 1;
 const GDT_FLAG_GRANULARITY_4KB: u8 = 1 << 7;
 const GDT_FLAG_SIZE_32_BIT: u8 = 1 << 6;
 
+#[derive(Clone)]
 #[repr(C, packed)]
 pub struct GdtEntry {
     pub limit_low: u16,
@@ -257,12 +258,12 @@ pub fn set_tss_stack_pointer(sp: u32) {
     }
 }
 
-pub fn init_tss() {
+pub fn init_tss(gdt_entry: &mut GdtEntry) {
     unsafe {
         TSS.tss.ss0 = 0x10;
         TSS.bitmap[127] = 0xff;
-        GDT[7].set_base(&raw const TSS as u32);
-        GDT[7].set_limit(core::mem::size_of::<TssWithBitmap>() as u32 - 1);
+        gdt_entry.set_base(&raw const TSS as u32);
+        gdt_entry.set_limit(core::mem::size_of::<TssWithBitmap>() as u32 - 1);
     }
 }
 
