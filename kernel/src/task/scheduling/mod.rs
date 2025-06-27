@@ -8,23 +8,29 @@ use core::sync::atomic::Ordering;
 use alloc::collections::VecDeque;
 use spin::Mutex;
 
+use crate::memory::{address::VirtualAddress, physical::allocate_frame};
+
 use super::{
     id::{AtomicTaskID, TaskID},
     map::get_task,
+    paging::{current_pagedir_map, PermissionFlags},
+    stack::KERNEL_STACKS_BOTTOM,
     switching::switch_to,
 };
 
 /// This struct is instantiated once per CPU core, and manages data necessary to
 /// run and switch tasks on that core.
 pub struct CPUScheduler {
+    cpu_index: usize,
     current_task: AtomicTaskID,
     idle_task: TaskID,
     pub work_queue: Mutex<VecDeque<WorkItem>>,
 }
 
 impl CPUScheduler {
-    pub const fn new(idle_task: TaskID) -> Self {
+    pub const fn new(cpu_index: usize, idle_task: TaskID) -> Self {
         Self {
+            cpu_index,
             current_task: AtomicTaskID::new(0),
             idle_task,
             work_queue: Mutex::new(VecDeque::new()),
@@ -51,12 +57,23 @@ pub enum WorkItem {
 
 pub struct Tasklet {}
 
-/// Eventually this needs to be placed in a statically available place per core
-static CPU_DATA: CPUScheduler = CPUScheduler::new(TaskID::new(0));
+pub fn create_cpu_scheduler(cpu_index: usize, idle_task: TaskID) -> VirtualAddress {
+    let mapped_to = VirtualAddress::new((KERNEL_STACKS_BOTTOM - 0x1000 * (cpu_index + 1)) as u32);
+    let frame = allocate_frame().unwrap();
+    current_pagedir_map(frame, mapped_to, PermissionFlags::empty());
+
+    unsafe {
+        let scheduler_ptr = mapped_to.as_ptr_mut::<CPUScheduler>();
+        scheduler_ptr.write(CPUScheduler::new(cpu_index, idle_task));
+    }
+
+    mapped_to
+}
 
 /// Get the CPUScheduler instance for the current CPU
 pub fn get_cpu_scheduler() -> &'static CPUScheduler {
-    &CPU_DATA
+    let addr = VirtualAddress::new((KERNEL_STACKS_BOTTOM - 0x1000) as u32);
+    unsafe { &*addr.as_ptr::<CPUScheduler>() }
 }
 
 /// Put a task back on any work queue, making it eligible for execution again.

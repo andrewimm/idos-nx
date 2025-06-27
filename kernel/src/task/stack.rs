@@ -17,6 +17,10 @@ const KERNEL_STACKS_TOP: usize = SCRATCH_BOTTOM;
 pub const STACK_SIZE_IN_PAGES: usize = 1;
 pub const STACK_SIZE_IN_BYTES: usize = STACK_SIZE_IN_PAGES * 0x1000;
 
+pub const MAX_KERNEL_STACKS: usize = 1024;
+pub const KERNEL_STACKS_BOTTOM: usize =
+    KERNEL_STACKS_TOP - (MAX_KERNEL_STACKS * STACK_SIZE_IN_BYTES);
+
 /// Stores a global bitmap of which kernel stacks have been allocated, so they
 /// can easily be recycled
 static STACK_ALLOCATION_BITMAP: Mutex<Vec<u8>> = Mutex::new(Vec::new());

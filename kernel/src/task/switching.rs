@@ -12,9 +12,12 @@ static CURRENT_ID: AtomicTaskID = AtomicTaskID::new(0);
 
 pub fn init(page_directory: PhysicalAddress) {
     let mut idle_task = Task::create_initial_task();
+    let idle_id = idle_task.id;
     idle_task.page_directory = page_directory;
     crate::kprint!("Initial pagedir {:?}\n", page_directory);
     super::map::insert_task(idle_task);
+
+    super::scheduling::create_cpu_scheduler(0, idle_id);
 }
 
 pub fn get_current_id() -> TaskID {
