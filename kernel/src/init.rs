@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 
 use crate::hardware::{pic::PIC, pit::PIT};
+use crate::interrupts::idt::{IdtDescriptor, IDT};
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::heap;
 use crate::memory::physical::bios::BIOS_MEMORY_MAP_LOCATION;
@@ -8,6 +9,7 @@ use crate::memory::physical::init_allocator;
 use crate::memory::physical::range::FrameRange;
 use crate::task::actions::lifecycle::create_idle_task;
 use crate::task::id::TaskID;
+use crate::task::scheduling::get_lapic;
 use crate::task::stack::{get_kernel_stack_virtual_offset, STACK_SIZE_IN_BYTES};
 use crate::task::state::Task;
 use core::arch::asm;
@@ -99,8 +101,21 @@ pub extern "C" fn init_ap(id: u32, stack_top: VirtualAddress) {
 
     crate::kprintln!("This core's Idle task is {:?}", idle_id);
 
-    crate::hardware::cpu::CPU_COUNT.fetch_add(1, Ordering::SeqCst);
+    let cpu_index = crate::hardware::cpu::CPU_COUNT.fetch_add(1, Ordering::SeqCst);
+
+    crate::task::scheduling::create_cpu_scheduler(cpu_index, idle_id, true);
+
+    unsafe {
+        let mut idtr = IdtDescriptor::new();
+        idtr.point_to(&IDT);
+        idtr.load();
+    }
+
+    get_lapic().enable();
+
     loop {
-        unsafe { asm!("hlt") }
+        unsafe { asm!("sti; hlt") }
+        crate::task::scheduling::switch();
+        unsafe { asm!("cli") }
     }
 }

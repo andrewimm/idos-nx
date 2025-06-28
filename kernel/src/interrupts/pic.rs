@@ -7,6 +7,7 @@ use spin::RwLock;
 use super::stack::{SavedState, StackFrame};
 use crate::io::async_io::IOType;
 use crate::io::provider::IOProvider;
+use crate::task::scheduling::{get_cpu_scheduler, get_lapic};
 use crate::{
     hardware::pic::PIC,
     task::{id::TaskID, map::get_task},
@@ -110,6 +111,11 @@ pub extern "C" fn _handle_pic_interrupt(_registers: SavedState, irq: u32, _frame
         // IRQ 0 is not installable, and is hard-coded to the kernel's PIT
         // interrupt handler
         handle_pit_interrupt();
+
+        if get_cpu_scheduler().has_lapic {
+            get_lapic().broadcast_ipi(0xf0);
+        }
+
         pic.end_of_interrupt(0);
         return;
     }

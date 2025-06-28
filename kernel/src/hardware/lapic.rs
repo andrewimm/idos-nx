@@ -1,5 +1,5 @@
 use crate::{
-    memory::address::PhysicalAddress,
+    memory::address::VirtualAddress,
     task::{
         actions::memory::{map_memory, unmap_memory_for_task},
         memory::MemoryBacking,
@@ -10,20 +10,17 @@ use crate::{
 use core::arch::asm;
 
 pub struct LocalAPIC {
-    address: PhysicalAddress,
+    pub address: VirtualAddress,
 }
 
 impl LocalAPIC {
-    pub fn new(address: PhysicalAddress) -> Self {
+    pub fn new(address: VirtualAddress) -> Self {
         Self { address }
     }
 
     pub fn set_icr(&self, high: u32, low: u32) {
-        // if this gets called a lot, we should permanently map it
-        let apic_mapping = map_memory(None, 0x1000, MemoryBacking::Direct(self.address)).unwrap();
-
-        let icr_high = (apic_mapping + 0x310).as_ptr_mut::<u32>();
-        let icr_low = (apic_mapping + 0x300).as_ptr_mut::<u32>();
+        let icr_high = (self.address + 0x310).as_ptr_mut::<u32>();
+        let icr_low = (self.address + 0x300).as_ptr_mut::<u32>();
 
         unsafe {
             core::ptr::write_volatile(icr_high, high);
@@ -39,7 +36,19 @@ impl LocalAPIC {
                 asm!("pause");
             }
         }
+    }
 
-        unmap_memory_for_task(get_current_id(), apic_mapping, 0x1000).unwrap();
+    pub fn broadcast_ipi(&self, vector: u8) {
+        self.set_icr(0, (3 << 18) | (vector as u32));
+    }
+
+    pub fn enable(&self) {
+        let spurious_register = (self.address + 0xf0).as_ptr_mut::<u32>();
+        unsafe { core::ptr::write_volatile(spurious_register, 0x1ff) };
+    }
+
+    pub fn eoi(&self) {
+        let eoi_register = (self.address + 0xb0).as_ptr_mut::<u32>();
+        unsafe { core::ptr::write_volatile(eoi_register, 0) };
     }
 }

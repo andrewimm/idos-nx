@@ -13,7 +13,10 @@ use crate::hardware::cpu::{set_trampoline_data, CPU_COUNT};
 use crate::init::init_ap;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::virt::page_table::get_current_pagedir;
-use crate::task::paging::get_current_physical_address;
+use crate::task::paging::{
+    current_pagedir_map_explicit, get_current_physical_address, PermissionFlags,
+};
+use crate::task::scheduling::{get_cpu_scheduler, get_lapic};
 use crate::task::stack::{allocate_stack, get_stack_top};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -119,7 +122,16 @@ pub fn init() {
         apic_phys &= 0xfffff000;
         crate::kprintln!("APIC PADDR: {:#X}", apic_phys);
 
-        let lapic = crate::hardware::lapic::LocalAPIC::new(PhysicalAddress::new(apic_phys));
+        // Future APs will map their LAPICs when they boot. This first LAPIC
+        // needs to be mapped now.
+        get_cpu_scheduler().has_lapic = true;
+        let lapic = get_lapic();
+        current_pagedir_map_explicit(
+            PhysicalAddress::new(apic_phys),
+            lapic.address,
+            PermissionFlags::empty(),
+        );
+
         let current_pagedir = get_current_pagedir();
         for apic in found_apics.iter().skip(1) {
             // boot each AP

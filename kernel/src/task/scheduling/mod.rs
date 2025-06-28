@@ -4,20 +4,24 @@
 //! their queues.
 
 use core::arch::asm;
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicU8, Ordering};
 
 use alloc::collections::VecDeque;
 use spin::Mutex;
 
 use crate::{
     arch::gdt::GdtEntry,
-    memory::{address::VirtualAddress, physical::allocate_frame},
+    hardware::lapic::LocalAPIC,
+    memory::{
+        address::{PhysicalAddress, VirtualAddress},
+        physical::allocate_frame,
+    },
 };
 
 use super::{
     id::{AtomicTaskID, TaskID},
     map::get_task,
-    paging::{current_pagedir_map, PermissionFlags},
+    paging::{current_pagedir_map, current_pagedir_map_explicit, PermissionFlags},
     stack::KERNEL_STACKS_BOTTOM,
     switching::switch_to,
 };
@@ -33,6 +37,9 @@ pub struct CPUScheduler {
     pub work_queue: Mutex<VecDeque<WorkItem>>,
 
     gdt: [GdtEntry; 8],
+
+    pub has_lapic: bool,
+    current_ticks: AtomicU8,
 }
 
 impl CPUScheduler {
@@ -47,6 +54,9 @@ impl CPUScheduler {
             idle_task,
             work_queue: Mutex::new(VecDeque::new()),
             gdt,
+
+            has_lapic: false,
+            current_ticks: AtomicU8::new(0),
         }
     }
 
@@ -69,6 +79,15 @@ impl CPUScheduler {
     pub fn reenqueue_work_item(&self, item: WorkItem) {
         self.work_queue.lock().push_back(item);
     }
+
+    pub fn tick(&self) {
+        // a tick is 1/100th of a second
+        let prev = self.current_ticks.fetch_add(1, Ordering::SeqCst);
+        if prev >= 100 {
+            crate::kprintln!("AP TICK");
+            self.current_ticks.store(0, Ordering::SeqCst);
+        }
+    }
 }
 
 pub enum WorkItem {
@@ -78,8 +97,12 @@ pub enum WorkItem {
 
 pub struct Tasklet {}
 
-pub fn create_cpu_scheduler(cpu_index: usize, idle_task: TaskID) -> VirtualAddress {
-    let mapped_to = VirtualAddress::new((KERNEL_STACKS_BOTTOM - 0x1000 * (cpu_index + 1)) as u32);
+pub fn create_cpu_scheduler(
+    cpu_index: usize,
+    idle_task: TaskID,
+    has_lapic: bool,
+) -> VirtualAddress {
+    let mapped_to = VirtualAddress::new((KERNEL_STACKS_BOTTOM - 0x2000 * (cpu_index + 1)) as u32);
     let frame = allocate_frame().unwrap();
     current_pagedir_map(frame, mapped_to, PermissionFlags::empty());
 
@@ -88,15 +111,33 @@ pub fn create_cpu_scheduler(cpu_index: usize, idle_task: TaskID) -> VirtualAddre
         scheduler_ptr.write(CPUScheduler::new(cpu_index, idle_task, mapped_to));
 
         let scheduler = &mut *scheduler_ptr;
+        scheduler.has_lapic = has_lapic;
         scheduler.load_gdt();
+    }
+
+    if has_lapic {
+        // map the CPU's LAPIC to the page beyond the scheduler struct
+        let lapic_mapping = mapped_to + 0x1000;
+
+        let mut lapic_phys: u32;
+        unsafe {
+            let msr: u32 = 0x1b;
+            core::arch::asm!("rdmsr", in("ecx") msr, out("eax") lapic_phys, out("edx") _);
+        }
+        lapic_phys &= 0xfffff000;
+        current_pagedir_map_explicit(
+            PhysicalAddress::new(lapic_phys),
+            lapic_mapping,
+            PermissionFlags::empty(),
+        );
     }
 
     mapped_to
 }
 
 /// Get the CPUScheduler instance for the current CPU
-pub fn get_cpu_scheduler() -> &'static CPUScheduler {
-    // This shouldn't be set here, but it's getting overridden by userspace
+pub fn get_cpu_scheduler() -> &'static mut CPUScheduler {
+    // GS shouldn't be set here, but it's getting overridden by userspace
     // programs. We should probably set it whenever entering the kernel, or
     // when switching tasks.
     unsafe {
@@ -109,7 +150,22 @@ pub fn get_cpu_scheduler() -> &'static CPUScheduler {
         );
         let addr = VirtualAddress::new(raw_addr);
 
-        &*addr.as_ptr::<CPUScheduler>()
+        &mut *addr.as_ptr_mut::<CPUScheduler>()
+    }
+}
+
+pub fn get_lapic() -> LocalAPIC {
+    unsafe {
+        let raw_addr: u32;
+        asm!(
+            "mov gs, {}",
+            "mov {}, gs:[0]",
+            in(reg) 0x28,
+            out(reg) raw_addr,
+        );
+        let addr = VirtualAddress::new(raw_addr + 0x1000);
+
+        LocalAPIC::new(addr)
     }
 }
 

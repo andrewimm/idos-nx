@@ -17,7 +17,7 @@ pub fn init(page_directory: PhysicalAddress) -> VirtualAddress {
     crate::kprint!("Initial pagedir {:?}\n", page_directory);
     super::map::insert_task(idle_task);
 
-    super::scheduling::create_cpu_scheduler(0, idle_id)
+    super::scheduling::create_cpu_scheduler(0, idle_id, false)
 }
 
 pub fn get_current_id() -> TaskID {

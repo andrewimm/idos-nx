@@ -1,4 +1,5 @@
 use super::exceptions;
+use super::ipi;
 use super::stack::StackFrame;
 use crate::arch::segment::SegmentSelector;
 use core::arch::asm;
@@ -181,6 +182,9 @@ pub unsafe fn init_idt() {
     IDT[0x3d].set_handler(pic_irq_d);
     IDT[0x3e].set_handler(pic_irq_e);
     IDT[0x3f].set_handler(pic_irq_f);
+
+    // Inter-process interrupts are sent to the top vectors
+    IDT[0xf0].set_handler(ipi::pit_cascade);
 
     IDTR.load();
 }

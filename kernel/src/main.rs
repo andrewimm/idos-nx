@@ -49,7 +49,6 @@ pub extern "C" fn _start() -> ! {
 
     let initial_pagedir = memory::virt::page_table::get_current_pagedir();
     let bsp_cpu_scheduler = task::switching::init(initial_pagedir);
-    //init::init_gdt(bsp_cpu_scheduler);
 
     acpi::init();
 
