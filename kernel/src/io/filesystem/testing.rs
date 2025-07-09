@@ -88,7 +88,12 @@ pub mod sync_fs {
 }
 
 pub mod async_fs {
-    use crate::task::actions::io::driver_io_complete;
+    use idos_api::io::AsyncOp;
+
+    use crate::task::actions::{
+        io::{append_io_op, driver_io_complete},
+        sync::{block_on_wake_set, create_wake_set},
+    };
 
     use super::*;
 
@@ -153,11 +158,30 @@ pub mod async_fs {
 
         let mut driver_impl = AsyncTestFS::new();
 
-        loop {
-            let op = PendingHandleOp::new(message_handle, ASYNC_OP_READ, message_ptr, 0, 0);
-            op.submit_io();
-            let _sender = op.wait_for_completion();
+        let wake_set = create_wake_set();
 
+        let mut op = AsyncOp::new(
+            ASYNC_OP_READ,
+            message_ptr,
+            core::mem::size_of::<Message>() as u32,
+            0,
+        );
+        let _ = append_io_op(message_handle, &op, Some(wake_set));
+
+        loop {
+            if op.is_complete() {
+                op = AsyncOp::new(
+                    ASYNC_OP_READ,
+                    message_ptr,
+                    core::mem::size_of::<Message>() as u32,
+                    0,
+                );
+                let _ = append_io_op(message_handle, &op, Some(wake_set));
+            } else {
+                // Wait for the next message
+                block_on_wake_set(wake_set, None);
+                continue;
+            }
             let request_id = message.unique_id;
             match driver_impl.handle_request(message) {
                 Some(response) => driver_io_complete(request_id, response),
@@ -168,7 +192,12 @@ pub mod async_fs {
 }
 
 pub mod async_dev {
-    use crate::task::actions::io::driver_io_complete;
+    use idos_api::io::AsyncOp;
+
+    use crate::task::actions::{
+        io::{append_io_op, driver_io_complete},
+        sync::{block_on_wake_set, create_wake_set},
+    };
 
     use super::*;
 
@@ -230,12 +259,30 @@ pub mod async_dev {
         let message_ptr = &mut message as *mut Message as u32;
 
         let mut driver_impl = AsyncTestDev::new();
+        let wake_set = create_wake_set();
+
+        let mut op = AsyncOp::new(
+            ASYNC_OP_READ,
+            message_ptr,
+            core::mem::size_of::<Message>() as u32,
+            0,
+        );
+        let _ = append_io_op(message_handle, &op, Some(wake_set));
 
         loop {
-            let op = PendingHandleOp::new(message_handle, ASYNC_OP_READ, message_ptr, 0, 0);
-            op.submit_io();
-            let _sender = op.wait_for_completion();
-
+            if op.is_complete() {
+                op = AsyncOp::new(
+                    ASYNC_OP_READ,
+                    message_ptr,
+                    core::mem::size_of::<Message>() as u32,
+                    0,
+                );
+                let _ = append_io_op(message_handle, &op, Some(wake_set));
+            } else {
+                // Wait for the next message
+                block_on_wake_set(wake_set, None);
+                continue;
+            }
             let request_id = message.unique_id;
             match driver_impl.handle_request(message) {
                 Some(response) => driver_io_complete(request_id, response),
