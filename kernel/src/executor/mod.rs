@@ -144,4 +144,74 @@ impl<E: Ord> Future for WaitForEvent<E> {
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use core::{
+        future::Future,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    use super::Executor;
+
+    #[test_case]
+    fn immediately_ready_future() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut executor = Executor::new();
+
+        for _ in 0..10 {
+            let counter_clone = counter.clone();
+            executor.spawn(async move {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+
+        executor.poll_tasks();
+        assert_eq!(counter.load(Ordering::SeqCst), 10);
+    }
+
+    #[test_case]
+    fn pending_future() {
+        use alloc::sync::Arc;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+
+        #[derive(Default)]
+        struct PendingOnce {
+            should_resolve: bool,
+        }
+
+        impl Future for PendingOnce {
+            type Output = ();
+
+            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+                if self.should_resolve {
+                    Poll::Ready(())
+                } else {
+                    self.should_resolve = true;
+                    Poll::Pending
+                }
+            }
+        }
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut executor = Executor::new();
+
+        for _ in 0..10 {
+            let counter_clone = counter.clone();
+            executor.spawn(async move {
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+                PendingOnce::default().await;
+                counter_clone.fetch_add(1, Ordering::SeqCst);
+            });
+        }
+
+        executor.poll_tasks();
+        assert_eq!(counter.load(Ordering::SeqCst), 10);
+
+        // Simulate waking up tasks
+        executor.poll_tasks();
+        assert_eq!(counter.load(Ordering::SeqCst), 20);
+    }
+}
