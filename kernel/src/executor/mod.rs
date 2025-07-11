@@ -18,7 +18,7 @@ pub struct Executor<E: Ord + Copy + Sized + Unpin> {
     tasks: BTreeMap<AsyncTaskId, AsyncTask>,
     next_task_id: AsyncTaskId,
     run_queue: Arc<RwLock<VecDeque<AsyncTaskId>>>,
-    waker_registry: WakerRegistry<E>,
+    wakers: WakerRegistry<E>,
 }
 
 impl<E: Ord + Copy + Sized + Unpin> Executor<E> {
@@ -27,7 +27,7 @@ impl<E: Ord + Copy + Sized + Unpin> Executor<E> {
             tasks: BTreeMap::new(),
             next_task_id: 1,
             run_queue: Arc::new(RwLock::new(VecDeque::new())),
-            waker_registry: WakerRegistry::new(),
+            wakers: WakerRegistry::new(),
         }
     }
 
@@ -36,7 +36,7 @@ impl<E: Ord + Copy + Sized + Unpin> Executor<E> {
     }
 
     pub fn waker_registry(&self) -> WakerRegistry<E> {
-        self.waker_registry.clone()
+        self.wakers.clone()
     }
 
     pub fn spawn<F>(&mut self, future: F) -> ()
@@ -114,7 +114,7 @@ impl WaitEventState {
 }
 
 #[derive(Clone)]
-struct WakerRegistry<E: Ord + Copy + Sized + Unpin> {
+pub struct WakerRegistry<E: Ord + Copy + Sized + Unpin> {
     wakers: Arc<RwLock<BTreeMap<E, Vec<Waker>>>>,
     events: Arc<RwLock<BTreeMap<E, WaitEventState>>>,
 }

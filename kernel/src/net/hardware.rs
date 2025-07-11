@@ -6,6 +6,8 @@
 pub struct HardwareAddress(pub [u8; 6]);
 
 impl HardwareAddress {
+    pub const BROADCAST: Self = HardwareAddress([0xff; 6]);
+
     /// shorthand for a MAC address that broadcasts to all devices (all octets
     /// set to 0xff)
     pub fn broadcast() -> Self {
