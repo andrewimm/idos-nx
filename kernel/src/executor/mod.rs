@@ -12,20 +12,31 @@ use alloc::{
     task::Wake,
     vec::Vec,
 };
+use spin::RwLock;
 
-pub struct Executor {
+pub struct Executor<E: Ord + Copy + Sized + Unpin> {
     tasks: BTreeMap<AsyncTaskId, AsyncTask>,
     next_task_id: AsyncTaskId,
-    run_queue: VecDeque<AsyncTaskId>,
+    run_queue: Arc<RwLock<VecDeque<AsyncTaskId>>>,
+    waker_registry: WakerRegistry<E>,
 }
 
-impl Executor {
+impl<E: Ord + Copy + Sized + Unpin> Executor<E> {
     pub fn new() -> Self {
         Self {
             tasks: BTreeMap::new(),
             next_task_id: 1,
-            run_queue: VecDeque::new(),
+            run_queue: Arc::new(RwLock::new(VecDeque::new())),
+            waker_registry: WakerRegistry::new(),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.tasks.is_empty()
+    }
+
+    pub fn waker_registry(&self) -> WakerRegistry<E> {
+        self.waker_registry.clone()
     }
 
     pub fn spawn<F>(&mut self, future: F) -> ()
@@ -40,17 +51,19 @@ impl Executor {
             waker: None,
         };
         self.tasks.insert(task_id, task);
-        self.run_queue.push_back(task_id);
+        self.run_queue.write().push_back(task_id);
     }
 
     pub fn poll_tasks(&mut self) {
-        let run_queue = core::mem::take(&mut self.run_queue);
+        let run_queue = core::mem::take(&mut *self.run_queue.write());
         for task_id in run_queue {
             if let Some(task) = self.tasks.get_mut(&task_id) {
-                let waker = task
-                    .waker
-                    .take()
-                    .unwrap_or_else(|| Waker::from(Arc::new(TaskWaker { task_id })));
+                let waker = task.waker.take().unwrap_or_else(|| {
+                    Waker::from(Arc::new(TaskWaker {
+                        task_id,
+                        run_queue: self.run_queue.clone(),
+                    }))
+                });
 
                 let mut context = Context::from_waker(&waker);
 
@@ -60,7 +73,7 @@ impl Executor {
                     }
                     Poll::Pending => {
                         task.waker = Some(waker);
-                        self.run_queue.push_back(task_id);
+                        self.run_queue.write().push_back(task_id);
                     }
                 }
             }
@@ -77,40 +90,77 @@ type AsyncTaskId = u32;
 
 struct TaskWaker {
     task_id: AsyncTaskId,
+    run_queue: Arc<RwLock<VecDeque<AsyncTaskId>>>,
 }
 
 impl Wake for TaskWaker {
     fn wake(self: Arc<Self>) {
-        // TODO: wake
+        self.run_queue.write().push_back(self.task_id);
+    }
+}
+
+struct WaitEventState {
+    fired: bool,
+    refcount: usize,
+}
+
+impl WaitEventState {
+    pub fn new() -> Self {
+        Self {
+            fired: false,
+            refcount: 1,
+        }
     }
 }
 
 #[derive(Clone)]
-struct WakerRegistry<E: Ord> {
-    wakers: Arc<RefCell<BTreeMap<E, Vec<Waker>>>>,
+struct WakerRegistry<E: Ord + Copy + Sized + Unpin> {
+    wakers: Arc<RwLock<BTreeMap<E, Vec<Waker>>>>,
+    events: Arc<RwLock<BTreeMap<E, WaitEventState>>>,
 }
 
-impl<E: Ord> WakerRegistry<E> {
+impl<E: Ord + Copy + Sized + Unpin> WakerRegistry<E> {
     pub fn new() -> Self {
         Self {
-            wakers: Arc::new(RefCell::new(BTreeMap::new())),
+            wakers: Arc::new(RwLock::new(BTreeMap::new())),
+            events: Arc::new(RwLock::new(BTreeMap::new())),
         }
     }
 
     pub fn register(&self, event: E, waker: Waker) {
         self.wakers
-            .borrow_mut()
+            .write()
             .entry(event)
             .or_insert_with(Vec::new)
             .push(waker);
+
+        self.events
+            .write()
+            .entry(event)
+            .and_modify(|state| state.refcount += 1)
+            .or_insert_with(WaitEventState::new);
     }
 
     pub fn notify_event(&self, event: &E) {
-        if let Some(wakers) = self.wakers.borrow_mut().remove(event) {
+        if let Some(wakers) = self.wakers.write().remove(event) {
             for waker in wakers {
                 waker.wake();
             }
         }
+
+        if let Some(event_state) = self.events.write().get_mut(event) {
+            event_state.fired = true;
+        }
+    }
+
+    pub fn check_event(&self, event: &E) -> bool {
+        if let Some(event_state) = self.events.write().get_mut(event) {
+            if event_state.fired {
+                event_state.refcount -= 1;
+            }
+            return event_state.fired;
+        }
+        false
     }
 }
 
@@ -119,13 +169,13 @@ impl<E: Ord> WakerRegistry<E> {
 /// A network executor might wait on an enum whose values represent different
 /// network resolution states, while a floppy disk executor might wait on
 /// controller changes.
-pub struct WaitForEvent<E: Ord> {
+pub struct WaitForEvent<E: Ord + Copy + Sized + Unpin> {
     event: E,
     waker_registry: WakerRegistry<E>,
     registered: bool,
 }
 
-impl<E: Ord> WaitForEvent<E> {
+impl<E: Ord + Copy + Sized + Unpin> WaitForEvent<E> {
     pub fn new(event: E, waker_registry: WakerRegistry<E>) -> Self {
         Self {
             event,
@@ -135,11 +185,20 @@ impl<E: Ord> WaitForEvent<E> {
     }
 }
 
-impl<E: Ord> Future for WaitForEvent<E> {
+impl<E: Ord + Copy + Sized + Unpin> Future for WaitForEvent<E> {
     type Output = ();
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Poll::Ready(())
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if !self.registered {
+            self.waker_registry
+                .register(self.event.clone(), cx.waker().clone());
+            self.registered = true;
+        } else {
+            if self.waker_registry.check_event(&self.event) {
+                return Poll::Ready(());
+            }
+        }
+        Poll::Pending
     }
 }
 
@@ -148,18 +207,18 @@ mod tests {
     use core::{
         future::Future,
         pin::Pin,
+        sync::atomic::{AtomicUsize, Ordering},
         task::{Context, Poll},
     };
 
-    use super::Executor;
+    use alloc::sync::Arc;
+
+    use super::{Executor, WakerRegistry};
 
     #[test_case]
     fn immediately_ready_future() {
-        use alloc::sync::Arc;
-        use core::sync::atomic::{AtomicUsize, Ordering};
-
         let counter = Arc::new(AtomicUsize::new(0));
-        let mut executor = Executor::new();
+        let mut executor = Executor::<u32>::new();
 
         for _ in 0..10 {
             let counter_clone = counter.clone();
@@ -170,13 +229,11 @@ mod tests {
 
         executor.poll_tasks();
         assert_eq!(counter.load(Ordering::SeqCst), 10);
+        assert!(executor.is_empty());
     }
 
     #[test_case]
     fn pending_future() {
-        use alloc::sync::Arc;
-        use core::sync::atomic::{AtomicUsize, Ordering};
-
         #[derive(Default)]
         struct PendingOnce {
             should_resolve: bool,
@@ -185,7 +242,7 @@ mod tests {
         impl Future for PendingOnce {
             type Output = ();
 
-            fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
                 if self.should_resolve {
                     Poll::Ready(())
                 } else {
@@ -196,7 +253,7 @@ mod tests {
         }
 
         let counter = Arc::new(AtomicUsize::new(0));
-        let mut executor = Executor::new();
+        let mut executor = Executor::<u32>::new();
 
         for _ in 0..10 {
             let counter_clone = counter.clone();
@@ -213,5 +270,78 @@ mod tests {
         // Simulate waking up tasks
         executor.poll_tasks();
         assert_eq!(counter.load(Ordering::SeqCst), 20);
+        assert!(executor.is_empty());
+    }
+
+    #[test_case]
+    fn waiting_on_event() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut executor = Executor::<u32>::new();
+
+        async fn async_task(
+            event: usize,
+            counter: Arc<AtomicUsize>,
+            waker_registry: WakerRegistry<u32>,
+        ) {
+            counter.fetch_add(1, Ordering::SeqCst);
+            super::WaitForEvent::new(event as u32, waker_registry).await;
+            counter.fetch_add(1, Ordering::SeqCst);
+        }
+
+        for i in 0..10 {
+            let counter_clone = counter.clone();
+            let waker_registry_clone = executor.waker_registry();
+            executor.spawn(async_task(i, counter_clone, waker_registry_clone));
+        }
+
+        executor.poll_tasks();
+        assert_eq!(counter.load(Ordering::SeqCst), 10);
+
+        // Nothing should wake yet
+        executor.poll_tasks();
+        // Simulate notifying events
+        for i in 0..10 {
+            executor.waker_registry().notify_event(&i);
+            executor.poll_tasks();
+        }
+
+        assert_eq!(counter.load(Ordering::SeqCst), 20);
+        assert!(executor.is_empty());
+    }
+
+    #[test_case]
+    fn wake_multiple_on_same_event() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let mut executor = Executor::<u32>::new();
+
+        async fn async_task(counter: Arc<AtomicUsize>, waker_registry: WakerRegistry<u32>) {
+            counter.fetch_add(1, Ordering::SeqCst);
+            super::WaitForEvent::new(10, waker_registry).await;
+            counter.fetch_add(1, Ordering::SeqCst);
+        }
+
+        for i in 0..10 {
+            let counter_clone = counter.clone();
+            let waker_registry_clone = executor.waker_registry();
+            executor.spawn(async_task(counter_clone, waker_registry_clone));
+        }
+
+        executor.poll_tasks();
+        assert_eq!(counter.load(Ordering::SeqCst), 10);
+
+        // Nothing should wake yet
+        executor.poll_tasks();
+        assert_eq!(counter.load(Ordering::SeqCst), 10);
+        // Simulate notifying events
+        for i in 0..9 {
+            executor.waker_registry().notify_event(&i);
+        }
+        executor.poll_tasks();
+        assert_eq!(counter.load(Ordering::SeqCst), 10);
+        executor.waker_registry().notify_event(&10);
+        executor.poll_tasks();
+
+        assert_eq!(counter.load(Ordering::SeqCst), 20);
+        assert!(executor.is_empty());
     }
 }
