@@ -9,10 +9,7 @@ use idos_api::io::{error::IOError, AsyncOp};
 
 use crate::{
     io::{async_io::AsyncOpID, handle::Handle},
-    net::{
-        ip::IPV4Address,
-        socket::{bind_socket, create_socket, SocketHandle, SocketPort, SocketProtocol},
-    },
+    net::ip::IPV4Address,
 };
 
 use super::{IOProvider, IOResult, UnmappedAsyncOp};
@@ -26,10 +23,11 @@ pub struct SocketBindingRequest {
 }
 
 pub struct SocketIOProvider {
-    socket_handle: SocketHandle,
+    //socket_handle: SocketHandle,
 }
 
 impl SocketIOProvider {
+    /*
     pub fn create_tcp() -> Self {
         Self::create_for_protocol(SocketProtocol::TCP)
     }
@@ -39,9 +37,9 @@ impl SocketIOProvider {
     }
 
     pub fn create_for_protocol(protocol: SocketProtocol) -> Self {
-        let socket_handle = create_socket(protocol);
-        Self { socket_handle }
+        Self {}
     }
+    */
 }
 
 impl IOProvider for SocketIOProvider {
@@ -76,22 +74,7 @@ impl IOProvider for SocketIOProvider {
             return Some(Err(IOError::InvalidArgument));
         }
         let binding_request = unsafe { &*binding_ptr };
-        let local_ip = IPV4Address(binding_request.local_ip);
-        let remote_ip = IPV4Address(binding_request.remote_ip);
-        let local_port = SocketPort::new(binding_request.local_port as u16);
-        let remote_port = SocketPort::new(binding_request.remote_port as u16);
-
-        Some(
-            bind_socket(
-                self.socket_handle,
-                local_ip,
-                local_port,
-                remote_ip,
-                remote_port,
-            )
-            .map(|_| 1)
-            .map_err(|_| IOError::OperationFailed),
-        )
+        unimplemented!();
     }
 
     fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: UnmappedAsyncOp) -> Option<IOResult> {

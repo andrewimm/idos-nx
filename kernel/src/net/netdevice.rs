@@ -24,15 +24,20 @@ use super::protocol::{
 use super::{hardware::HardwareAddress, protocol::arp::ArpPacket};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum NetEvent {
+pub enum NetEvent {
     ArpRequest(Ipv4Address),
 
     DhcpOffer(u32),
+    DhcpAck(u32),
+}
+
+pub enum NetRequest {
+    GetLocalIp,
 }
 
 pub struct NetDevice {
     /// The MAC address of the network device
-    mac: HardwareAddress,
+    pub mac: HardwareAddress,
     /// Holds an open handle to the network device driver.
     device_driver_handle: Handle,
     /// The wake set used to wake up the networking resident task when a network
@@ -50,13 +55,10 @@ pub struct NetDevice {
     /// Writes are held until they complete, to ensure the payload and
     /// completion signal remain on the heap.
     active_writes: VecDeque<(Vec<u8>, Box<AsyncOp>)>,
-    /// Async excecutor to simplify writing packet requests
-    executor: Executor<NetEvent>,
-
     /// Established IP->MAC mappings
     known_arp: BTreeMap<Ipv4Address, HardwareAddress>,
     /// Stores DHCP info for the device
-    dhcp_state: DhcpState,
+    pub dhcp_state: DhcpState,
 }
 
 impl NetDevice {
@@ -84,7 +86,6 @@ impl NetDevice {
             active_read,
             read_buffer,
             active_writes: VecDeque::new(),
-            executor: Executor::new(),
             known_arp: BTreeMap::new(),
             dhcp_state: DhcpState::new(),
         }
@@ -95,10 +96,9 @@ impl NetDevice {
     pub fn update(&mut self) {
         self.clear_completed_writes();
         self.process_read_result();
-        //self.process_request_queue();
-        self.executor.poll_tasks();
     }
 
+    /// Send a raw payload with an accompanying ethernet header.
     pub fn send_raw(
         &self,
         eth_header: EthernetFrameHeader,
@@ -123,7 +123,7 @@ impl NetDevice {
     /// The NetDevice holds onto async operations that are in progress.
     /// There may be multiple outstanding writes at the same time. Every time
     /// the device is awakened, it will clean up any writes that have completed.
-    fn clear_completed_writes(&mut self) {
+    pub fn clear_completed_writes(&mut self) {
         loop {
             let can_pop = if let Some((_, pending_write)) = self.active_writes.front() {
                 pending_write.is_complete()
@@ -137,6 +137,10 @@ impl NetDevice {
                 break;
             }
         }
+    }
+
+    pub fn add_write(&mut self, write: (Vec<u8>, Box<AsyncOp>)) {
+        self.active_writes.push_back(write);
     }
 
     fn add_new_read_request(&mut self) {
@@ -153,9 +157,9 @@ impl NetDevice {
         );
     }
 
-    fn process_read_result(&mut self) {
+    pub fn process_read_result(&mut self) -> Option<NetEvent> {
         if !self.active_read.is_complete() {
-            return;
+            return None;
         }
 
         if !self.is_open {
@@ -164,28 +168,29 @@ impl NetDevice {
                 // if opening the device failed, we try again? or destroy this
                 // net device?
                 crate::kprintln!("Failed to open network device");
-                return;
+                return None;
             }
             self.is_open = true;
             // we successfully opened the device, so we can now start reading
             self.add_new_read_request();
-            return;
+            return None;
         }
 
         let result = self.active_read.return_value.load(Ordering::SeqCst);
         if result & 0x80000000 != 0 {
             // read failed
             self.add_new_read_request();
-            return;
+            return None;
         }
         let len = (result & 0x7fffffff) as usize;
         if len == 0 {
             // no data was read, so we can just continue
             self.add_new_read_request();
-            return;
+            return None;
         }
         // if data was successfully read, interpret the packet
-        if let Some(frame) = EthernetFrameHeader::try_from_u8_buffer(&self.read_buffer) {
+        let event = if let Some(frame) = EthernetFrameHeader::try_from_u8_buffer(&self.read_buffer)
+        {
             let offset = EthernetFrameHeader::get_size();
             match frame.get_ethertype() {
                 // if it's an ARP response, process it with the device's ARP
@@ -194,37 +199,40 @@ impl NetDevice {
                 // if it's an IP packet, it may be UDP or TCP and needs to
                 // be handled by the appropriate socket
                 EthernetFrameHeader::ETHERTYPE_IP => self.handle_ip_packet(frame.src_mac, offset),
-                _ => (),
+                _ => None,
             }
-        }
+        } else {
+            None
+        };
 
         // zero out the read buffer and wait for another successful read
         for i in 0..self.read_buffer.len() {
             self.read_buffer[i] = 0;
         }
         self.add_new_read_request();
+
+        event
     }
 
     /// An ARP packet may be a request, a broadcast, or a response to a request
     /// sent by this device. If it contains useful data, add that to the
     /// device's ARP state, and then wake any async tasks that might be blocked.
-    fn handle_arp_packet(&mut self, offset: usize) {
+    fn handle_arp_packet(&mut self, offset: usize) -> Option<NetEvent> {
         let arp = ArpPacket::try_from_u8_buffer(&self.read_buffer[offset..]).unwrap();
         if arp.is_request() {
             // TODO
+            return None;
         } else {
             // if it's a response, we can add the mapping to our ARP state
             let src_ip = arp.source_protocol_addr;
             let src_mac = arp.source_hardware_addr;
             self.known_arp.insert(src_ip, src_mac);
             // wake up any tasks that were waiting for this IP address
-            self.executor
-                .waker_registry()
-                .notify_event(&NetEvent::ArpRequest(src_ip));
+            return Some(NetEvent::ArpRequest(src_ip));
         }
     }
 
-    fn handle_ip_packet(&mut self, _src_mac: HardwareAddress, offset: usize) {
+    fn handle_ip_packet(&mut self, _src_mac: HardwareAddress, offset: usize) -> Option<NetEvent> {
         let ip_header = Ipv4Header::try_from_u8_buffer(&self.read_buffer[offset..]).unwrap();
         let payload_offset = offset + Ipv4Header::get_size();
         let total_length = u16::from_be(ip_header.total_length) as usize;
@@ -233,47 +241,48 @@ impl NetDevice {
         if ip_header.protocol == IpProtocolType::Udp {
             let udp_header = match UdpHeader::try_from_u8_buffer(payload) {
                 Some(header) => header,
-                None => return,
+                None => return None,
             };
             if u16::from_be(udp_header.dest_port) == 68 {
                 // this is a DHCP packet
                 let udp_payload = &payload[UdpHeader::get_size()..];
+                super::resident::LOGGER.log(format_args!("Received DHCP packet"));
+                // process dhcp packet, update state
+                match self.dhcp_state.process_packet(self.mac, udp_payload) {
+                    Ok((response, event)) => {
+                        if let Some(res) = response {
+                            // send the response
+                            self.send_dhcp_packet(res);
+                        }
+                        return Some(event);
+                    }
+                    Err(_) => {}
+                }
+                // generate and send response
             } else {
                 // this packet is bound for a socket
+                unimplemented!();
             }
         } else if ip_header.protocol == IpProtocolType::Tcp {
         }
+        None
     }
 
-    pub async fn get_local_ip(&mut self) -> Ipv4Address {
-        match self.dhcp_state.local_ip {
-            IpResolution::Bound(ip, _expiration) => return ip,
-            IpResolution::Unbound => {
-                // never initialized before, run the whole process
-                let xid = 0xabcd;
-                self.dhcp_state.local_ip = IpResolution::Progress(xid);
-                let discovery_packet = DhcpPacket::discover(self.mac, xid);
-                let eth_header =
-                    EthernetFrameHeader::new_ipv4(self.mac, HardwareAddress::BROADCAST);
-                let ip_packet = create_datagram(
-                    Ipv4Address([0; 4]),
-                    68,
-                    Ipv4Address([255; 4]),
-                    67,
-                    &discovery_packet,
-                );
-                self.active_writes
-                    .push_back(self.send_raw(eth_header, &ip_packet));
-                // after sending the broadcast, wait for an offer
-                WaitForEvent::new(NetEvent::DhcpOffer(xid), self.executor.waker_registry()).await;
-            }
-            // let Progress() and Renewing() fall through to the wait
-            _ => (),
-        }
-
-        panic!("");
+    pub fn init_dhcp(&mut self, xid: u32) {
+        let discovery_packet = DhcpPacket::discover(self.mac, xid);
+        self.dhcp_state.local_ip = IpResolution::Progress(xid);
+        self.send_dhcp_packet(discovery_packet);
     }
 
+    fn send_dhcp_packet(&mut self, payload: Vec<u8>) {
+        let eth_header = EthernetFrameHeader::new_ipv4(self.mac, HardwareAddress::BROADCAST);
+        let ip_packet =
+            create_datagram(Ipv4Address([0; 4]), 68, Ipv4Address([255; 4]), 67, &payload);
+        let write = self.send_raw(eth_header, &ip_packet);
+        self.add_write(write);
+    }
+
+    /*
     pub async fn resolve_arp(&mut self, target_ip: Ipv4Address) -> Result<HardwareAddress, ()> {
         if let Some(mac) = self.known_arp.get(&target_ip) {
             return Ok(*mac);
@@ -296,4 +305,5 @@ impl NetDevice {
 
         Err(())
     }
+    */
 }

@@ -130,11 +130,7 @@ pub fn open_interrupt_handle(irq: u8) -> Handle {
 }
 
 pub fn create_udp_socket() -> Handle {
-    let task_lock = get_current_task();
-    let mut task = task_lock.write();
-    let io = IOType::Socket(SocketIOProvider::create_udp());
-    let io_index = task.async_io_table.add_io(io);
-    task.open_handles.insert(io_index)
+    unimplemented!();
 }
 
 pub fn transfer_handle(handle: Handle, transfer_to: TaskID) -> Option<Handle> {

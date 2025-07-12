@@ -1,4 +1,3 @@
-use crate::net::socket::socket_broadcast;
 use crate::time::system::Timestamp;
 use alloc::vec::Vec;
 use spin::Once;
@@ -6,7 +5,6 @@ use spin::Once;
 use super::ethernet::HardwareAddress;
 use super::ip::IPV4Address;
 use super::packet::PacketHeader;
-use super::socket::{bind_socket, create_socket, SocketHandle, SocketPort, SocketProtocol};
 
 #[repr(C, packed)]
 pub struct DHCPPacket {
@@ -361,27 +359,4 @@ impl DHCPState {
 
         None
     }
-}
-
-static DHCP_SOCKET: Once<SocketHandle> = Once::new();
-
-fn get_dhcp_socket() -> SocketHandle {
-    *DHCP_SOCKET.call_once(|| {
-        let socket = create_socket(SocketProtocol::UDP);
-        bind_socket(
-            socket,
-            IPV4Address([0, 0, 0, 0]),
-            SocketPort::new(68),
-            IPV4Address([255, 255, 255, 255]),
-            SocketPort::new(67),
-        )
-        .unwrap();
-        socket
-    })
-}
-
-pub fn start_dhcp_transaction(mac: HardwareAddress) {
-    crate::kprintln!("Start DHCP transaction");
-    let dhcp_data = DHCPPacket::discovery_packet(mac, 0xaabb0000);
-    socket_broadcast(get_dhcp_socket(), &dhcp_data).unwrap();
 }

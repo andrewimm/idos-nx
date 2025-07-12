@@ -39,6 +39,10 @@ impl<E: Ord + Copy + Sized + Unpin> Executor<E> {
         self.wakers.clone()
     }
 
+    pub fn notify_event(&self, event: &E) {
+        self.wakers.notify_event(event);
+    }
+
     pub fn spawn<F>(&mut self, future: F) -> ()
     where
         F: Future<Output = ()> + Send + 'static,
@@ -142,6 +146,7 @@ impl<E: Ord + Copy + Sized + Unpin> WakerRegistry<E> {
     }
 
     pub fn notify_event(&self, event: &E) {
+        crate::kprintln!("NOTIFY EVENT");
         if let Some(wakers) = self.wakers.write().remove(event) {
             for waker in wakers {
                 waker.wake();

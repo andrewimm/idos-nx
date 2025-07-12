@@ -25,7 +25,7 @@
 //! it.
 //!
 
-pub mod arp;
+//pub mod arp;
 pub mod checksum;
 pub mod dhcp;
 pub mod error;
@@ -36,8 +36,8 @@ pub mod netdevice;
 pub mod packet;
 pub mod protocol;
 pub mod resident;
-pub mod socket;
-pub mod tcp;
+//pub mod socket;
+//pub mod tcp;
 pub mod udp;
 
 use self::ethernet::HardwareAddress;
@@ -48,42 +48,6 @@ use crate::task::actions::{
 use alloc::{string::String, sync::Arc};
 use core::ops::Deref;
 use spin::RwLock;
-
-pub struct NetDevice {
-    pub mac: HardwareAddress,
-    pub device_name: String,
-    pub ip: RwLock<Option<self::ip::IPV4Address>>,
-}
-
-impl NetDevice {
-    pub fn new(mac: HardwareAddress, device_name: String) -> Self {
-        Self {
-            mac,
-            device_name,
-            ip: RwLock::new(None),
-        }
-    }
-
-    pub fn send_raw(&self, raw: &[u8]) {
-        let dev = create_file_handle();
-        open_sync(dev, &self.device_name).unwrap();
-        write_sync(dev, raw, 0).unwrap();
-        close_sync(dev).unwrap();
-    }
-}
-
-static ACTIVE_DEVICE: RwLock<Option<Arc<NetDevice>>> = RwLock::new(None);
-
-pub fn with_active_device<F, T>(f: F) -> Result<T, ()>
-where
-    F: Fn(&NetDevice) -> T,
-{
-    let device = ACTIVE_DEVICE.read();
-    match device.deref() {
-        Some(dev) => Ok(f(dev)),
-        None => Err(()),
-    }
-}
 
 pub fn start_net_stack() {
     let (response_reader, response_writer) = create_pipe_handles();

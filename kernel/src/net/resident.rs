@@ -1,30 +1,32 @@
-use core::sync::atomic::Ordering;
-
 use crate::{
     collections::SlotList,
+    executor::{Executor, WaitForEvent, WakerRegistry},
     io::handle::Handle,
-    net::udp::create_datagram,
+    log::TaggedLogger,
     task::actions::{
-        handle::create_file_handle,
-        io::{append_io_op, write_sync},
+        io::write_sync,
         sync::{block_on_wake_set, create_wake_set},
     },
 };
 
-use alloc::{boxed::Box, collections::VecDeque, string::String, vec::Vec};
-use idos_api::io::{AsyncOp, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
+use alloc::{boxed::Box, collections::VecDeque, string::String, sync::Arc, vec::Vec};
 
 use super::{
-    arp::{ARPPacket, ARPTable},
-    dhcp::DHCPState,
-    ethernet::{EthernetFrameHeader, HardwareAddress, ETHERTYPE_ARP, ETHERTYPE_IP},
-    ip::{IPProtocolType, IPV4Header},
-    udp::UDPHeader,
+    hardware::HardwareAddress,
+    netdevice::{NetDevice, NetEvent},
+    protocol::{
+        dhcp::{DhcpPacket, IpResolution},
+        ethernet::EthernetFrameHeader,
+        ipv4::Ipv4Address,
+        udp::create_datagram,
+    },
 };
-use super::{ip::IPV4Address, packet::PacketHeader};
 
-use spin::Mutex;
+use spin::{Mutex, RwLock};
 
+pub const LOGGER: TaggedLogger = TaggedLogger::new("NET", 92);
+
+/*
 struct RegisteredNetDevice {
     handle: Handle,
     wake_set: Handle,
@@ -176,10 +178,11 @@ impl RegisteredNetDevice {
         (total_frame, async_op)
     }
 }
+*/
 
 pub enum NetRequest {
     RegisterDevice(String, HardwareAddress),
-    GetIP,
+    GetIp,
     SocketBind,
     SocketAccept,
     SocketRead,
@@ -198,13 +201,18 @@ pub fn register_network_device(name: &str, mac: [u8; 6]) {
         ));
 }
 
+pub fn get_ip() {
+    NET_STACK_REQUESTS.lock().push_back(NetRequest::GetIp);
+}
+
 pub fn net_stack_resident() -> ! {
     // this wake set will be used to listen for all network devices
     // each time a new network device is registered, it will be passed in and
     // the io operations will notify it
     let wake_set = create_wake_set();
 
-    let mut network_devices: SlotList<RegisteredNetDevice> = SlotList::new();
+    let mut network_devices: SlotList<(Executor<NetEvent>, Arc<RwLock<NetDevice>>)> =
+        SlotList::new();
 
     // let the init task know that the network stack is ready
     let response_writer = Handle::new(0);
@@ -218,67 +226,6 @@ pub fn net_stack_resident() -> ! {
     // its own ARP, DHCP, and socket states
 
     loop {
-        // For each device, check the read op
-        crate::kprintln!(" ~ ~ NETWAKE");
-        for net_dev in network_devices.iter_mut() {
-            // clear out any completed writes
-            loop {
-                let pop = if let Some((_, pending_write)) = net_dev.current_writes.front() {
-                    pending_write.is_complete()
-                } else {
-                    false
-                };
-                if pop {
-                    net_dev.current_writes.pop_front();
-                } else {
-                    break;
-                }
-            }
-            // process the pending read, if it's ready
-            if !net_dev.current_read.is_complete() {
-                continue;
-            }
-            if !net_dev.is_open {
-                // If the device was not opened yet, the completed op must be
-                // the initial open op. Mark the device as opened and begin
-                // reading from the device.
-                net_dev.is_open = true;
-                net_dev.init_dhcp();
-
-                net_dev.current_read = Box::new(AsyncOp::new(
-                    ASYNC_OP_READ,
-                    net_dev.read_buffer.as_mut_ptr() as u32,
-                    net_dev.read_buffer.len() as u32,
-                    0,
-                ));
-                let _ = append_io_op(net_dev.handle, &net_dev.current_read, Some(wake_set));
-                continue;
-            }
-            // if data is ready, inspect the packet
-            let read_result = net_dev.current_read.return_value.load(Ordering::SeqCst);
-            if read_result & 0x80000000 != 0 {
-                // TODO: implement error handling
-            } else {
-                let len = read_result as usize & 0x7fffffff;
-                if len > 0 {
-                    net_dev.process_read_buffer();
-
-                    for i in 0..net_dev.read_buffer.len() {
-                        net_dev.read_buffer[i] = 0;
-                    }
-                } else {
-                    crate::kprintln!("NET RESPONSE ZERO LENGTH");
-                }
-            }
-            net_dev.current_read = Box::new(AsyncOp::new(
-                ASYNC_OP_READ,
-                net_dev.read_buffer.as_mut_ptr() as u32,
-                net_dev.read_buffer.len() as u32,
-                0,
-            ));
-            let _ = append_io_op(net_dev.handle, &net_dev.current_read, Some(wake_set));
-        }
-
         // check the task queue for external requests
         // External async requests include:
         //  - Register network device by name + MAC
@@ -288,15 +235,71 @@ pub fn net_stack_resident() -> ! {
             while let Some(req) = queue.pop_front() {
                 match req {
                     NetRequest::RegisterDevice(name, mac) => {
-                        network_devices.insert(RegisteredNetDevice::new(&name, mac, wake_set));
+                        LOGGER.log(format_args!("Register Device {}", name));
+                        network_devices.insert((
+                            Executor::<NetEvent>::new(),
+                            Arc::new(RwLock::new(NetDevice::new(&name, mac, wake_set))),
+                        ));
+                    }
+                    NetRequest::GetIp => {
+                        let (executor, active_device) = network_devices.get_mut(0).unwrap();
+                        let future = get_local_ip(active_device.clone(), executor.waker_registry());
+                        executor.spawn(future);
                     }
                     _ => {}
                 }
             }
         }
 
+        // For each device, check the read op
+        crate::kprintln!(" ~ ~ NETWAKE");
+        for (executor, net_dev_lock) in network_devices.iter_mut() {
+            let read_event = {
+                let mut net_dev = net_dev_lock.write();
+                net_dev.clear_completed_writes();
+                net_dev.process_read_result()
+            };
+            if let Some(event) = read_event {
+                executor.notify_event(&event);
+            }
+            executor.poll_tasks();
+        }
+
         block_on_wake_set(wake_set, None);
     }
 }
 
-// async/await primitives, probably put this in another module soon
+async fn get_local_ip(
+    net_dev_lock: Arc<RwLock<NetDevice>>,
+    waker_registry: WakerRegistry<NetEvent>,
+) {
+    let resolved_ip = net_dev_lock.read().dhcp_state.local_ip.clone();
+    let xid = match resolved_ip {
+        IpResolution::Bound(ip, _expiration) => {
+            return;
+        }
+        IpResolution::Unbound => {
+            // never initialized before, run the whole process
+            LOGGER.log(format_args!("INIT DHCP"));
+            // TODO: random number generator
+            let xid = 0xabcd;
+            net_dev_lock.write().init_dhcp(xid);
+            // after sending the broadcast, wait for an offer
+            WaitForEvent::new(NetEvent::DhcpOffer(xid), waker_registry.clone()).await;
+            xid
+        }
+        IpResolution::Progress(xid) => xid,
+        IpResolution::Renewing(_, xid) => xid,
+    };
+    WaitForEvent::new(NetEvent::DhcpAck(xid), waker_registry.clone()).await;
+
+    let final_state = net_dev_lock.read().dhcp_state.local_ip.clone();
+    match final_state {
+        IpResolution::Bound(ip, _expiration) => {
+            LOGGER.log(format_args!("DHCP completed with IP: {}", ip));
+        }
+        _ => {
+            LOGGER.log(format_args!("DHCP failed to complete"));
+        }
+    }
+}
