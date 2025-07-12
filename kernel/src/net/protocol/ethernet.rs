@@ -29,7 +29,7 @@ impl EthernetFrameHeader {
 
     /// Create an ARP broadcast packet from a given source MAC address
     pub fn broadcast_arp(src: HardwareAddress) -> Self {
-        Self::new(src, HardwareAddress::broadcast(), Self::ETHERTYPE_ARP)
+        Self::new(src, HardwareAddress::BROADCAST, Self::ETHERTYPE_ARP)
     }
 
     /// Create an IPv4 packet with a given source and destination MAC

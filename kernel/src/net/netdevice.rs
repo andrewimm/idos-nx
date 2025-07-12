@@ -25,7 +25,7 @@ use super::{hardware::HardwareAddress, protocol::arp::ArpPacket};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NetEvent {
-    ArpRequest(Ipv4Address),
+    ArpResponse(Ipv4Address),
 
     DhcpOffer(u32),
     DhcpAck(u32),
@@ -56,7 +56,7 @@ pub struct NetDevice {
     /// completion signal remain on the heap.
     active_writes: VecDeque<(Vec<u8>, Box<AsyncOp>)>,
     /// Established IP->MAC mappings
-    known_arp: BTreeMap<Ipv4Address, HardwareAddress>,
+    pub known_arp: BTreeMap<Ipv4Address, HardwareAddress>,
     /// Stores DHCP info for the device
     pub dhcp_state: DhcpState,
 }
@@ -89,13 +89,6 @@ impl NetDevice {
             known_arp: BTreeMap::new(),
             dhcp_state: DhcpState::new(),
         }
-    }
-
-    /// This method should be called for every network device, on every run of
-    /// the network resident's internal loop
-    pub fn update(&mut self) {
-        self.clear_completed_writes();
-        self.process_read_result();
     }
 
     /// Send a raw payload with an accompanying ethernet header.
@@ -188,6 +181,7 @@ impl NetDevice {
             self.add_new_read_request();
             return None;
         }
+
         // if data was successfully read, interpret the packet
         let event = if let Some(frame) = EthernetFrameHeader::try_from_u8_buffer(&self.read_buffer)
         {
@@ -228,7 +222,7 @@ impl NetDevice {
             let src_mac = arp.source_hardware_addr;
             self.known_arp.insert(src_ip, src_mac);
             // wake up any tasks that were waiting for this IP address
-            return Some(NetEvent::ArpRequest(src_ip));
+            return Some(NetEvent::ArpResponse(src_ip));
         }
     }
 
@@ -243,7 +237,8 @@ impl NetDevice {
                 Some(header) => header,
                 None => return None,
             };
-            if u16::from_be(udp_header.dest_port) == 68 {
+            let dest_port = u16::from_be(udp_header.dest_port);
+            if dest_port == 68 {
                 // this is a DHCP packet
                 let udp_payload = &payload[UdpHeader::get_size()..];
                 super::resident::LOGGER.log(format_args!("Received DHCP packet"));
@@ -258,12 +253,12 @@ impl NetDevice {
                     }
                     Err(_) => {}
                 }
-                // generate and send response
             } else {
                 // this packet is bound for a socket
-                unimplemented!();
+                super::resident::LOGGER.log(format_args!("UDP BOUND FOR :{}", dest_port));
             }
         } else if ip_header.protocol == IpProtocolType::Tcp {
+            super::resident::LOGGER.log(format_args!("TCP PACKET"));
         }
         None
     }

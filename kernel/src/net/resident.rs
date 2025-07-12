@@ -15,9 +15,11 @@ use super::{
     hardware::HardwareAddress,
     netdevice::{NetDevice, NetEvent},
     protocol::{
+        arp::ArpPacket,
         dhcp::{DhcpPacket, IpResolution},
         ethernet::EthernetFrameHeader,
         ipv4::Ipv4Address,
+        packet::PacketHeader,
         udp::create_datagram,
     },
 };
@@ -183,6 +185,8 @@ impl RegisteredNetDevice {
 pub enum NetRequest {
     RegisterDevice(String, HardwareAddress),
     GetIp,
+    GetMacForIp(Ipv4Address),
+
     SocketBind,
     SocketAccept,
     SocketRead,
@@ -203,6 +207,12 @@ pub fn register_network_device(name: &str, mac: [u8; 6]) {
 
 pub fn get_ip() {
     NET_STACK_REQUESTS.lock().push_back(NetRequest::GetIp);
+}
+
+pub fn get_mac_for_ip(ip: Ipv4Address) {
+    NET_STACK_REQUESTS
+        .lock()
+        .push_back(NetRequest::GetMacForIp(ip));
 }
 
 pub fn net_stack_resident() -> ! {
@@ -243,8 +253,23 @@ pub fn net_stack_resident() -> ! {
                     }
                     NetRequest::GetIp => {
                         let (executor, active_device) = network_devices.get_mut(0).unwrap();
-                        let future = get_local_ip(active_device.clone(), executor.waker_registry());
-                        executor.spawn(future);
+                        let device = active_device.clone();
+                        let waker_reg = executor.waker_registry();
+                        executor.spawn(async move {
+                            let _ = get_local_ip(device, waker_reg).await;
+                        });
+                    }
+                    NetRequest::GetMacForIp(ip) => {
+                        let (executor, active_device) = network_devices.get_mut(0).unwrap();
+                        let device = active_device.clone();
+                        let waker_reg = executor.waker_registry();
+                        executor.spawn(async move {
+                            if let Some(mac) = resolve_ip_to_mac(ip, device, waker_reg).await {
+                                LOGGER.log(format_args!("Resolved {} to MAC {}", ip, mac));
+                            } else {
+                                LOGGER.log(format_args!("Failed to resolve IP {}", ip));
+                            }
+                        });
                     }
                     _ => {}
                 }
@@ -252,7 +277,6 @@ pub fn net_stack_resident() -> ! {
         }
 
         // For each device, check the read op
-        crate::kprintln!(" ~ ~ NETWAKE");
         for (executor, net_dev_lock) in network_devices.iter_mut() {
             let read_event = {
                 let mut net_dev = net_dev_lock.write();
@@ -272,11 +296,11 @@ pub fn net_stack_resident() -> ! {
 async fn get_local_ip(
     net_dev_lock: Arc<RwLock<NetDevice>>,
     waker_registry: WakerRegistry<NetEvent>,
-) {
+) -> Option<Ipv4Address> {
     let resolved_ip = net_dev_lock.read().dhcp_state.local_ip.clone();
     let xid = match resolved_ip {
         IpResolution::Bound(ip, _expiration) => {
-            return;
+            return Some(ip);
         }
         IpResolution::Unbound => {
             // never initialized before, run the whole process
@@ -295,11 +319,35 @@ async fn get_local_ip(
 
     let final_state = net_dev_lock.read().dhcp_state.local_ip.clone();
     match final_state {
-        IpResolution::Bound(ip, _expiration) => {
-            LOGGER.log(format_args!("DHCP completed with IP: {}", ip));
-        }
-        _ => {
-            LOGGER.log(format_args!("DHCP failed to complete"));
-        }
+        IpResolution::Bound(ip, _expiration) => Some(ip),
+        _ => None,
     }
+}
+
+async fn resolve_ip_to_mac(
+    target_ip: Ipv4Address,
+    net_dev_lock: Arc<RwLock<NetDevice>>,
+    waker_registry: WakerRegistry<NetEvent>,
+) -> Option<HardwareAddress> {
+    if let Some(mac) = net_dev_lock.read().known_arp.get(&target_ip).cloned() {
+        return Some(mac);
+    }
+
+    // If not known, send an ARP request and wait for a response
+    let local_ip = get_local_ip(net_dev_lock.clone(), waker_registry.clone()).await?;
+    {
+        let mut net_dev = net_dev_lock.write();
+        crate::kprintln!("ARP WRITE");
+        let local_mac = net_dev.mac;
+        let arp_request = ArpPacket::request(local_mac, target_ip, target_ip);
+        let eth_frame = EthernetFrameHeader::broadcast_arp(local_mac);
+        let write = net_dev.send_raw(eth_frame, arp_request.as_u8_buffer());
+        net_dev.add_write(write);
+        crate::kprintln!("ARP SENT");
+    }
+
+    WaitForEvent::new(NetEvent::ArpResponse(target_ip), waker_registry.clone()).await;
+    LOGGER.log(format_args!("Resolving IP {} to MAC", target_ip));
+
+    net_dev_lock.read().known_arp.get(&target_ip).cloned()
 }

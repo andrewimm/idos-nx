@@ -164,7 +164,7 @@ fn run_driver() -> ! {
     let _ = append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
 
     register_network_device("DEV:\\ETH", mac);
-    crate::net::resident::get_ip();
+    crate::net::resident::get_mac_for_ip(crate::net::protocol::ipv4::Ipv4Address([192, 168, 0, 1]));
     let _ = write_sync(response_writer, &[0], 0);
     let _ = close_sync(response_writer);
 
