@@ -297,6 +297,10 @@ async fn get_local_ip(
     net_dev_lock: Arc<RwLock<NetDevice>>,
     waker_registry: WakerRegistry<NetEvent>,
 ) -> Option<Ipv4Address> {
+    let is_open = net_dev_lock.read().is_open;
+    if !is_open {
+        WaitForEvent::new(NetEvent::LinkEstablished, waker_registry.clone()).await;
+    }
     let resolved_ip = net_dev_lock.read().dhcp_state.local_ip.clone();
     let xid = match resolved_ip {
         IpResolution::Bound(ip, _expiration) => {
@@ -329,6 +333,10 @@ async fn resolve_ip_to_mac(
     net_dev_lock: Arc<RwLock<NetDevice>>,
     waker_registry: WakerRegistry<NetEvent>,
 ) -> Option<HardwareAddress> {
+    let is_open = net_dev_lock.read().is_open;
+    if !is_open {
+        WaitForEvent::new(NetEvent::LinkEstablished, waker_registry.clone()).await;
+    }
     if let Some(mac) = net_dev_lock.read().known_arp.get(&target_ip).cloned() {
         return Some(mac);
     }
@@ -337,13 +345,11 @@ async fn resolve_ip_to_mac(
     let local_ip = get_local_ip(net_dev_lock.clone(), waker_registry.clone()).await?;
     {
         let mut net_dev = net_dev_lock.write();
-        crate::kprintln!("ARP WRITE");
         let local_mac = net_dev.mac;
-        let arp_request = ArpPacket::request(local_mac, target_ip, target_ip);
+        let arp_request = ArpPacket::request(local_mac, local_ip, target_ip);
         let eth_frame = EthernetFrameHeader::broadcast_arp(local_mac);
         let write = net_dev.send_raw(eth_frame, arp_request.as_u8_buffer());
         net_dev.add_write(write);
-        crate::kprintln!("ARP SENT");
     }
 
     WaitForEvent::new(NetEvent::ArpResponse(target_ip), waker_registry.clone()).await;

@@ -32,7 +32,7 @@ impl core::ops::DerefMut for HardwareAddress {
 impl core::fmt::Display for HardwareAddress {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(core::format_args!(
-            "{}:{}:{}:{}:{}:{}",
+            "{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
             self[0],
             self[1],
             self[2],

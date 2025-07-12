@@ -25,6 +25,8 @@ use super::{hardware::HardwareAddress, protocol::arp::ArpPacket};
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NetEvent {
+    LinkEstablished,
+
     ArpResponse(Ipv4Address),
 
     DhcpOffer(u32),
@@ -45,7 +47,7 @@ pub struct NetDevice {
     wake_set: Handle,
     /// Marks if the network device has already been opened. If false, the
     /// `active_read` op is actually the open operation.
-    is_open: bool,
+    pub is_open: bool,
     /// A network device is always awaiting the next read. When a result arrives
     /// it wakes up the networking resident, which will check all devices for
     /// updates.
@@ -101,6 +103,7 @@ impl NetDevice {
         total_frame.extend_from_slice(eth_header.as_u8_buffer());
         total_frame.extend(payload);
 
+        crate::kprintln!("SEND RAW");
         let async_op = Box::new(AsyncOp::new(
             ASYNC_OP_WRITE,
             total_frame.as_ptr() as u32,
@@ -125,7 +128,10 @@ impl NetDevice {
             };
             if can_pop {
                 let front = self.active_writes.pop_front();
-                if let Some((_payload, _op)) = front {}
+                if let Some((_payload, op)) = front {
+                    let return_value = op.return_value.load(Ordering::SeqCst);
+                    // TODO: Check for errors?
+                }
             } else {
                 break;
             }
@@ -166,7 +172,7 @@ impl NetDevice {
             self.is_open = true;
             // we successfully opened the device, so we can now start reading
             self.add_new_read_request();
-            return None;
+            return Some(NetEvent::LinkEstablished);
         }
 
         let result = self.active_read.return_value.load(Ordering::SeqCst);

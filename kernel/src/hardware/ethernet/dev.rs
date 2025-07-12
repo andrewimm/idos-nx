@@ -22,9 +22,7 @@ use crate::net::resident::register_network_device;
 use crate::task::actions::handle::{
     create_pipe_handles, open_interrupt_handle, open_message_queue, transfer_handle,
 };
-use crate::task::actions::io::{
-    send_io_op, close_sync, driver_io_complete, read_sync, write_sync,
-};
+use crate::task::actions::io::{close_sync, driver_io_complete, read_sync, send_io_op, write_sync};
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
@@ -164,7 +162,7 @@ fn run_driver() -> ! {
     let _ = send_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
 
     register_network_device("DEV:\\ETH", mac);
-    crate::net::resident::get_mac_for_ip(crate::net::protocol::ipv4::Ipv4Address([192, 168, 0, 1]));
+    crate::net::resident::get_mac_for_ip(crate::net::protocol::ipv4::Ipv4Address([10, 0, 2, 2]));
     let _ = write_sync(response_writer, &[0], 0);
     let _ = close_sync(response_writer);
 

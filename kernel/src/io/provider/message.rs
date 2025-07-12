@@ -46,17 +46,23 @@ impl MessageIOProvider {
     }
 
     pub fn check_messages(&self) {
-        let packet = match self.pop_message() {
-            Some(packet) => packet,
-            None => return,
-        };
-        let (sender, message) = packet.open();
-        // TODO: This should probably loop over all ops
-        if let Some(first) = self.pending_ops.write().pop_first() {
-            let (id, op) = first;
-            let message_paddr = op.args[0];
-            Self::copy_message(message_paddr, message);
-            op.complete(sender.into());
+        if self.pending_ops.read().is_empty() {
+            // if there are no pending operations, avoid popping the recently
+            // sent message
+            return;
+        }
+        loop {
+            let packet = match self.pop_message() {
+                Some(packet) => packet,
+                None => return,
+            };
+            let (sender, message) = packet.open();
+            if let Some(first) = self.pending_ops.write().pop_first() {
+                let (id, op) = first;
+                let message_paddr = op.args[0];
+                Self::copy_message(message_paddr, message);
+                op.complete(sender.into());
+            }
         }
     }
 
