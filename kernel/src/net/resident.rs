@@ -352,8 +352,27 @@ async fn resolve_ip_to_mac(
         net_dev.add_write(write);
     }
 
-    WaitForEvent::new(NetEvent::ArpResponse(target_ip), waker_registry.clone()).await;
+    WaitForEvent::new(NetEvent::ArpResponse(target_ip), waker_registry).await;
     LOGGER.log(format_args!("Resolving IP {} to MAC", target_ip));
 
     net_dev_lock.read().known_arp.get(&target_ip).cloned()
+}
+
+async fn get_next_hop(
+    destination: Ipv4Address,
+    net_dev_lock: Arc<RwLock<NetDevice>>,
+    waker_registry: WakerRegistry<NetEvent>,
+) -> Option<HardwareAddress> {
+    let local_ip = get_local_ip(net_dev_lock.clone(), waker_registry.clone()).await?;
+    let net_mask = net_dev_lock.read().dhcp_state.subnet_mask;
+    let local_masked = local_ip & net_mask;
+    let dest_masked = destination & net_mask;
+    if local_masked == dest_masked {
+        // If the destination is on the same subnet, we can use ARP to resolve it
+        resolve_ip_to_mac(destination, net_dev_lock, waker_registry).await
+    } else {
+        // If the destination is not on the same subnet, we need to use a gateway
+        let gateway = net_dev_lock.read().dhcp_state.gateway_ip;
+        resolve_ip_to_mac(gateway, net_dev_lock, waker_registry).await
+    }
 }

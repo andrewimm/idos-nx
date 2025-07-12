@@ -37,6 +37,18 @@ impl core::fmt::Display for Ipv4Address {
     }
 }
 
+impl core::ops::BitAnd for Ipv4Address {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        let mut result = self;
+        for i in 0..4 {
+            result[i] &= rhs[i];
+        }
+        result
+    }
+}
+
 /// Enum for supported IP protocol types
 #[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
