@@ -34,7 +34,7 @@ impl IOType {
 
     pub fn op_request(&self, index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         let provider = self.inner();
-        provider.enqueue_op(index, op, wake_set)
+        provider.add_op(index, op, wake_set)
     }
 
     pub fn set_task(&self, task: TaskID) {
@@ -67,7 +67,7 @@ pub const SOCKET_OP_ACCEPT: u32 = 8;
 /// When an op is added to an open IO instance, it is given a unique identifier
 /// This can be used to cancel or complete the operation from an outside source
 /// like an async driver.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub struct AsyncOpID(u32);
 
 impl AsyncOpID {

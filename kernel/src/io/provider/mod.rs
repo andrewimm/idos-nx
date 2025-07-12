@@ -28,23 +28,22 @@ pub type IOResult = Result<u32, IOError>;
 
 #[allow(unused_variables)]
 pub trait IOProvider {
-    /// Queue operations must be implemented by each Provider.
-    /// enqueue_op adds a new op to be handled. Many providers implement a
-    /// single operation queue, but some may have multiple parallel queues if,
-    /// say, reads should not block writes (as is the case with sockets).
+    /// Actual storage of operations must be implemented by each Provider.
+    /// `add_op` attaches a new async op to be processed by this Provider.
+    /// Operations are not enqueued, and may be processed in parallel. It is
+    /// up to the downstream implementation to decide how this works.
+    /// There are provider types (sockets) and device drivers where a read
+    /// should not block a write, or vice-versa.
     /// The optional handle to a wake set is passed in as well. The provider is
     /// responsible for making sure that the physical address of the op signal
     /// is removed from the set when the op is completed.
-    /// The method returns the unique ID of the enqueued op, which can be used
-    /// to reference, complete, or cancel the op.
-    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID;
+    /// The method returns the unique ID of the newly added op, which can be
+    /// used to reference, complete, or cancel the op.
+    fn add_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID;
 
-    fn get_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)>;
+    fn get_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp>;
 
-    fn take_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)>;
-
-    /// Take the first enqueued operation and make it active, if there is one
-    fn pop_queued_op(&self);
+    fn remove_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp>;
 
     fn transform_result(&self, op_code: u32, result: IOResult) -> u32 {
         let mapped_result = if op_code & 0xffff == ASYNC_OP_OPEN {
@@ -81,37 +80,19 @@ pub trait IOProvider {
         id: AsyncOpID,
         result: IOResult,
     ) {
-        match self.get_active_op() {
-            Some((active_id, _)) => {
-                if active_id != id {
-                    return;
-                }
-            }
-            None => return,
-        }
-        let active_op = match self.take_active_op() {
-            Some((_, op)) => op,
-            None => return,
-        };
-        active_op.complete(self.transform_result(active_op.op_code, result));
-
-        loop {
-            self.pop_queued_op();
-            if let Some(res) = self.run_active_op(provider_index) {
-                let active_op = match self.take_active_op() {
-                    Some((_, op)) => op,
-                    None => return,
-                };
-                active_op.complete(self.transform_result(active_op.op_code, res));
-            } else {
+        let found_op = match self.remove_op(id) {
+            Some(op) => op,
+            None => {
+                // If the op is not found, we can't complete it
                 return;
             }
-        }
+        };
+        found_op.complete(self.transform_result(found_op.op_code, result));
     }
 
     /// Look up the active op, and run a specific io method based on its op code
-    fn run_active_op(&self, provider_index: u32) -> Option<IOResult> {
-        let (id, op) = self.get_active_op()?;
+    fn run_op(&self, provider_index: u32, id: AsyncOpID) -> Option<IOResult> {
+        let op = self.get_op(id)?;
         match op.op_code & 0xffff {
             ASYNC_OP_OPEN => self.open(provider_index, id, op),
             ASYNC_OP_CLOSE => self.close(provider_index, id, op),

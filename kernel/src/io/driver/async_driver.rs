@@ -15,6 +15,8 @@ use idos_api::io::error::IOError;
 #[allow(unused_variables)]
 pub trait AsyncDriver {
     fn handle_request(&mut self, message: Message) -> Option<IOResult> {
+        // TODO: We should probably add some queueing so that multiple ops to the
+        // same handle don't cause any conflict
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::Open => {
                 let path_ptr = message.args[0] as *const u8;

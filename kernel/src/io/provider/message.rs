@@ -15,24 +15,23 @@ use crate::{
         switching::get_current_id,
     },
 };
+use alloc::collections::BTreeMap;
 use idos_api::io::AsyncOp;
 use spin::RwLock;
 
 /// Inner contents of the handle used to read IPC messages.
 pub struct MessageIOProvider {
     task_id: TaskID,
-    active: RwLock<Option<(AsyncOpID, UnmappedAsyncOp)>>,
     id_gen: OpIdGenerator,
-    pending_ops: AsyncOpQueue,
+    pending_ops: RwLock<BTreeMap<AsyncOpID, UnmappedAsyncOp>>,
 }
 
 impl MessageIOProvider {
     pub fn for_task(task_id: TaskID) -> Self {
         Self {
             task_id,
-            active: RwLock::new(None),
             id_gen: OpIdGenerator::new(),
-            pending_ops: AsyncOpQueue::new(),
+            pending_ops: RwLock::new(BTreeMap::new()),
         }
     }
 
@@ -47,25 +46,18 @@ impl MessageIOProvider {
     }
 
     pub fn check_messages(&self) {
-        let message_paddr = {
-            let active = self.active.read();
-            match *active {
-                Some((_, ref op)) => op.args[0],
-                None => return,
-            }
-        };
         let packet = match self.pop_message() {
             Some(packet) => packet,
             None => return,
         };
         let (sender, message) = packet.open();
-        Self::copy_message(message_paddr, message);
-
-        let active_op = match self.take_active_op() {
-            Some((_, op)) => op,
-            None => return,
-        };
-        active_op.complete(sender.into());
+        // TODO: This should probably loop over all ops
+        if let Some(first) = self.pending_ops.write().pop_first() {
+            let (id, op) = first;
+            let message_paddr = op.args[0];
+            Self::copy_message(message_paddr, message);
+            op.complete(sender.into());
+        }
     }
 
     pub fn copy_message(message_paddr: u32, message: Message) {
@@ -81,7 +73,7 @@ impl MessageIOProvider {
 }
 
 impl IOProvider for MessageIOProvider {
-    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
+    fn add_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         // convert the virtual address of the message pointer to a physical
         // address
         // TODO: if the message spans two physical pages, we're gonna have a problem!
@@ -97,15 +89,12 @@ impl IOProvider for MessageIOProvider {
         let mut unmapped =
             UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
         unmapped.args[0] = message_phys.as_u32();
-        if self.active.read().is_some() {
-            self.pending_ops.push(id, unmapped);
-            return id;
-        }
 
-        *self.active.write() = Some((id, unmapped));
-        match self.run_active_op(provider_index) {
+        self.pending_ops.write().insert(id, unmapped);
+
+        match self.run_op(provider_index, id) {
             Some(result) => {
-                *self.active.write() = None;
+                self.remove_op(id);
                 let return_value = match result {
                     Ok(inner) => inner & 0x7fffffff,
                     Err(inner) => Into::<u32>::into(inner) | 0x80000000,
@@ -118,17 +107,12 @@ impl IOProvider for MessageIOProvider {
         id
     }
 
-    fn get_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
-        self.active.read().clone()
+    fn get_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp> {
+        self.pending_ops.read().get(&id).cloned()
     }
 
-    fn take_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
-        self.active.write().take()
-    }
-
-    fn pop_queued_op(&self) {
-        let next = self.pending_ops.pop();
-        *self.active.write() = next;
+    fn remove_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp> {
+        self.pending_ops.write().remove(&id)
     }
 
     fn read(

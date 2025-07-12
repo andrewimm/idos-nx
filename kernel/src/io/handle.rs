@@ -89,7 +89,7 @@ impl PendingHandleOp {
     }
 
     pub fn submit_io(&self) -> &Self {
-        crate::task::actions::io::append_io_op(self.handle, &self.op, None).unwrap();
+        crate::task::actions::io::send_io_op(self.handle, &self.op, None).unwrap();
         self
     }
 

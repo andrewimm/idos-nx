@@ -13,7 +13,7 @@ use crate::{
     task::{
         actions::{
             handle::{open_interrupt_handle, open_message_queue},
-            io::{append_io_op, driver_io_complete, write_sync},
+            io::{send_io_op, driver_io_complete, write_sync},
             lifecycle::create_kernel_task,
             sync::{block_on_wake_set, create_wake_set},
         },
@@ -36,14 +36,14 @@ pub fn run_driver() -> ! {
     let mut driver_impl = ComDeviceDriver::new(0x3f8);
 
     let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
-    let _ = append_io_op(irq_handle, &interrupt_read, Some(wake_set));
+    let _ = send_io_op(irq_handle, &interrupt_read, Some(wake_set));
     let mut message_read = AsyncOp::new(
         ASYNC_OP_READ,
         &mut incoming_message as *mut Message as u32,
         core::mem::size_of::<Message>() as u32,
         0,
     );
-    let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
+    let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
     loop {
         if interrupt_read.is_complete() {
             let _ = write_sync(irq_handle, &[1], 0);
@@ -54,7 +54,7 @@ pub fn run_driver() -> ! {
             }
 
             interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
-            let _ = append_io_op(irq_handle, &interrupt_read, Some(wake_set));
+            let _ = send_io_op(irq_handle, &interrupt_read, Some(wake_set));
         } else if message_read.is_complete() {
             let request_id = incoming_message.unique_id;
             match driver_impl.handle_request(incoming_message) {
@@ -68,7 +68,7 @@ pub fn run_driver() -> ! {
                 core::mem::size_of::<Message>() as u32,
                 0,
             );
-            let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
+            let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
         } else {
             block_on_wake_set(wake_set, None);
         }

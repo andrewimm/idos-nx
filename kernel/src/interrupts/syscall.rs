@@ -186,7 +186,7 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
                 0xffff_ffff => None,
                 edx => Some(Handle::new(edx as usize)),
             };
-            match actions::io::append_io_op(handle, op, wake_set) {
+            match actions::io::send_io_op(handle, op, wake_set) {
                 Ok(_) => registers.eax = 1,
                 // TODO: error codes
                 Err(_e) => registers.eax = 0x8000_0000,

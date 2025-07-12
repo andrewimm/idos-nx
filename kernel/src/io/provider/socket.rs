@@ -43,24 +43,15 @@ impl SocketIOProvider {
 }
 
 impl IOProvider for SocketIOProvider {
-    fn enqueue_op(
-        &self,
-        _provider_index: u32,
-        _op: &AsyncOp,
-        _wake_set: Option<Handle>,
-    ) -> AsyncOpID {
+    fn add_op(&self, _provider_index: u32, _op: &AsyncOp, _wake_set: Option<Handle>) -> AsyncOpID {
         unimplemented!()
     }
 
-    fn get_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
+    fn get_op(&self, _id: AsyncOpID) -> Option<UnmappedAsyncOp> {
         unimplemented!()
     }
 
-    fn take_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
-        unimplemented!()
-    }
-
-    fn pop_queued_op(&self) {
+    fn remove_op(&self, _id: AsyncOpID) -> Option<UnmappedAsyncOp> {
         unimplemented!()
     }
 

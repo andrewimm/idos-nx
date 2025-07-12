@@ -235,7 +235,7 @@ mod tests {
     use crate::io::async_io::{ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
     use crate::io::handle::PendingHandleOp;
     use crate::memory::address::VirtualAddress;
-    use crate::task::actions::io::append_io_op;
+    use crate::task::actions::io::send_io_op;
     use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
     use crate::task::switching::get_current_task;
 
@@ -520,7 +520,8 @@ mod tests {
         assert_eq!(buffer, [b's', b't', b't', b'e']);
     }
 
-    #[test_case]
+    // we don't queue ops anymore, this might be irrelevant
+    //#[test_case]
     fn queueing_ops() {
         let handle = super::create_file_handle();
         let path = "ATEST:\\MYFILE.TXT";
@@ -553,7 +554,7 @@ mod tests {
         let async_op = idos_api::io::AsyncOp::new(ASYNC_OP_OPEN, path_ptr, path_len, 0);
 
         // running this will temporarily add the signal address to the wake set
-        append_io_op(file_handle, &async_op, Some(wake_set)).unwrap();
+        send_io_op(file_handle, &async_op, Some(wake_set)).unwrap();
         block_on_wake_set(wake_set, None);
         assert!(async_op.is_complete());
     }

@@ -16,8 +16,9 @@ use crate::{
         switching::get_current_id,
     },
 };
+use alloc::collections::BTreeMap;
 use idos_api::io::{error::IOError, AsyncOp};
-use spin::Mutex;
+use spin::{Mutex, RwLock};
 
 /// Inner contents of a handle that is bound to a file for reading/writing
 pub struct FileIOProvider {
@@ -25,9 +26,8 @@ pub struct FileIOProvider {
     driver_id: Mutex<Option<DriverID>>,
     bound_instance: Mutex<Option<u32>>,
 
-    active: Mutex<Option<(AsyncOpID, UnmappedAsyncOp)>>,
     id_gen: OpIdGenerator,
-    pending_ops: AsyncOpQueue,
+    pending_ops: RwLock<BTreeMap<AsyncOpID, UnmappedAsyncOp>>,
 }
 
 impl FileIOProvider {
@@ -37,9 +37,8 @@ impl FileIOProvider {
             driver_id: Mutex::new(None),
             bound_instance: Mutex::new(None),
 
-            active: Mutex::new(None),
             id_gen: OpIdGenerator::new(),
-            pending_ops: AsyncOpQueue::new(),
+            pending_ops: RwLock::new(BTreeMap::new()),
         }
     }
 
@@ -49,9 +48,8 @@ impl FileIOProvider {
             driver_id: Mutex::new(Some(driver_id)),
             bound_instance: Mutex::new(Some(bound_instance)),
 
-            active: Mutex::new(None),
             id_gen: OpIdGenerator::new(),
-            pending_ops: AsyncOpQueue::new(),
+            pending_ops: RwLock::new(BTreeMap::new()),
         }
     }
 
@@ -71,27 +69,22 @@ impl FileIOProvider {
             source_id: AtomicTaskID::new(new_task.into()),
             driver_id: Mutex::new(self.driver_id.lock().clone()),
             bound_instance: Mutex::new(self.bound_instance.lock().clone()),
-            active: Mutex::new(None),
             id_gen: OpIdGenerator::new(),
-            pending_ops: AsyncOpQueue::new(),
+            pending_ops: RwLock::new(BTreeMap::new()),
         }
     }
 }
 
 impl IOProvider for FileIOProvider {
-    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
+    fn add_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         let id = self.id_gen.next_id();
         let unmapped =
             UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
-        if self.active.lock().is_some() {
-            self.pending_ops.push(id, unmapped);
-            return id;
-        }
+        self.pending_ops.write().insert(id, unmapped);
 
-        *self.active.lock() = Some((id, unmapped));
-        match self.run_active_op(provider_index) {
+        match self.run_op(provider_index, id) {
             Some(result) => {
-                *self.active.lock() = None;
+                self.remove_op(id);
                 let return_value = self.transform_result(op.op_code, result);
                 op.return_value.store(return_value, Ordering::SeqCst);
                 op.signal.store(1, Ordering::SeqCst);
@@ -101,17 +94,12 @@ impl IOProvider for FileIOProvider {
         id
     }
 
-    fn get_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
-        self.active.lock().clone()
+    fn get_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp> {
+        self.pending_ops.read().get(&id).cloned()
     }
 
-    fn take_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
-        self.active.lock().take()
-    }
-
-    fn pop_queued_op(&self) {
-        let next = self.pending_ops.pop();
-        *self.active.lock() = next;
+    fn remove_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp> {
+        self.pending_ops.write().remove(&id)
     }
 
     fn bind_to(&self, instance: u32) {

@@ -2,6 +2,8 @@
 
 use core::sync::atomic::Ordering;
 
+use alloc::collections::BTreeMap;
+use alloc::vec::Vec;
 use idos_api::io::AsyncOp;
 use spin::RwLock;
 
@@ -9,15 +11,15 @@ use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
 use crate::interrupts::pic::{acknowledge_interrupt, is_interrupt_active};
 use crate::io::async_io::AsyncOpID;
 use crate::io::handle::Handle;
+use crate::task::id::TaskID;
 use crate::task::switching::get_current_id;
 
 /// Inner contents of the handle used to read IPC messages.
 pub struct InterruptIOProvider {
     irq: u8,
 
-    active: RwLock<Option<(AsyncOpID, UnmappedAsyncOp)>>,
     id_gen: OpIdGenerator,
-    pending_ops: AsyncOpQueue,
+    pending_ops: RwLock<BTreeMap<AsyncOpID, UnmappedAsyncOp>>,
 }
 
 impl InterruptIOProvider {
@@ -25,27 +27,29 @@ impl InterruptIOProvider {
         Self {
             irq,
 
-            active: RwLock::new(None),
             id_gen: OpIdGenerator::new(),
-            pending_ops: AsyncOpQueue::new(),
+            pending_ops: RwLock::new(BTreeMap::new()),
+        }
+    }
+
+    pub fn interrupt_fired(&self, task_id: TaskID, provider_index: u32) {
+        let ids = self.pending_ops.read().keys().cloned().collect::<Vec<_>>();
+        for id in ids {
+            self.async_complete(task_id, provider_index, id, Ok(1));
         }
     }
 }
 
 impl IOProvider for InterruptIOProvider {
-    fn enqueue_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
+    fn add_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
         let id = self.id_gen.next_id();
         let unmapped =
             UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
-        if self.active.read().is_some() {
-            self.pending_ops.push(id, unmapped);
-            return id;
-        }
+        self.pending_ops.write().insert(id, unmapped);
 
-        *self.active.write() = Some((id, unmapped));
-        match self.run_active_op(provider_index) {
+        match self.run_op(provider_index, id) {
             Some(result) => {
-                *self.active.write() = None;
+                self.remove_op(id);
                 let return_value = self.transform_result(op.op_code, result);
                 op.return_value.store(return_value, Ordering::SeqCst);
                 op.signal.store(1, Ordering::SeqCst);
@@ -55,17 +59,12 @@ impl IOProvider for InterruptIOProvider {
         id
     }
 
-    fn get_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
-        self.active.read().clone()
+    fn get_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp> {
+        self.pending_ops.read().get(&id).cloned()
     }
 
-    fn take_active_op(&self) -> Option<(AsyncOpID, UnmappedAsyncOp)> {
-        self.active.write().take()
-    }
-
-    fn pop_queued_op(&self) {
-        let next = self.pending_ops.pop();
-        *self.active.write() = next;
+    fn remove_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp> {
+        self.pending_ops.write().remove(&id)
     }
 
     /// `read`ing an irq listens for the interrupt

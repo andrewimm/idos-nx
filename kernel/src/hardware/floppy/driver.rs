@@ -15,7 +15,7 @@ use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::task::actions::handle::{open_interrupt_handle, open_message_queue};
-use crate::task::actions::io::{append_io_op, close_sync, driver_io_complete, write_sync};
+use crate::task::actions::io::{send_io_op, close_sync, driver_io_complete, write_sync};
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::actions::yield_coop;
@@ -393,14 +393,14 @@ pub fn run_driver() -> ! {
     let mut interrupt_ready: [u8; 1] = [0];
     let mut incoming_message = Message::empty();
     let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
-    let _ = append_io_op(floppy_irq, &interrupt_read, Some(wake_set));
+    let _ = send_io_op(floppy_irq, &interrupt_read, Some(wake_set));
     let mut message_read = AsyncOp::new(
         ASYNC_OP_READ,
         &mut incoming_message as *mut Message as u32,
         core::mem::size_of::<Message>() as u32,
         0,
     );
-    let _ = append_io_op(messages, &message_read, Some(wake_set));
+    let _ = send_io_op(messages, &message_read, Some(wake_set));
 
     loop {
         if interrupt_read.is_complete() {
@@ -408,7 +408,7 @@ pub fn run_driver() -> ! {
             let _ = write_sync(floppy_irq, &[], 0);
             interrupt_flag.store(true, Ordering::SeqCst);
             interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
-            let _ = append_io_op(floppy_irq, &interrupt_read, Some(wake_set));
+            let _ = send_io_op(floppy_irq, &interrupt_read, Some(wake_set));
         } else if message_read.is_complete() {
             let sender = message_read.return_value.load(Ordering::SeqCst);
             pending_requests.push_back((TaskID::new(sender), incoming_message.clone()));
@@ -419,7 +419,7 @@ pub fn run_driver() -> ! {
                 core::mem::size_of::<Message>() as u32,
                 0,
             );
-            let _ = append_io_op(messages, &message_read, Some(wake_set));
+            let _ = send_io_op(messages, &message_read, Some(wake_set));
         } else {
             if active_request.is_none() {
                 active_request = pending_requests.pop_front().map(|(_sender, message)| {

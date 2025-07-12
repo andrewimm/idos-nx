@@ -91,7 +91,7 @@ pub mod async_fs {
     use idos_api::io::AsyncOp;
 
     use crate::task::actions::{
-        io::{append_io_op, driver_io_complete},
+        io::{driver_io_complete, send_io_op},
         sync::{block_on_wake_set, create_wake_set},
     };
 
@@ -166,7 +166,7 @@ pub mod async_fs {
             core::mem::size_of::<Message>() as u32,
             0,
         );
-        let _ = append_io_op(message_handle, &op, Some(wake_set));
+        let _ = send_io_op(message_handle, &op, Some(wake_set));
 
         loop {
             if op.is_complete() {
@@ -176,7 +176,7 @@ pub mod async_fs {
                     core::mem::size_of::<Message>() as u32,
                     0,
                 );
-                let _ = append_io_op(message_handle, &op, Some(wake_set));
+                let _ = send_io_op(message_handle, &op, Some(wake_set));
             } else {
                 // Wait for the next message
                 block_on_wake_set(wake_set, None);
@@ -195,7 +195,7 @@ pub mod async_dev {
     use idos_api::io::AsyncOp;
 
     use crate::task::actions::{
-        io::{append_io_op, driver_io_complete},
+        io::{driver_io_complete, send_io_op},
         sync::{block_on_wake_set, create_wake_set},
     };
 
@@ -267,7 +267,7 @@ pub mod async_dev {
             core::mem::size_of::<Message>() as u32,
             0,
         );
-        let _ = append_io_op(message_handle, &op, Some(wake_set));
+        let _ = send_io_op(message_handle, &op, Some(wake_set));
 
         loop {
             if op.is_complete() {
@@ -277,7 +277,7 @@ pub mod async_dev {
                     core::mem::size_of::<Message>() as u32,
                     0,
                 );
-                let _ = append_io_op(message_handle, &op, Some(wake_set));
+                let _ = send_io_op(message_handle, &op, Some(wake_set));
             } else {
                 // Wait for the next message
                 block_on_wake_set(wake_set, None);

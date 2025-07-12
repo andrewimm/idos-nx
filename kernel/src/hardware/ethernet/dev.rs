@@ -23,7 +23,7 @@ use crate::task::actions::handle::{
     create_pipe_handles, open_interrupt_handle, open_message_queue, transfer_handle,
 };
 use crate::task::actions::io::{
-    append_io_op, close_sync, driver_io_complete, read_sync, write_sync,
+    send_io_op, close_sync, driver_io_complete, read_sync, write_sync,
 };
 use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
@@ -159,9 +159,9 @@ fn run_driver() -> ! {
         core::mem::size_of::<Message>() as u32,
         0,
     );
-    let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
+    let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
     let mut interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
-    let _ = append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
+    let _ = send_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
 
     register_network_device("DEV:\\ETH", mac);
     crate::net::resident::get_mac_for_ip(crate::net::protocol::ipv4::Ipv4Address([192, 168, 0, 1]));
@@ -189,7 +189,7 @@ fn run_driver() -> ! {
             let _ = write_sync(interrupt_handle, &[], 0);
 
             interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
-            let _ = append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
+            let _ = send_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
         } else if message_read.is_complete() {
             match driver_impl.handle_request(incoming_message) {
                 Some(response) => send_response(incoming_message.unique_id, response),
@@ -202,7 +202,7 @@ fn run_driver() -> ! {
                 core::mem::size_of::<Message>() as u32,
                 0,
             );
-            let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
+            let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
         } else {
             block_on_wake_set(wake_set, None);
         }

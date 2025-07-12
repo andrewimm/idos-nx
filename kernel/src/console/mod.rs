@@ -8,9 +8,7 @@ use crate::io::async_io::ASYNC_OP_READ;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::task::actions::handle::{create_pipe_handles, open_message_queue, transfer_handle};
-use crate::task::actions::io::{
-    append_io_op, close_sync, driver_io_complete, read_sync, write_sync,
-};
+use crate::task::actions::io::{close_sync, driver_io_complete, read_sync, send_io_op, write_sync};
 use crate::task::actions::lifecycle::{create_kernel_task, terminate};
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
@@ -111,7 +109,7 @@ pub fn manager_task() -> ! {
         core::mem::size_of::<Message>() as u32,
         0,
     );
-    let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
+    let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
 
     let mut last_action_type: u8 = 0;
     loop {
@@ -149,7 +147,7 @@ pub fn manager_task() -> ! {
                 core::mem::size_of::<Message>() as u32,
                 0,
             );
-            let _ = append_io_op(messages_handle, &message_read, Some(wake_set));
+            let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
         }
 
         conman.draw_window(con1, &mut fb, &console_font);

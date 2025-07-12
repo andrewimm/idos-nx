@@ -10,7 +10,7 @@ use idos_api::io::{AsyncOp, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
 use crate::{
     executor::{Executor, WaitForEvent},
     io::handle::Handle,
-    task::actions::{handle::create_file_handle, io::append_io_op},
+    task::actions::{handle::create_file_handle, io::send_io_op},
 };
 
 use super::protocol::{
@@ -76,7 +76,7 @@ impl NetDevice {
             device_path.len() as u32,
             0,
         ));
-        let _ = append_io_op(device_driver_handle, &active_read, Some(wake_set));
+        let _ = send_io_op(device_driver_handle, &active_read, Some(wake_set));
 
         NetDevice {
             mac,
@@ -107,7 +107,7 @@ impl NetDevice {
             total_frame.len() as u32,
             0,
         ));
-        let _ = append_io_op(self.device_driver_handle, &async_op, Some(self.wake_set));
+        let _ = send_io_op(self.device_driver_handle, &async_op, Some(self.wake_set));
 
         // return the vec so it can be stored, and not immediately dropped
         (total_frame, async_op)
@@ -143,7 +143,7 @@ impl NetDevice {
             self.read_buffer.len() as u32,
             0,
         ));
-        let _ = append_io_op(
+        let _ = send_io_op(
             self.device_driver_handle,
             &self.active_read,
             Some(self.wake_set),

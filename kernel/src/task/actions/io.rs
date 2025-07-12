@@ -13,7 +13,7 @@ use crate::{
 /// by the signal futex on the AsyncOp. If an optional Wake Set is provided,
 /// the signal futex will be temporarily added to that Wake Set. When the IO
 /// operation is completed, the address will be removed from the Wake Set.
-pub fn append_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> Result<(), ()> {
+pub fn send_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> Result<(), ()> {
     let task_lock = get_current_task();
     let code = op.op_code;
     if code & 0xfff == ASYNC_OP_CLOSE {
@@ -101,7 +101,7 @@ pub fn close_sync(handle: Handle) -> IOResult {
 
 pub fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) -> IOResult {
     let async_op = AsyncOp::new(op_code, arg0, arg1, arg2);
-    append_io_op(handle, &async_op, None).unwrap();
+    send_io_op(handle, &async_op, None).unwrap();
 
     while async_op.signal.load(Ordering::SeqCst) == 0 {
         futex_wait(VirtualAddress::new(async_op.signal_address()), 0, None);
