@@ -25,22 +25,12 @@
 //! it.
 //!
 
-//pub mod arp;
-pub mod checksum;
-pub mod dhcp;
 pub mod error;
-pub mod ethernet;
 pub mod hardware;
-pub mod ip;
 pub mod netdevice;
-pub mod packet;
 pub mod protocol;
 pub mod resident;
-//pub mod socket;
-//pub mod tcp;
-pub mod udp;
 
-use self::ethernet::HardwareAddress;
 use crate::task::actions::{
     handle::{create_file_handle, create_kernel_task, create_pipe_handles, transfer_handle},
     io::{close_sync, open_sync, read_sync, write_sync},

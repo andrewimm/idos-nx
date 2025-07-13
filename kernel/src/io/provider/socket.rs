@@ -7,10 +7,7 @@
 
 use idos_api::io::{error::IOError, AsyncOp};
 
-use crate::{
-    io::{async_io::AsyncOpID, handle::Handle},
-    net::ip::IPV4Address,
-};
+use crate::io::{async_io::AsyncOpID, handle::Handle};
 
 use super::{IOProvider, IOResult, UnmappedAsyncOp};
 
