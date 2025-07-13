@@ -334,8 +334,9 @@ async fn get_local_ip(
         IpResolution::Unbound => {
             // never initialized before, run the whole process
             LOGGER.log(format_args!("INIT DHCP"));
-            // TODO: random number generator
-            let xid = 0xabcd;
+            let mut xid_bytes: [u8; 4] = [0; 4];
+            crate::random::get_random_bytes(&mut xid_bytes);
+            let xid: u32 = u32::from_le_bytes(xid_bytes);
             net_dev_lock.write().init_dhcp(xid);
             // after sending the broadcast, wait for an offer
             WaitForEvent::new(NetEvent::DhcpOffer(xid), waker_registry.clone()).await;

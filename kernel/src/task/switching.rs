@@ -1,6 +1,8 @@
+use crate::arch::rdtsc;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use alloc::sync::Arc;
 use core::arch::{asm, global_asm};
+use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
 use super::id::{AtomicTaskID, TaskID};
@@ -10,12 +12,18 @@ use super::state::{RunState, Task};
 /// All kernel code referring to the "current" task will use this TaskID
 static CURRENT_ID: AtomicTaskID = AtomicTaskID::new(0);
 
+static LAST_SWITCH: AtomicU32 = AtomicU32::new(0);
+static LAST_SWITCH_DELTA: AtomicU32 = AtomicU32::new(0);
+
 pub fn init(page_directory: PhysicalAddress) -> VirtualAddress {
     let mut idle_task = Task::create_initial_task();
     let idle_id = idle_task.id;
     idle_task.page_directory = page_directory;
     crate::kprint!("Initial pagedir {:?}\n", page_directory);
     super::map::insert_task(idle_task);
+
+    let (_, tsc) = rdtsc();
+    LAST_SWITCH.store(tsc, Ordering::SeqCst);
 
     super::scheduling::create_cpu_scheduler(0, idle_id, false)
 }
@@ -67,6 +75,15 @@ pub fn clean_up_task(_id: TaskID) {
 pub fn switch_to(id: TaskID) {
     // Uncomment this to debug switching:
     //crate::kprintln!("    SWITCH TO {:?}", id);
+
+    // use variations in switch timing for random entropy
+    let (_, current_tsc) = rdtsc();
+    let switch_delta = current_tsc.wrapping_sub(LAST_SWITCH.load(Ordering::SeqCst));
+    let old_delta = LAST_SWITCH_DELTA.load(Ordering::SeqCst);
+    let jitter = (switch_delta as i32 - old_delta as i32) as u32;
+    crate::random::add_entropy(jitter);
+    LAST_SWITCH.store(current_tsc, Ordering::SeqCst);
+    LAST_SWITCH_DELTA.store(switch_delta, Ordering::SeqCst);
 
     let current_sp_addr: u32 = {
         let current_lock = get_current_task();
