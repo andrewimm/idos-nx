@@ -35,6 +35,7 @@ pub mod memory;
 pub mod net;
 pub mod panic;
 pub mod pipes;
+pub mod random;
 pub mod sync;
 pub mod task;
 pub mod time;
