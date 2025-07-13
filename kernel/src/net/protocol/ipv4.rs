@@ -53,6 +53,7 @@ impl core::ops::BitAnd for Ipv4Address {
 #[repr(u8)]
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum IpProtocolType {
+    Icmp = 0x01,
     Tcp = 0x06,
     Udp = 0x11,
 }

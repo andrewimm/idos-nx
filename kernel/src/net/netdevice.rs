@@ -18,6 +18,7 @@ use super::protocol::{
     ethernet::EthernetFrameHeader,
     ipv4::{IpProtocolType, Ipv4Address, Ipv4Header},
     packet::PacketHeader,
+    tcp::header::TcpHeader,
     udp::{create_datagram, UdpHeader},
 };
 
@@ -236,7 +237,7 @@ impl NetDevice {
         let ip_header = Ipv4Header::try_from_u8_buffer(&self.read_buffer[offset..]).unwrap();
         let payload_offset = offset + Ipv4Header::get_size();
         let total_length = u16::from_be(ip_header.total_length) as usize;
-        let payload = &self.read_buffer[payload_offset..total_length];
+        let payload = &self.read_buffer[payload_offset..(payload_offset + total_length)];
 
         if ip_header.protocol == IpProtocolType::Udp {
             let udp_header = match UdpHeader::try_from_u8_buffer(payload) {
@@ -265,6 +266,16 @@ impl NetDevice {
             }
         } else if ip_header.protocol == IpProtocolType::Tcp {
             super::resident::LOGGER.log(format_args!("TCP PACKET"));
+            let tcp_header = match TcpHeader::try_from_u8_buffer(payload) {
+                Some(header) => header,
+                None => return None,
+            };
+            let source_port = u16::from_be(tcp_header.source_port);
+            let dest_port = u16::from_be(tcp_header.dest_port);
+            super::resident::LOGGER.log(format_args!(
+                "TCP from {}:{}, bound for :{}",
+                ip_header.source, source_port, dest_port
+            ));
         }
         None
     }
@@ -282,29 +293,4 @@ impl NetDevice {
         let write = self.send_raw(eth_header, &ip_packet);
         self.add_write(write);
     }
-
-    /*
-    pub async fn resolve_arp(&mut self, target_ip: Ipv4Address) -> Result<HardwareAddress, ()> {
-        if let Some(mac) = self.known_arp.get(&target_ip) {
-            return Ok(*mac);
-        }
-
-        // If not known, send an ARP request and wait for a response
-        let local_ip = self.get_local_ip().await;
-        let arp_request = ArpPacket::request(self.mac, target_ip, target_ip);
-        let eth_frame = EthernetFrameHeader::broadcast_arp(self.mac);
-
-        // Prepare the packet to send
-        let mut packet =
-            Vec::with_capacity(EthernetFrameHeader::get_size() + ArpPacket::get_size());
-        packet.extend_from_slice(eth_frame.as_u8_buffer());
-        packet.extend_from_slice(arp_request.as_u8_buffer());
-
-        if let Some(mac) = self.known_arp.get(&target_ip) {
-            return Ok(*mac);
-        }
-
-        Err(())
-    }
-    */
 }
