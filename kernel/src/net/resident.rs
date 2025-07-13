@@ -186,12 +186,7 @@ pub enum NetRequest {
     RegisterDevice(String, HardwareAddress),
     GetIp,
     GetMacForIp(Ipv4Address),
-
-    SocketBind,
-    SocketAccept,
-    SocketRead,
-    SocketWrite,
-    SocketClose,
+    SendUdp(u16, Ipv4Address, u16, Vec<u8>),
 }
 
 static NET_STACK_REQUESTS: Mutex<VecDeque<NetRequest>> = Mutex::new(VecDeque::new());
@@ -213,6 +208,15 @@ pub fn get_mac_for_ip(ip: Ipv4Address) {
     NET_STACK_REQUESTS
         .lock()
         .push_back(NetRequest::GetMacForIp(ip));
+}
+
+pub fn send_udp(source_port: u16, destination: Ipv4Address, dest_port: u16, payload: Vec<u8>) {
+    NET_STACK_REQUESTS.lock().push_back(NetRequest::SendUdp(
+        source_port,
+        destination,
+        dest_port,
+        payload,
+    ));
 }
 
 pub fn net_stack_resident() -> ! {
@@ -271,7 +275,28 @@ pub fn net_stack_resident() -> ! {
                             }
                         });
                     }
-                    _ => {}
+                    NetRequest::SendUdp(source_port, dest, dest_port, payload) => {
+                        let (executor, active_device) = network_devices.get_mut(0).unwrap();
+                        let device = active_device.clone();
+                        let waker_reg = executor.waker_registry();
+                        executor.spawn(async move {
+                            match send_udp_packet(
+                                dest,
+                                source_port,
+                                dest_port,
+                                payload,
+                                device,
+                                waker_reg,
+                            )
+                            .await
+                            {
+                                Ok(_) => {}
+                                Err(_) => {
+                                    LOGGER.log(format_args!("Failed to send UDP packet"));
+                                }
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -375,4 +400,35 @@ async fn get_next_hop(
         let gateway = net_dev_lock.read().dhcp_state.gateway_ip;
         resolve_ip_to_mac(gateway, net_dev_lock, waker_registry).await
     }
+}
+
+async fn send_udp_packet(
+    destination: Ipv4Address,
+    source_port: u16,
+    dest_port: u16,
+    payload: Vec<u8>,
+    net_dev_lock: Arc<RwLock<NetDevice>>,
+    waker_registry: WakerRegistry<NetEvent>,
+) -> Result<(), ()> {
+    let local_ip = get_local_ip(net_dev_lock.clone(), waker_registry.clone())
+        .await
+        .ok_or(())?;
+    let next_hop = match get_next_hop(destination, net_dev_lock.clone(), waker_registry).await {
+        Some(mac) => mac,
+        None => {
+            LOGGER.log(format_args!("No route to {}", destination));
+            return Err(());
+        }
+    };
+
+    let eth_header = EthernetFrameHeader::new_ipv4(net_dev_lock.read().mac, next_hop);
+
+    let udp_packet = create_datagram(local_ip, source_port, destination, dest_port, &payload);
+
+    {
+        let mut net_dev = net_dev_lock.write();
+        let write = net_dev.send_raw(eth_header, &udp_packet);
+        net_dev.add_write(write);
+    }
+    Ok(())
 }

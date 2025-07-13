@@ -366,6 +366,8 @@ impl DhcpState {
                     .log(format_args!("DHCP ACK, NEW IP: {}", packet.yiaddr));
                 self.local_ip = IpResolution::Bound(packet.yiaddr, Timestamp::now() + lease_time);
                 self.server_ip = dhcp_server;
+                self.gateway_ip = router;
+                self.subnet_mask = subnet_mask;
                 return Ok((None, NetEvent::DhcpAck(xid)));
             }
             _ => (),
