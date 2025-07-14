@@ -32,10 +32,10 @@ impl InterruptIOProvider {
         }
     }
 
-    pub fn interrupt_fired(&self, task_id: TaskID, provider_index: u32) {
+    pub fn interrupt_fired(&self) {
         let ids = self.pending_ops.read().keys().cloned().collect::<Vec<_>>();
         for id in ids {
-            self.async_complete(task_id, provider_index, id, Ok(1));
+            self.async_complete(id, Ok(1));
         }
     }
 }

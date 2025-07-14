@@ -30,14 +30,12 @@ pub mod hardware;
 pub mod netdevice;
 pub mod protocol;
 pub mod resident;
+pub mod socket;
 
 use crate::task::actions::{
-    handle::{create_file_handle, create_kernel_task, create_pipe_handles, transfer_handle},
-    io::{close_sync, open_sync, read_sync, write_sync},
+    handle::{create_kernel_task, create_pipe_handles, transfer_handle},
+    io::{close_sync, read_sync},
 };
-use alloc::{string::String, sync::Arc};
-use core::ops::Deref;
-use spin::RwLock;
 
 pub fn start_net_stack() {
     let (response_reader, response_writer) = create_pipe_handles();
@@ -46,4 +44,5 @@ pub fn start_net_stack() {
     transfer_handle(response_writer, driver_task).unwrap();
     // wait for a response from the driver indicating initialization
     let _ = read_sync(response_reader, &mut [0u8], 0);
+    let _ = close_sync(response_reader);
 }

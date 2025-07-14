@@ -308,9 +308,7 @@ impl PipeDriver {
             };
             let io_entry = task_lock.read().async_io_complete(io_index);
             if let Some(entry) = io_entry {
-                entry
-                    .inner()
-                    .async_complete(task_id, io_index, op_id, Ok(read as u32));
+                entry.inner().async_complete(op_id, Ok(read as u32));
             }
         }
         Some(Ok(written as u32))

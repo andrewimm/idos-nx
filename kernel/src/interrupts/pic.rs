@@ -215,7 +215,7 @@ pub fn notify_interrupt_listeners(irq: u8) {
             match io_provider {
                 Some(iotype) => match *iotype {
                     IOType::Interrupt(ref provider) => {
-                        provider.interrupt_fired(*id, *io_index);
+                        provider.interrupt_fired();
                     }
                     _ => continue,
                 },

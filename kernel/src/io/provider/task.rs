@@ -37,11 +37,11 @@ impl TaskIOProvider {
         self.child_id == id
     }
 
-    pub fn task_exited(&self, host_task: TaskID, provider_index: u32, code: u32) {
+    pub fn task_exited(&self, code: u32) {
         self.exit_code.write().replace(code);
         let ids = self.pending_ops.read().keys().cloned().collect::<Vec<_>>();
         for id in ids {
-            self.async_complete(host_task, provider_index, id, Ok(code));
+            self.async_complete(id, Ok(code));
         }
     }
 }

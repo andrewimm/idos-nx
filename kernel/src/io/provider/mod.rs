@@ -67,19 +67,8 @@ pub trait IOProvider {
         }
     }
 
-    /// Finish an op that could not complete immediately. If the active op
-    /// matches the ID for the response, complete the UnmappedAsyncOp and wake
-    /// any blocked Tasks, clearing the active op.
-    /// Then in a loop, pop a queued op and make it active. Then run the
-    /// active op and if an immediate response is available, complete it
-    /// before continuing the loop.
-    fn async_complete(
-        &self,
-        task_id: TaskID,
-        provider_index: u32,
-        id: AsyncOpID,
-        result: IOResult,
-    ) {
+    /// Finish an op that could not complete immediately.
+    fn async_complete(&self, id: AsyncOpID, result: IOResult) {
         let found_op = match self.remove_op(id) {
             Some(op) => op,
             None => {

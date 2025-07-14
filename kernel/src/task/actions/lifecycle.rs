@@ -67,9 +67,9 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
     let parent_task = super::super::map::get_task(parent_id);
     if let Some(parent_lock) = parent_task {
         let io_provider = parent_lock.read().async_io_table.get_task_io(id).clone();
-        if let Some((io_index, provider)) = io_provider {
+        if let Some((_io_index, provider)) = io_provider {
             if let IOType::ChildTask(ref io) = *provider {
-                io.task_exited(parent_id, io_index, exit_code);
+                io.task_exited(exit_code);
             }
         }
     }
