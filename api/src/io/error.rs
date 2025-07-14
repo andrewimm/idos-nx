@@ -22,6 +22,8 @@ pub enum IOError {
     WriteToClosedIO,
     /// Sent an invalid struct or argument to an IO Op
     InvalidArgument,
+    /// Tried to bind to a resource (like a port) that is already in use
+    ResourceInUse,
 
     Unknown = 0xffffffff,
 }

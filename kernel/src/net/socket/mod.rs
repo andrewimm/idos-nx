@@ -39,6 +39,7 @@ pub mod port;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::collections::BTreeMap;
+use idos_api::io::error::IOError;
 use spin::RwLock;
 
 use crate::{io::async_io::AsyncOpID, task::id::TaskID};
@@ -60,6 +61,14 @@ impl SocketId {
     }
 }
 
+impl core::ops::Deref for SocketId {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 static NEXT_SOCKET_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Mapping of local ports to sockets. This is used when a new packet arrives,
@@ -75,6 +84,7 @@ enum SocketType {
 /// Map of all active sockets
 static SOCKET_MAP: RwLock<BTreeMap<SocketId, SocketType>> = RwLock::new(BTreeMap::new());
 
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum SocketProtocol {
     Udp,
     Tcp,
@@ -94,20 +104,20 @@ pub fn socket_io_bind(
     addr: Ipv4Address,
     port: u16,
     callback: AsyncCallback,
-) -> Option<Result<SocketId, ()>> {
+) -> Option<Result<u32, IOError>> {
     match protocol {
         SocketProtocol::Udp => {
             if addr != Ipv4Address([0, 0, 0, 0]) && addr != Ipv4Address([127, 0, 0, 1]) {
                 // We don't currently support declaring which local IP to use,
                 // so this is just an error case
-                return Some(Err(()));
+                return Some(Err(IOError::InvalidArgument));
             }
 
             let mut active_connections = ACTIVE_CONNECTIONS.write();
             let port = SocketPort::new(port);
             if let Some(_) = active_connections.get(&port) {
                 // Port is already in use
-                return Some(Err(()));
+                return Some(Err(IOError::ResourceInUse));
             }
 
             let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
@@ -118,7 +128,7 @@ pub fn socket_io_bind(
             SOCKET_MAP
                 .write()
                 .insert(socket_id, SocketType::Udp(listener));
-            Some(Ok(socket_id))
+            Some(Ok(*socket_id))
         }
         SocketProtocol::Tcp => {
             if addr == Ipv4Address([0, 0, 0, 0]) || addr == Ipv4Address([127, 0, 0, 1]) {
@@ -126,7 +136,7 @@ pub fn socket_io_bind(
                 let mut active_connections = ACTIVE_CONNECTIONS.write();
                 let port = SocketPort::new(port);
                 if let Some(_) = active_connections.get(&port) {
-                    return Some(Err(()));
+                    return Some(Err(IOError::ResourceInUse));
                 }
 
                 let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
@@ -137,7 +147,7 @@ pub fn socket_io_bind(
                 SOCKET_MAP
                     .write()
                     .insert(socket_id, SocketType::TcpListener(listener));
-                Some(Ok(socket_id))
+                Some(Ok(*socket_id))
             } else {
                 // This is an attempt to connect to a remote TCP address.
                 // This process will be asynchronous, and will use the

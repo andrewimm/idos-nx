@@ -127,6 +127,22 @@ fn init_system() -> ! {
         console::console_ready();
     }
 
+    {
+        // tcp test 2
+        let socket_handle = task::actions::handle::create_tcp_socket();
+        let op = idos_api::io::AsyncOp {
+            op_code: idos_api::io::ASYNC_OP_OPEN,
+            return_value: core::sync::atomic::AtomicU32::new(0),
+            signal: core::sync::atomic::AtomicU32::new(0),
+            args: [0, 2020, 0],
+        };
+        let _ = task::actions::io::send_io_op(socket_handle, &op, None);
+        while !op.is_complete() {
+            task::actions::yield_coop();
+        }
+        crate::kprintln!("OPENED SOCKET");
+    }
+
     /*{
         // TCP test
         use net::socket::SocketPort;
