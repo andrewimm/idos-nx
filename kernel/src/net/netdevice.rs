@@ -13,13 +13,16 @@ use crate::{
     task::actions::{handle::create_file_handle, io::send_io_op},
 };
 
-use super::protocol::{
-    dhcp::{DhcpPacket, DhcpState, IpResolution},
-    ethernet::EthernetFrameHeader,
-    ipv4::{IpProtocolType, Ipv4Address, Ipv4Header},
-    packet::PacketHeader,
-    tcp::header::TcpHeader,
-    udp::{create_datagram, UdpHeader},
+use super::{
+    protocol::{
+        dhcp::{DhcpPacket, DhcpState, IpResolution},
+        ethernet::EthernetFrameHeader,
+        ipv4::{IpProtocolType, Ipv4Address, Ipv4Header},
+        packet::PacketHeader,
+        tcp::header::TcpHeader,
+        udp::{create_datagram, UdpHeader},
+    },
+    socket::{handle_tcp_packet, handle_udp_packet},
 };
 
 use super::{hardware::HardwareAddress, protocol::arp::ArpPacket};
@@ -69,7 +72,7 @@ impl NetDevice {
         let device_driver_handle = create_file_handle();
 
         let mut read_buffer = Vec::with_capacity(1024);
-        for i in 0..read_buffer.capacity() {
+        for _ in 0..read_buffer.capacity() {
             read_buffer.push(0);
         }
 
@@ -104,7 +107,6 @@ impl NetDevice {
         total_frame.extend_from_slice(eth_header.as_u8_buffer());
         total_frame.extend(payload);
 
-        crate::kprintln!("SEND RAW");
         let async_op = Box::new(AsyncOp::new(
             ASYNC_OP_WRITE,
             total_frame.as_ptr() as u32,
@@ -245,9 +247,9 @@ impl NetDevice {
                 None => return None,
             };
             let dest_port = u16::from_be(udp_header.dest_port);
+            let udp_payload = &payload[UdpHeader::get_size()..];
             if dest_port == 68 {
                 // this is a DHCP packet
-                let udp_payload = &payload[UdpHeader::get_size()..];
                 super::resident::LOGGER.log(format_args!("Received DHCP packet"));
                 // process dhcp packet, update state
                 match self.dhcp_state.process_packet(self.mac, udp_payload) {
@@ -263,6 +265,12 @@ impl NetDevice {
             } else {
                 // this packet is bound for a socket
                 super::resident::LOGGER.log(format_args!("UDP BOUND FOR :{}", dest_port));
+                handle_udp_packet(
+                    dest_port,
+                    ip_header.source,
+                    udp_header.source_port,
+                    udp_payload,
+                );
             }
         } else if ip_header.protocol == IpProtocolType::Tcp {
             super::resident::LOGGER.log(format_args!("TCP PACKET"));
@@ -270,12 +278,14 @@ impl NetDevice {
                 Some(header) => header,
                 None => return None,
             };
+            let tcp_payload = &payload[TcpHeader::get_size()..];
             let source_port = u16::from_be(tcp_header.source_port);
             let dest_port = u16::from_be(tcp_header.dest_port);
             super::resident::LOGGER.log(format_args!(
                 "TCP from {}:{}, bound for :{}",
                 ip_header.source, source_port, dest_port
             ));
+            handle_tcp_packet(dest_port, ip_header.source, &tcp_header, tcp_payload);
         } else if ip_header.protocol == IpProtocolType::Icmp {
             super::resident::LOGGER.log(format_args!("ICMP PACKET"));
         }

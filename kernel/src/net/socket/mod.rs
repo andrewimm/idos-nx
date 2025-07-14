@@ -36,15 +36,19 @@ pub mod connection;
 pub mod listen;
 pub mod port;
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use alloc::collections::BTreeMap;
 use spin::RwLock;
+
+use crate::{io::async_io::AsyncOpID, task::id::TaskID};
 
 use self::{
     connection::{Connection, ConnectionId},
     listen::{TcpListener, UdpListener},
     port::SocketPort,
 };
-use super::protocol::ipv4::Ipv4Address;
+use super::protocol::{ipv4::Ipv4Address, tcp::header::TcpHeader};
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -55,6 +59,8 @@ impl SocketId {
         Self(id)
     }
 }
+
+static NEXT_SOCKET_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Mapping of local ports to sockets. This is used when a new packet arrives,
 /// to determine how it should be handled.
@@ -74,6 +80,8 @@ pub enum SocketProtocol {
     Tcp,
 }
 
+pub type AsyncCallback = (TaskID, u32, AsyncOpID);
+
 /// When a task issues a bind operation on a socket handle, this method contains
 /// the logic used to create the socket.
 /// Like all async IO operations, it returns an optional result. If the op can
@@ -85,6 +93,127 @@ pub fn socket_io_bind(
     protocol: SocketProtocol,
     addr: Ipv4Address,
     port: u16,
+    callback: AsyncCallback,
 ) -> Option<Result<SocketId, ()>> {
-    None
+    match protocol {
+        SocketProtocol::Udp => {
+            if addr != Ipv4Address([0, 0, 0, 0]) && addr != Ipv4Address([127, 0, 0, 1]) {
+                // We don't currently support declaring which local IP to use,
+                // so this is just an error case
+                return Some(Err(()));
+            }
+
+            let mut active_connections = ACTIVE_CONNECTIONS.write();
+            let port = SocketPort::new(port);
+            if let Some(_) = active_connections.get(&port) {
+                // Port is already in use
+                return Some(Err(()));
+            }
+
+            let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
+            active_connections.insert(port, socket_id);
+            drop(active_connections);
+
+            let listener = UdpListener::new(port);
+            SOCKET_MAP
+                .write()
+                .insert(socket_id, SocketType::Udp(listener));
+            Some(Ok(socket_id))
+        }
+        SocketProtocol::Tcp => {
+            if addr == Ipv4Address([0, 0, 0, 0]) || addr == Ipv4Address([127, 0, 0, 1]) {
+                // This is a local TCP listener
+                let mut active_connections = ACTIVE_CONNECTIONS.write();
+                let port = SocketPort::new(port);
+                if let Some(_) = active_connections.get(&port) {
+                    return Some(Err(()));
+                }
+
+                let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
+                active_connections.insert(port, socket_id);
+                drop(active_connections);
+
+                let listener = TcpListener::new(port);
+                SOCKET_MAP
+                    .write()
+                    .insert(socket_id, SocketType::TcpListener(listener));
+                Some(Ok(socket_id))
+            } else {
+                // This is an attempt to connect to a remote TCP address.
+                // This process will be asynchronous, and will use the
+                // callback info to resolve the op later.
+
+                None
+            }
+        }
+    }
+}
+
+/// Depending on the socket type, this may either
+/// 1) blocking read on a UDP port
+/// 2) wait for connection on a TCP listener
+/// 3) blocking read from an established TCP connection
+pub fn socket_io_read(
+    socket_id: SocketId,
+    buffer: &mut [u8],
+    callback: AsyncCallback,
+) -> Option<Result<usize, ()>> {
+    Some(Err(()))
+}
+
+/// Depending on the socket type, this may either
+/// 1) write from a UDP port, using a remote address in the write buffer
+/// 2) error because it tried to write to a TCP listener
+/// 3) write to an established TCP connection
+pub fn socket_io_write(
+    socket_id: SocketId,
+    buffer: &[u8],
+    callback: AsyncCallback,
+) -> Option<Result<usize, ()>> {
+    Some(Err(()))
+}
+
+pub fn handle_udp_packet(local_port: u16, remote_addr: Ipv4Address, remote_port: u16, data: &[u8]) {
+    let port = SocketPort::new(local_port);
+    let socket_id = {
+        let active_connections = ACTIVE_CONNECTIONS.read();
+        match active_connections.get(&port) {
+            Some(id) => *id,
+            None => return, // No listener for this port
+        }
+    };
+
+    let mut socket_map = SOCKET_MAP.write();
+    if let Some(socket_type) = socket_map.get_mut(&socket_id) {
+        if let SocketType::Udp(listener) = socket_type {
+            listener.handle_packet(remote_addr, remote_port, data);
+        }
+    }
+}
+
+pub fn handle_tcp_packet(
+    local_port: u16,
+    remote_addr: Ipv4Address,
+    tcp_header: &TcpHeader,
+    data: &[u8],
+) {
+    let port = SocketPort::new(local_port);
+    let socket_id = {
+        let active_connections = ACTIVE_CONNECTIONS.read();
+        match active_connections.get(&port) {
+            Some(id) => *id,
+            None => return, // No listener for this port
+        }
+    };
+
+    let mut socket_map = SOCKET_MAP.write();
+    if let Some(socket_type) = socket_map.get_mut(&socket_id) {
+        match socket_type {
+            SocketType::TcpListener(listener) => {
+                listener.handle_packet(remote_addr, tcp_header, data);
+            }
+            SocketType::TcpConnection(connection) => {}
+            _ => {}
+        }
+    }
 }
