@@ -162,13 +162,7 @@ fn run_driver() -> ! {
     let _ = send_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
 
     register_network_device("DEV:\\ETH", mac);
-    //crate::net::resident::get_mac_for_ip(crate::net::protocol::ipv4::Ipv4Address([10, 0, 2, 2]));
-    crate::net::resident::send_udp(
-        4090,
-        crate::net::protocol::ipv4::Ipv4Address([192, 168, 0, 2]),
-        8000,
-        alloc::vec![b'H', b'i', b' ', b'T'],
-    );
+    crate::net::resident::get_ip();
     let _ = write_sync(response_writer, &[0], 0);
     let _ = close_sync(response_writer);
 

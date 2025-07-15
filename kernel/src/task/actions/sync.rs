@@ -9,6 +9,16 @@ pub fn create_wake_set() -> Handle {
     current_task_guard.wake_sets.insert(Arc::new(wake_set))
 }
 
+pub fn get_inner_wake_set(set_id: Handle) -> Option<Arc<WakeSet>> {
+    let task_lock = get_current_task();
+    let task_guard = task_lock.read();
+    if let Some(set) = task_guard.wake_sets.get(set_id) {
+        Some(set.clone())
+    } else {
+        None
+    }
+}
+
 pub fn block_on_wake_set(set_id: Handle, timeout: Option<u32>) {
     let wake_set_found = {
         let task_lock = get_current_task();

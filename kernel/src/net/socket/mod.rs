@@ -32,7 +32,6 @@
 //! socket IO provider.
 
 pub mod binding;
-pub mod connection;
 pub mod listen;
 pub mod port;
 
@@ -45,11 +44,13 @@ use spin::RwLock;
 use crate::{io::async_io::AsyncOpID, task::id::TaskID};
 
 use self::{
-    connection::Connection,
     listen::{TcpListener, UdpListener},
     port::SocketPort,
 };
-use super::protocol::{ipv4::Ipv4Address, tcp::header::TcpHeader};
+use super::protocol::{
+    ipv4::Ipv4Address,
+    tcp::{connection::TcpConnection, header::TcpHeader},
+};
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
@@ -81,7 +82,7 @@ static ACTIVE_CONNECTIONS: RwLock<BTreeMap<SocketPort, SocketId>> = RwLock::new(
 enum SocketType {
     Udp(UdpListener),
     TcpListener(TcpListener),
-    TcpConnection(Connection),
+    TcpConnection(TcpConnection),
 }
 
 /// Map of all active sockets
@@ -215,6 +216,7 @@ pub fn handle_udp_packet(local_port: u16, remote_addr: Ipv4Address, remote_port:
 }
 
 pub fn handle_tcp_packet(
+    local_addr: Ipv4Address,
     local_port: u16,
     remote_addr: Ipv4Address,
     tcp_header: &TcpHeader,
@@ -234,7 +236,7 @@ pub fn handle_tcp_packet(
         match socket_type {
             SocketType::TcpListener(listener) => {
                 if let Some((new_conn_id, new_conn)) =
-                    listener.handle_packet(remote_addr, tcp_header, data)
+                    listener.handle_packet(local_addr, remote_addr, tcp_header, data)
                 {
                     // the new connection needs to be passed back, since we're
                     // holding the socket map lock
@@ -242,7 +244,7 @@ pub fn handle_tcp_packet(
                 }
             }
             SocketType::TcpConnection(connection) => {
-                connection.handle_packet(remote_addr, tcp_header, data);
+                connection.handle_packet(local_addr, remote_addr, tcp_header, data);
             }
             _ => {}
         }

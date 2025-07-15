@@ -1,13 +1,16 @@
 use core::sync::atomic::Ordering;
 
-use alloc::collections::VecDeque;
+use alloc::collections::{BTreeMap, VecDeque};
 use idos_api::io::error::{IOError, IOResult};
 
-use crate::task::map::get_task;
+use crate::{net::protocol::packet::PacketHeader, task::map::get_task};
 
 use super::{
-    super::protocol::{ipv4::Ipv4Address, tcp::header::TcpHeader},
-    connection::{Connection, ListenerConnections},
+    super::protocol::{
+        ipv4::Ipv4Address,
+        tcp::{connection::TcpConnection, header::TcpHeader},
+    },
+    super::resident::net_send,
     port::SocketPort,
     AsyncCallback, SocketId, SocketType,
 };
@@ -31,6 +34,57 @@ impl UdpListener {
     }
 }
 
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+struct RemoteEndpoint {
+    pub address: Ipv4Address,
+    pub port: SocketPort,
+}
+
+pub struct ListenerConnections {
+    lookup: BTreeMap<RemoteEndpoint, SocketId>,
+}
+
+impl ListenerConnections {
+    pub fn new() -> Self {
+        Self {
+            lookup: BTreeMap::new(),
+        }
+    }
+
+    pub fn add(
+        &mut self,
+        remote_address: Ipv4Address,
+        remote_port: SocketPort,
+        socket_id: SocketId,
+    ) {
+        let endpoint = RemoteEndpoint {
+            address: remote_address,
+            port: remote_port,
+        };
+        self.lookup.insert(endpoint, socket_id);
+    }
+
+    pub fn remove(
+        &mut self,
+        remote_address: Ipv4Address,
+        remote_port: SocketPort,
+    ) -> Option<SocketId> {
+        let endpoint = RemoteEndpoint {
+            address: remote_address,
+            port: remote_port,
+        };
+        self.lookup.remove(&endpoint)
+    }
+
+    pub fn find(&self, remote_address: Ipv4Address, remote_port: SocketPort) -> Option<SocketId> {
+        let endpoint = RemoteEndpoint {
+            address: remote_address,
+            port: remote_port,
+        };
+        self.lookup.get(&endpoint).copied()
+    }
+}
+
 pub struct TcpListener {
     local_port: SocketPort,
     connections: ListenerConnections,
@@ -50,15 +104,16 @@ impl TcpListener {
 
     pub fn handle_packet(
         &mut self,
+        local_addr: Ipv4Address,
         remote_addr: Ipv4Address,
         tcp_header: &TcpHeader,
         data: &[u8],
-    ) -> Option<(SocketId, Connection)> {
-        let remote_port = SocketPort::new(tcp_header.source_port);
+    ) -> Option<(SocketId, TcpConnection)> {
+        let remote_port = SocketPort::new(u16::from_be(tcp_header.source_port));
         match self.connections.find(remote_addr, remote_port) {
             Some(existing_conn_id) => match super::SOCKET_MAP.write().get_mut(&existing_conn_id) {
                 Some(SocketType::TcpConnection(conn)) => {
-                    conn.handle_packet(remote_addr, tcp_header, data);
+                    conn.handle_packet(local_addr, remote_addr, tcp_header, data);
                 }
                 _ => {}
             },
@@ -70,20 +125,53 @@ impl TcpListener {
                         self.pending_syn.push_back((remote_addr, remote_port));
                     } else {
                         // If we have a pending accept, we can immediately process the SYN
-                        let callback = self.pending_accept.pop_front().unwrap();
+                        //let callback = self.pending_accept.pop_front().unwrap();
                         crate::kprintln!("CREATE NEW CONNECTION");
-                        let socket_id =
-                            SocketId::new(super::NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
-                        let connection = Connection::new(self.local_port, remote_addr, remote_port);
-                        self.connections.add(remote_addr, remote_port, socket_id);
-                        crate::kprintln!("COMPLETE OP");
-                        complete_op(callback, Ok(*socket_id));
-                        return Some((socket_id, connection));
+                        return Some(self.init_connection(
+                            local_addr,
+                            remote_addr,
+                            remote_port,
+                            u32::from_be(tcp_header.sequence_number),
+                        ));
                     }
                 }
             }
         }
         None
+    }
+
+    pub fn init_connection(
+        &mut self,
+        local_addr: Ipv4Address,
+        remote_addr: Ipv4Address,
+        remote_port: SocketPort,
+        last_seq: u32,
+    ) -> (SocketId, TcpConnection) {
+        let is_outbound = last_seq == 0;
+        let socket_id = SocketId::new(super::NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
+        let mut connection =
+            TcpConnection::new(self.local_port, remote_addr, remote_port, is_outbound);
+        connection.last_sequence_received = last_seq;
+        self.connections.add(remote_addr, remote_port, socket_id);
+        let flags = if is_outbound {
+            TcpHeader::FLAG_SYN
+        } else {
+            TcpHeader::FLAG_SYN | TcpHeader::FLAG_ACK
+        };
+        crate::kprintln!("SEND THE PACKET");
+        let response = TcpHeader::create_packet(
+            local_addr,
+            self.local_port,
+            remote_addr,
+            remote_port,
+            connection.last_sequence_sent,
+            connection.last_sequence_received + 1,
+            flags,
+            &[],
+        );
+        net_send(remote_addr, response);
+
+        (socket_id, connection)
     }
 
     /// Accept a new connection on this TCP listener.

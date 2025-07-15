@@ -285,7 +285,13 @@ impl NetDevice {
                 "TCP from {}:{}, bound for :{}",
                 ip_header.source, source_port, dest_port
             ));
-            handle_tcp_packet(dest_port, ip_header.source, &tcp_header, tcp_payload);
+            handle_tcp_packet(
+                ip_header.dest,
+                dest_port,
+                ip_header.source,
+                &tcp_header,
+                tcp_payload,
+            );
         } else if ip_header.protocol == IpProtocolType::Icmp {
             super::resident::LOGGER.log(format_args!("ICMP PACKET"));
         }

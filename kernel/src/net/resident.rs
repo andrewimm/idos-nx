@@ -3,9 +3,11 @@ use crate::{
     executor::{Executor, WaitForEvent, WakerRegistry},
     io::handle::Handle,
     log::TaggedLogger,
+    sync::wake_set::WakeSet,
     task::actions::{
+        handle::open_message_queue,
         io::write_sync,
-        sync::{block_on_wake_set, create_wake_set},
+        sync::{block_on_wake_set, create_wake_set, get_inner_wake_set},
     },
 };
 
@@ -32,10 +34,11 @@ pub enum NetRequest {
     RegisterDevice(String, HardwareAddress),
     GetIp,
     GetMacForIp(Ipv4Address),
-    SendUdp(u16, Ipv4Address, u16, Vec<u8>),
+    Send(Ipv4Address, Vec<u8>),
 }
 
 static NET_STACK_REQUESTS: Mutex<VecDeque<NetRequest>> = Mutex::new(VecDeque::new());
+static WAKE_SET: RwLock<Option<Arc<WakeSet>>> = RwLock::new(None);
 
 pub fn register_network_device(name: &str, mac: [u8; 6]) {
     NET_STACK_REQUESTS
@@ -44,25 +47,42 @@ pub fn register_network_device(name: &str, mac: [u8; 6]) {
             String::from(name),
             HardwareAddress(mac),
         ));
+
+    let wake_set = WAKE_SET.read().clone();
+    if let Some(waker) = wake_set {
+        waker.wake();
+    }
 }
 
 pub fn get_ip() {
     NET_STACK_REQUESTS.lock().push_back(NetRequest::GetIp);
+
+    let wake_set = WAKE_SET.read().clone();
+    if let Some(waker) = wake_set {
+        waker.wake();
+    }
 }
 
 pub fn get_mac_for_ip(ip: Ipv4Address) {
     NET_STACK_REQUESTS
         .lock()
         .push_back(NetRequest::GetMacForIp(ip));
+
+    let wake_set = WAKE_SET.read().clone();
+    if let Some(waker) = wake_set {
+        waker.wake();
+    }
 }
 
-pub fn send_udp(source_port: u16, destination: Ipv4Address, dest_port: u16, payload: Vec<u8>) {
-    NET_STACK_REQUESTS.lock().push_back(NetRequest::SendUdp(
-        source_port,
-        destination,
-        dest_port,
-        payload,
-    ));
+pub fn net_send(destination: Ipv4Address, payload: Vec<u8>) {
+    NET_STACK_REQUESTS
+        .lock()
+        .push_back(NetRequest::Send(destination, payload));
+
+    let wake_set = WAKE_SET.read().clone();
+    if let Some(waker) = wake_set {
+        waker.wake();
+    }
 }
 
 pub fn net_stack_resident() -> ! {
@@ -70,6 +90,9 @@ pub fn net_stack_resident() -> ! {
     // each time a new network device is registered, it will be passed in and
     // the io operations will notify it
     let wake_set = create_wake_set();
+    WAKE_SET
+        .write()
+        .replace(get_inner_wake_set(wake_set).unwrap());
 
     let mut network_devices: SlotList<(Executor<NetEvent>, Arc<RwLock<NetDevice>>)> =
         SlotList::new();
@@ -84,6 +107,8 @@ pub fn net_stack_resident() -> ! {
     //
     // each network device also has an associated state machine which stores
     // its own ARP, DHCP, and socket states
+
+    let message_queue = open_message_queue();
 
     loop {
         // check the task queue for external requests
@@ -121,21 +146,13 @@ pub fn net_stack_resident() -> ! {
                             }
                         });
                     }
-                    NetRequest::SendUdp(source_port, dest, dest_port, payload) => {
+                    NetRequest::Send(dest, payload) => {
+                        LOGGER.log(format_args!("SEND PACKET TO {}", dest));
                         let (executor, active_device) = network_devices.get_mut(0).unwrap();
                         let device = active_device.clone();
                         let waker_reg = executor.waker_registry();
                         executor.spawn(async move {
-                            match send_udp_packet(
-                                dest,
-                                source_port,
-                                dest_port,
-                                payload,
-                                device,
-                                waker_reg,
-                            )
-                            .await
-                            {
+                            match send_packet(dest, payload, device, waker_reg).await {
                                 Ok(_) => {}
                                 Err(_) => {
                                     LOGGER.log(format_args!("Failed to send UDP packet"));
@@ -249,10 +266,8 @@ async fn get_next_hop(
     }
 }
 
-async fn send_udp_packet(
+async fn send_packet(
     destination: Ipv4Address,
-    source_port: u16,
-    dest_port: u16,
     payload: Vec<u8>,
     net_dev_lock: Arc<RwLock<NetDevice>>,
     waker_registry: WakerRegistry<NetEvent>,
@@ -270,11 +285,9 @@ async fn send_udp_packet(
 
     let eth_header = EthernetFrameHeader::new_ipv4(net_dev_lock.read().mac, next_hop);
 
-    let udp_packet = create_datagram(local_ip, source_port, destination, dest_port, &payload);
-
     {
         let mut net_dev = net_dev_lock.write();
-        let write = net_dev.send_raw(eth_header, &udp_packet);
+        let write = net_dev.send_raw(eth_header, &payload);
         net_dev.add_write(write);
     }
     Ok(())
