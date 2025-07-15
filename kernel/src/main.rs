@@ -130,17 +130,30 @@ fn init_system() -> ! {
     {
         // tcp test 2
         let socket_handle = task::actions::handle::create_tcp_socket();
-        let op = idos_api::io::AsyncOp {
+        let open_op = idos_api::io::AsyncOp {
             op_code: idos_api::io::ASYNC_OP_OPEN,
             return_value: core::sync::atomic::AtomicU32::new(0),
             signal: core::sync::atomic::AtomicU32::new(0),
             args: [0, 2020, 0],
         };
-        let _ = task::actions::io::send_io_op(socket_handle, &op, None);
-        while !op.is_complete() {
+        let _ = task::actions::io::send_io_op(socket_handle, &open_op, None);
+        while !open_op.is_complete() {
             task::actions::yield_coop();
         }
         crate::kprintln!("OPENED SOCKET");
+
+        let accept_buffer: [u8; 4] = [0; 4];
+        let accept_op = idos_api::io::AsyncOp {
+            op_code: idos_api::io::ASYNC_OP_READ,
+            return_value: core::sync::atomic::AtomicU32::new(0),
+            signal: core::sync::atomic::AtomicU32::new(0),
+            args: [accept_buffer.as_ptr() as u32, 4, 0],
+        };
+        let _ = task::actions::io::send_io_op(socket_handle, &accept_op, None);
+        while !accept_op.is_complete() {
+            task::actions::sleep(1000);
+        }
+        crate::kprintln!("Accept TCP connection");
     }
 
     /*{

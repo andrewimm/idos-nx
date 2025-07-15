@@ -15,7 +15,7 @@ use crate::{
     io::{async_io::AsyncOpID, handle::Handle},
     net::{
         protocol::ipv4::Ipv4Address,
-        socket::{socket_io_bind, SocketId, SocketProtocol},
+        socket::{socket_io_bind, socket_io_read, SocketId, SocketProtocol},
     },
     task::switching::get_current_id,
 };
@@ -101,8 +101,18 @@ impl IOProvider for SocketIOProvider {
         socket_io_bind(self.protocol, binding_addr, binding_port, callback)
     }
 
-    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: UnmappedAsyncOp) -> Option<IOResult> {
-        panic!("Not implemented");
+    fn read(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
+        let socket_id = *self.socket_id.read();
+        if let Some(socket_id) = socket_id {
+            let buffer_start = op.args[0] as usize;
+            let buffer_len = op.args[1] as usize;
+            let buffer =
+                unsafe { core::slice::from_raw_parts_mut(buffer_start as *mut u8, buffer_len) };
+            let callback = (get_current_id(), provider_index, id);
+            socket_io_read(SocketId::new(socket_id), buffer, callback)
+        } else {
+            Some(Err(IOError::FileHandleInvalid))
+        }
     }
 
     fn write(

@@ -45,7 +45,7 @@ use spin::RwLock;
 use crate::{io::async_io::AsyncOpID, task::id::TaskID};
 
 use self::{
-    connection::{Connection, ConnectionId},
+    connection::Connection,
     listen::{TcpListener, UdpListener},
     port::SocketPort,
 };
@@ -73,6 +73,9 @@ static NEXT_SOCKET_ID: AtomicU32 = AtomicU32::new(1);
 
 /// Mapping of local ports to sockets. This is used when a new packet arrives,
 /// to determine how it should be handled.
+/// This only stores UDP and TCP sockets that have been directly bound.
+/// TCP connections that were created by accepting an incoming connection are
+/// stored within the parent listener's connections map.
 static ACTIVE_CONNECTIONS: RwLock<BTreeMap<SocketPort, SocketId>> = RwLock::new(BTreeMap::new());
 
 enum SocketType {
@@ -152,6 +155,7 @@ pub fn socket_io_bind(
                 // This is an attempt to connect to a remote TCP address.
                 // This process will be asynchronous, and will use the
                 // callback info to resolve the op later.
+                let mut active_connections = ACTIVE_CONNECTIONS.write();
 
                 None
             }
@@ -167,8 +171,17 @@ pub fn socket_io_read(
     socket_id: SocketId,
     buffer: &mut [u8],
     callback: AsyncCallback,
-) -> Option<Result<usize, ()>> {
-    Some(Err(()))
+) -> Option<Result<u32, IOError>> {
+    let mut socket_map = SOCKET_MAP.write();
+    let socket_type = match socket_map.get_mut(&socket_id) {
+        Some(socket_type) => socket_type,
+        None => return Some(Err(IOError::FileHandleInvalid)),
+    };
+    match socket_type {
+        SocketType::Udp(listener) => listener.read(buffer, callback),
+        SocketType::TcpListener(listener) => listener.accept(buffer, callback),
+        SocketType::TcpConnection(connection) => connection.read(buffer, callback),
+    }
 }
 
 /// Depending on the socket type, this may either
@@ -179,8 +192,8 @@ pub fn socket_io_write(
     socket_id: SocketId,
     buffer: &[u8],
     callback: AsyncCallback,
-) -> Option<Result<usize, ()>> {
-    Some(Err(()))
+) -> Option<Result<u32, IOError>> {
+    Some(Err(IOError::Unknown))
 }
 
 pub fn handle_udp_packet(local_port: u16, remote_addr: Ipv4Address, remote_port: u16, data: &[u8]) {
@@ -220,9 +233,17 @@ pub fn handle_tcp_packet(
     if let Some(socket_type) = socket_map.get_mut(&socket_id) {
         match socket_type {
             SocketType::TcpListener(listener) => {
-                listener.handle_packet(remote_addr, tcp_header, data);
+                if let Some((new_conn_id, new_conn)) =
+                    listener.handle_packet(remote_addr, tcp_header, data)
+                {
+                    // the new connection needs to be passed back, since we're
+                    // holding the socket map lock
+                    socket_map.insert(new_conn_id, SocketType::TcpConnection(new_conn));
+                }
             }
-            SocketType::TcpConnection(connection) => {}
+            SocketType::TcpConnection(connection) => {
+                connection.handle_packet(remote_addr, tcp_header, data);
+            }
             _ => {}
         }
     }
