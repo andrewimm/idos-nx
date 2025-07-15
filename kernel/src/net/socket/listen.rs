@@ -159,7 +159,6 @@ impl TcpListener {
         } else {
             TcpHeader::FLAG_SYN | TcpHeader::FLAG_ACK
         };
-        crate::kprintln!("SEND THE PACKET");
         let response = TcpHeader::create_packet(
             local_addr,
             self.local_port,
@@ -185,6 +184,7 @@ impl TcpListener {
             self.pending_accept.push_back(callback);
             return None;
         }
+        unimplemented!();
         None
     }
 }
@@ -195,9 +195,7 @@ pub fn complete_op(callback: AsyncCallback, result: IOResult) {
         Some(lock) => lock,
         None => return,
     };
-    crate::kprintln!("COMPLETE");
     let io_entry = task_lock.read().async_io_complete(io_index);
-    crate::kprintln!("COMPLETION COMPLETE?");
     if let Some(entry) = io_entry {
         entry.inner().async_complete(op_id, result);
     }

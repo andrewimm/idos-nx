@@ -1,9 +1,13 @@
+use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use idos_api::io::error::{IOError, IOResult};
 
+use crate::memory::address::{PhysicalAddress, VirtualAddress};
+use crate::memory::virt::scratch::UnmappedPage;
 use crate::net::resident::net_send;
 use crate::net::socket::listen::complete_op;
 use crate::net::socket::AsyncCallback;
+use crate::task::paging::get_current_physical_address;
 
 use super::super::super::socket::{port::SocketPort, SocketId};
 use super::super::{ipv4::Ipv4Address, packet::PacketHeader};
@@ -40,6 +44,12 @@ pub enum TcpAction {
     Connect,
 }
 
+struct PendingRead {
+    buffer_paddr: PhysicalAddress,
+    buffer_len: usize,
+    callback: AsyncCallback,
+}
+
 pub struct TcpConnection {
     own_id: SocketId,
     local_port: SocketPort,
@@ -48,7 +58,10 @@ pub struct TcpConnection {
     state: TcpState,
     pub last_sequence_sent: u32,
     pub last_sequence_received: u32,
+
     on_connect: Option<AsyncCallback>,
+    pending_reads: VecDeque<PendingRead>,
+    available_data: Vec<u8>,
 }
 
 impl TcpConnection {
@@ -73,6 +86,8 @@ impl TcpConnection {
             last_sequence_sent: 0,
             last_sequence_received: 0,
             on_connect,
+            pending_reads: VecDeque::new(),
+            available_data: Vec::new(),
         }
     }
 
@@ -99,7 +114,22 @@ impl TcpConnection {
             }
             TcpAction::Discard => None,
             TcpAction::Enqueue => {
-                // TODO: store the data vec
+                if self.pending_reads.is_empty() {
+                    unimplemented!();
+                } else {
+                    // copy the buffer directly to the read buffer
+                    let read = self.pending_reads.pop_front().unwrap();
+                    let mapping = UnmappedPage::map(read.buffer_paddr);
+                    let buffer_ptr = mapping.virtual_address().as_ptr_mut::<u8>();
+                    let mut buffer =
+                        unsafe { core::slice::from_raw_parts_mut(buffer_ptr, read.buffer_len) };
+                    let write_length = data.len().min(buffer.len());
+
+                    buffer[..write_length].copy_from_slice(&data[..write_length]);
+
+                    // TODO: if we didn't write all the data, store the rest for the next read
+                    complete_op(read.callback, Ok(write_length as u32));
+                }
 
                 Some(TcpHeader::create_packet(
                     local_addr,
@@ -175,6 +205,16 @@ impl TcpConnection {
     }
 
     pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IOResult> {
+        if self.available_data.is_empty() {
+            let buffer_vaddr = VirtualAddress::new(buffer.as_ptr() as u32);
+            let buffer_paddr = get_current_physical_address(buffer_vaddr).unwrap();
+            self.pending_reads.push_back(PendingRead {
+                buffer_paddr,
+                buffer_len: buffer.len(),
+                callback,
+            });
+            return None;
+        }
         Some(Err(IOError::Unknown))
     }
 }
