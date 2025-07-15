@@ -232,7 +232,14 @@ pub fn handle_tcp_packet(
     };
 
     let mut socket_map = SOCKET_MAP.write();
-    if let Some(socket_type) = socket_map.get_mut(&socket_id) {
+    let mut lookup_id = socket_id;
+    if let Some(SocketType::TcpListener(listener)) = socket_map.get_mut(&socket_id) {
+        let remote_port = SocketPort::new(u16::from_be(tcp_header.source_port));
+        if let Some(conn_id) = listener.connections.find(remote_addr, remote_port) {
+            lookup_id = conn_id;
+        }
+    }
+    if let Some(socket_type) = socket_map.get_mut(&lookup_id) {
         match socket_type {
             SocketType::TcpListener(listener) => {
                 if let Some((new_conn_id, new_conn)) =

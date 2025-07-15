@@ -1,9 +1,11 @@
 use alloc::vec::Vec;
 use idos_api::io::error::{IOError, IOResult};
 
+use crate::net::resident::net_send;
+use crate::net::socket::listen::complete_op;
 use crate::net::socket::AsyncCallback;
 
-use super::super::super::socket::port::SocketPort;
+use super::super::super::socket::{port::SocketPort, SocketId};
 use super::super::{ipv4::Ipv4Address, packet::PacketHeader};
 use super::header::TcpHeader;
 
@@ -39,22 +41,27 @@ pub enum TcpAction {
 }
 
 pub struct TcpConnection {
+    own_id: SocketId,
     local_port: SocketPort,
     remote_address: Ipv4Address,
     remote_port: SocketPort,
     state: TcpState,
     pub last_sequence_sent: u32,
     pub last_sequence_received: u32,
+    on_connect: Option<AsyncCallback>,
 }
 
 impl TcpConnection {
     pub fn new(
+        own_id: SocketId,
         local_port: SocketPort,
         remote_address: Ipv4Address,
         remote_port: SocketPort,
         is_outbound: bool,
+        on_connect: Option<AsyncCallback>,
     ) -> Self {
         Self {
+            own_id,
             local_port,
             remote_address,
             remote_port,
@@ -65,6 +72,7 @@ impl TcpConnection {
             },
             last_sequence_sent: 0,
             last_sequence_received: 0,
+            on_connect,
         }
     }
 
@@ -84,6 +92,9 @@ impl TcpConnection {
             TcpAction::Connect => {
                 self.state = TcpState::Established;
                 self.last_sequence_sent += 1;
+                if let Some(callback) = self.on_connect.take() {
+                    complete_op(callback, Ok(*self.own_id));
+                }
                 None
             }
             TcpAction::Discard => None,
@@ -116,6 +127,10 @@ impl TcpConnection {
             }
             TcpAction::Reset => None,
         };
+
+        if let Some(packet) = packet_to_send {
+            net_send(remote_addr, packet);
+        }
     }
 
     /// Determine the action to take based on the current TCP state and the
@@ -141,6 +156,7 @@ impl TcpConnection {
                 if ack != self.last_sequence_sent + 1 {
                     return TcpAction::Reset;
                 }
+                crate::kprintln!("REALLY CONNECTED NOW");
                 TcpAction::Connect
             }
 

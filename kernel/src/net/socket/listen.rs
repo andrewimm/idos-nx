@@ -87,7 +87,7 @@ impl ListenerConnections {
 
 pub struct TcpListener {
     local_port: SocketPort,
-    connections: ListenerConnections,
+    pub connections: ListenerConnections,
     pending_syn: VecDeque<(Ipv4Address, SocketPort)>,
     pending_accept: VecDeque<AsyncCallback>,
 }
@@ -111,27 +111,21 @@ impl TcpListener {
     ) -> Option<(SocketId, TcpConnection)> {
         let remote_port = SocketPort::new(u16::from_be(tcp_header.source_port));
         match self.connections.find(remote_addr, remote_port) {
-            Some(existing_conn_id) => match super::SOCKET_MAP.write().get_mut(&existing_conn_id) {
-                Some(SocketType::TcpConnection(conn)) => {
-                    conn.handle_packet(local_addr, remote_addr, tcp_header, data);
-                }
-                _ => {}
-            },
+            Some(_) => panic!(),
             None => {
                 if tcp_header.is_syn() {
                     // If the packet is a SYN, we queue it for later processing
-                    crate::kprintln!("INCOMING SYN PACKET");
                     if self.pending_accept.is_empty() {
                         self.pending_syn.push_back((remote_addr, remote_port));
                     } else {
                         // If we have a pending accept, we can immediately process the SYN
-                        //let callback = self.pending_accept.pop_front().unwrap();
-                        crate::kprintln!("CREATE NEW CONNECTION");
+                        let callback = self.pending_accept.pop_front().unwrap();
                         return Some(self.init_connection(
                             local_addr,
                             remote_addr,
                             remote_port,
                             u32::from_be(tcp_header.sequence_number),
+                            callback,
                         ));
                     }
                 }
@@ -146,11 +140,18 @@ impl TcpListener {
         remote_addr: Ipv4Address,
         remote_port: SocketPort,
         last_seq: u32,
+        callback: AsyncCallback,
     ) -> (SocketId, TcpConnection) {
         let is_outbound = last_seq == 0;
         let socket_id = SocketId::new(super::NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
-        let mut connection =
-            TcpConnection::new(self.local_port, remote_addr, remote_port, is_outbound);
+        let mut connection = TcpConnection::new(
+            socket_id,
+            self.local_port,
+            remote_addr,
+            remote_port,
+            is_outbound,
+            Some(callback),
+        );
         connection.last_sequence_received = last_seq;
         self.connections.add(remote_addr, remote_port, socket_id);
         let flags = if is_outbound {
@@ -188,7 +189,7 @@ impl TcpListener {
     }
 }
 
-fn complete_op(callback: AsyncCallback, result: IOResult) {
+pub fn complete_op(callback: AsyncCallback, result: IOResult) {
     let (task_id, io_index, op_id) = callback;
     let task_lock = match get_task(task_id) {
         Some(lock) => lock,

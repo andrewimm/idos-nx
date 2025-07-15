@@ -238,8 +238,8 @@ impl NetDevice {
     fn handle_ip_packet(&mut self, _src_mac: HardwareAddress, offset: usize) -> Option<NetEvent> {
         let ip_header = Ipv4Header::try_from_u8_buffer(&self.read_buffer[offset..]).unwrap();
         let payload_offset = offset + Ipv4Header::get_size();
-        let total_length = u16::from_be(ip_header.total_length) as usize;
-        let payload = &self.read_buffer[payload_offset..(payload_offset + total_length)];
+        let payload_length = u16::from_be(ip_header.total_length) as usize - Ipv4Header::get_size();
+        let payload = &self.read_buffer[payload_offset..(payload_offset + payload_length)];
 
         if ip_header.protocol == IpProtocolType::Udp {
             let udp_header = match UdpHeader::try_from_u8_buffer(payload) {
