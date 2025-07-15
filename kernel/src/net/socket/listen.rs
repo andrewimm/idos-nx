@@ -150,7 +150,7 @@ impl TcpListener {
             remote_addr,
             remote_port,
             is_outbound,
-            Some(callback),
+            Some((callback, !is_outbound)),
         );
         connection.last_sequence_received = last_seq;
         self.connections.add(remote_addr, remote_port, socket_id);

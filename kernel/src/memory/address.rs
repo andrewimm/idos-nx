@@ -1,5 +1,5 @@
 use core::{
-    ops::{Add, Range, RangeInclusive, Sub},
+    ops::{Add, BitAnd, Range, RangeInclusive, Sub},
     range::{Bound, RangeBounds},
 };
 
@@ -72,6 +72,14 @@ impl Sub<u32> for PhysicalAddress {
     fn sub(self, rhs: u32) -> Self::Output {
         let new_addr = self.0.saturating_sub(rhs);
         Self::new(new_addr)
+    }
+}
+
+impl BitAnd<u32> for PhysicalAddress {
+    type Output = Self;
+
+    fn bitand(self, rhs: u32) -> Self::Output {
+        Self::new(self.0 & rhs)
     }
 }
 

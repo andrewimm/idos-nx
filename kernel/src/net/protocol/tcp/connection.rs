@@ -2,11 +2,15 @@ use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use idos_api::io::error::{IOError, IOResult};
 
+use crate::io::async_io::IOType;
+use crate::io::provider::socket::SocketIOProvider;
+use crate::io::provider::IOProvider;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::virt::scratch::UnmappedPage;
 use crate::net::resident::net_send;
 use crate::net::socket::listen::complete_op;
 use crate::net::socket::AsyncCallback;
+use crate::task::map::get_task;
 use crate::task::paging::get_current_physical_address;
 
 use super::super::super::socket::{port::SocketPort, SocketId};
@@ -59,7 +63,7 @@ pub struct TcpConnection {
     pub last_sequence_sent: u32,
     pub last_sequence_received: u32,
 
-    on_connect: Option<AsyncCallback>,
+    on_connect: Option<(AsyncCallback, bool)>,
     pending_reads: VecDeque<PendingRead>,
     available_data: Vec<u8>,
 }
@@ -71,7 +75,7 @@ impl TcpConnection {
         remote_address: Ipv4Address,
         remote_port: SocketPort,
         is_outbound: bool,
-        on_connect: Option<AsyncCallback>,
+        on_connect: Option<(AsyncCallback, bool)>,
     ) -> Self {
         Self {
             own_id,
@@ -107,8 +111,22 @@ impl TcpConnection {
             TcpAction::Connect => {
                 self.state = TcpState::Established;
                 self.last_sequence_sent += 1;
-                if let Some(callback) = self.on_connect.take() {
-                    complete_op(callback, Ok(*self.own_id));
+                if let Some((callback, should_create_provider)) = self.on_connect.take() {
+                    if should_create_provider {
+                        let mut provider = SocketIOProvider::create_tcp();
+                        provider.bind_to(*self.own_id);
+                        let task_lock = match get_task(callback.0) {
+                            Some(task) => task,
+                            None => return,
+                        };
+                        let mut task_guard = task_lock.write();
+                        let io_index = task_guard.async_io_table.add_io(IOType::Socket(provider));
+                        let new_handle = task_guard.open_handles.insert(io_index);
+                        drop(task_guard);
+                        complete_op(callback, Ok(*new_handle as u32));
+                    } else {
+                        complete_op(callback, Ok(*self.own_id));
+                    }
                 }
                 None
             }
@@ -119,8 +137,9 @@ impl TcpConnection {
                 } else {
                     // copy the buffer directly to the read buffer
                     let read = self.pending_reads.pop_front().unwrap();
-                    let mapping = UnmappedPage::map(read.buffer_paddr);
-                    let buffer_ptr = mapping.virtual_address().as_ptr_mut::<u8>();
+                    let buffer_offset = read.buffer_paddr.as_u32() & 0xfff;
+                    let mapping = UnmappedPage::map(read.buffer_paddr & 0xfffff000);
+                    let buffer_ptr = (mapping.virtual_address() + buffer_offset).as_ptr_mut::<u8>();
                     let mut buffer =
                         unsafe { core::slice::from_raw_parts_mut(buffer_ptr, read.buffer_len) };
                     let write_length = data.len().min(buffer.len());

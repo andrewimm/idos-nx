@@ -142,18 +142,41 @@ fn init_system() -> ! {
         }
         crate::kprintln!("OPENED SOCKET");
 
-        let accept_buffer: [u8; 4] = [0; 4];
+        let mut read_buffer: [u8; 12] = [0; 12];
         let accept_op = idos_api::io::AsyncOp {
             op_code: idos_api::io::ASYNC_OP_READ,
             return_value: core::sync::atomic::AtomicU32::new(0),
             signal: core::sync::atomic::AtomicU32::new(0),
-            args: [accept_buffer.as_ptr() as u32, 4, 0],
+            args: [read_buffer.as_ptr() as u32, 0, 0],
         };
         let _ = task::actions::io::send_io_op(socket_handle, &accept_op, None);
         while !accept_op.is_complete() {
             task::actions::sleep(1000);
         }
+        let conn_handle = io::handle::Handle::new(
+            accept_op
+                .return_value
+                .load(core::sync::atomic::Ordering::SeqCst) as usize,
+        );
         crate::kprintln!("Accept TCP connection");
+        loop {
+            let read_op = idos_api::io::AsyncOp {
+                op_code: idos_api::io::ASYNC_OP_READ,
+                return_value: core::sync::atomic::AtomicU32::new(0),
+                signal: core::sync::atomic::AtomicU32::new(0),
+                args: [read_buffer.as_ptr() as u32, 12, 0],
+            };
+            let _ = task::actions::io::send_io_op(conn_handle, &read_op, None);
+            while !read_op.is_complete() {
+                task::actions::sleep(1000);
+            }
+            let read_len = read_op
+                .return_value
+                .load(core::sync::atomic::Ordering::SeqCst) as usize;
+            let read_str =
+                core::str::from_utf8(&read_buffer[..read_len]).unwrap_or("Invalid UTF-8");
+            crate::kprintln!("READ ({}): \"{}\"", read_len, read_str);
+        }
     }
 
     /*{
