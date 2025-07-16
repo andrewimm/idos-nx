@@ -1,9 +1,68 @@
 use super::{checksum::Checksum, packet::PacketHeader};
 
 /// Transparent wrapper for an IPV4 address, used for type safety
-#[derive(Copy, Clone, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Copy, Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 #[repr(transparent)]
 pub struct Ipv4Address(pub [u8; 4]);
+
+impl Ipv4Address {
+    pub fn parse(addr: &str) -> Option<Self> {
+        let bytes = addr.as_bytes();
+
+        if bytes.len() < 7 || bytes.len() > 15 {
+            // can't be less than 7 (eg 0.0.0.0) or more than 15
+            return None;
+        }
+
+        let mut index = 0;
+        let mut octets = [0u8; 4];
+        for i in 0..4 {
+            octets[i] = parse_octet(&bytes[index..])?;
+            index += 1;
+            if octets[i] > 9 {
+                index += 1;
+            }
+            if octets[i] > 99 {
+                index += 1;
+            }
+
+            if i < 3 {
+                if index >= bytes.len() - 1 || bytes[index] != b'.' {
+                    return None; // Missing separator
+                }
+                index += 1;
+            }
+        }
+        if index != bytes.len() {
+            return None; // Extra characters
+        }
+
+        Some(Self(octets))
+    }
+}
+
+fn parse_octet(bytes: &[u8]) -> Option<u8> {
+    let mut value: u16 = 0;
+    let mut digit_count = 0;
+
+    let starts_with_zero = bytes[0] == b'0';
+    let mut index = 0;
+    while index < bytes.len() && bytes[index] >= b'0' && bytes[index] <= b'9' {
+        value = value * 10 + (bytes[index] - b'0') as u16;
+        digit_count += 1;
+        index += 1;
+
+        if digit_count > 3 || value > 255 {
+            return None; // Invalid octet
+        }
+    }
+
+    if starts_with_zero && digit_count > 1 {
+        return None; // Leading zero in octet
+    }
+
+    Some(value as u8)
+}
 
 impl core::ops::Deref for Ipv4Address {
     type Target = [u8; 4];
@@ -135,3 +194,36 @@ impl Ipv4Header {
 }
 
 impl PacketHeader for Ipv4Header {}
+
+#[cfg(test)]
+mod tests {
+    use super::Ipv4Address;
+
+    #[test_case]
+    fn test_address_parse() {
+        assert_eq!(
+            Ipv4Address::parse("192.168.0.1"),
+            Some(Ipv4Address([192, 168, 0, 1]))
+        );
+        assert_eq!(
+            Ipv4Address::parse("127.0.0.1"),
+            Some(Ipv4Address([127, 0, 0, 1]))
+        );
+
+        assert_eq!(
+            Ipv4Address::parse("0.0.0.0"),
+            Some(Ipv4Address([0, 0, 0, 0]))
+        );
+
+        assert_eq!(Ipv4Address::parse("127.0.0.01"), None);
+        assert_eq!(Ipv4Address::parse("www.example.net"), None);
+        assert_eq!(Ipv4Address::parse("12.0.0.256"), None);
+        assert_eq!(Ipv4Address::parse("192.168.1"), None);
+        assert_eq!(Ipv4Address::parse("192.168.1."), None);
+        assert_eq!(Ipv4Address::parse("192.168.1.1.1"), None);
+        assert_eq!(Ipv4Address::parse(".127.0.0.1"), None);
+        assert_eq!(Ipv4Address::parse("10.0..23"), None);
+        assert_eq!(Ipv4Address::parse("10"), None);
+        assert_eq!(Ipv4Address::parse(""), None);
+    }
+}
