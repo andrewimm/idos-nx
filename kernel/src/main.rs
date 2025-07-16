@@ -179,37 +179,6 @@ fn init_system() -> ! {
         }
     }
 
-    /*{
-        // TCP test
-        use net::socket::SocketPort;
-        use net::ip::IPV4Address;
-
-        let sock = net::socket::create_socket(net::socket::SocketProtocol::TCP);
-        net::socket::bind_socket(sock, IPV4Address([127, 0, 0, 1]), SocketPort::new(84), IPV4Address([0, 0, 0, 0]), SocketPort::new(0)).unwrap();
-
-        crate::kprintln!("Listening on 127.0.0.1:84");
-        let connection = loop {
-            match net::socket::socket_accept(sock) {
-                Some(handle) => break handle,
-                None => crate::task::actions::yield_coop(),
-            }
-        };
-        crate::kprintln!("Accepted connection from remote endpoint");
-
-        let mut buffer = alloc::vec::Vec::new();
-        for _ in 0..1024 {
-            buffer.push(0);
-        }
-        loop {
-            if let Some(len) = net::socket::socket_read(connection, buffer.as_mut_slice()) {
-                crate::kprintln!("GOT PAYLOAD");
-                let s = core::str::from_utf8(&buffer[..len]).unwrap();
-                crate::kprintln!("\"{}\"", s);
-            }
-            task::actions::yield_coop();
-        }
-    }*/
-
     let wake_set = task::actions::sync::create_wake_set();
     loop {
         task::actions::sync::block_on_wake_set(wake_set, None);

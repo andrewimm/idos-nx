@@ -205,7 +205,6 @@ impl TcpConnection {
                 if ack != self.last_sequence_sent + 1 {
                     return TcpAction::Reset;
                 }
-                crate::kprintln!("REALLY CONNECTED NOW");
                 TcpAction::Connect
             }
 

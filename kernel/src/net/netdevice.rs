@@ -169,7 +169,7 @@ impl NetDevice {
             if result & 0x80000000 != 0 {
                 // if opening the device failed, we try again? or destroy this
                 // net device?
-                crate::kprintln!("Failed to open network device");
+                super::resident::LOGGER.log(format_args!("Failed to open network device"));
                 return None;
             }
             self.is_open = true;
@@ -181,12 +181,14 @@ impl NetDevice {
         let result = self.active_read.return_value.load(Ordering::SeqCst);
         if result & 0x80000000 != 0 {
             // read failed
+            super::resident::LOGGER.log(format_args!("Read failed"));
             self.add_new_read_request();
             return None;
         }
         let len = (result & 0x7fffffff) as usize;
         if len == 0 {
             // no data was read, so we can just continue
+            super::resident::LOGGER.log(format_args!("No packet data"));
             self.add_new_read_request();
             return None;
         }
@@ -202,9 +204,13 @@ impl NetDevice {
                 // if it's an IP packet, it may be UDP or TCP and needs to
                 // be handled by the appropriate socket
                 EthernetFrameHeader::ETHERTYPE_IP => self.handle_ip_packet(frame.src_mac, offset),
-                _ => None,
+                _ => {
+                    super::resident::LOGGER.log(format_args!("Unexpected ETHERTYPE"));
+                    None
+                }
             }
         } else {
+            super::resident::LOGGER.log(format_args!("Invalid ethernet frame"));
             None
         };
 

@@ -162,7 +162,7 @@ fn run_driver() -> ! {
     let _ = send_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
 
     register_network_device("DEV:\\ETH", mac);
-    crate::net::resident::get_ip();
+
     let _ = write_sync(response_writer, &[0], 0);
     let _ = close_sync(response_writer);
 

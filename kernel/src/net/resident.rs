@@ -121,10 +121,14 @@ pub fn net_stack_resident() -> ! {
                 match req {
                     NetRequest::RegisterDevice(name, mac) => {
                         LOGGER.log(format_args!("Register Device {}", name));
-                        network_devices.insert((
-                            Executor::<NetEvent>::new(),
-                            Arc::new(RwLock::new(NetDevice::new(&name, mac, wake_set))),
-                        ));
+                        let mut executor = Executor::<NetEvent>::new();
+                        let netdev = Arc::new(RwLock::new(NetDevice::new(&name, mac, wake_set)));
+                        let dev_clone = netdev.clone();
+                        let waker_reg = executor.waker_registry();
+                        executor.spawn(async move {
+                            let _ = get_local_ip(dev_clone, waker_reg).await;
+                        });
+                        network_devices.insert((executor, netdev));
                     }
                     NetRequest::GetIp => {
                         let (executor, active_device) = network_devices.get_mut(0).unwrap();
