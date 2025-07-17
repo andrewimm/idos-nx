@@ -37,7 +37,10 @@ pub mod port;
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::collections::BTreeMap;
+use alloc::{
+    collections::BTreeMap,
+    string::{String, ToString},
+};
 use idos_api::io::error::IOError;
 use spin::RwLock;
 
@@ -47,9 +50,12 @@ use self::{
     listen::{TcpListener, UdpListener},
     port::SocketPort,
 };
-use super::protocol::{
-    ipv4::Ipv4Address,
-    tcp::{connection::TcpConnection, header::TcpHeader},
+use super::{
+    protocol::{
+        ipv4::Ipv4Address,
+        tcp::{connection::TcpConnection, header::TcpHeader},
+    },
+    resident::net_open_tcp,
 };
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
@@ -105,12 +111,16 @@ pub type AsyncCallback = (TaskID, u32, AsyncOpID);
 /// complete.
 pub fn socket_io_bind(
     protocol: SocketProtocol,
-    addr: Ipv4Address,
+    addr_string: &[u8],
     port: u16,
     callback: AsyncCallback,
 ) -> Option<Result<u32, IOError>> {
     match protocol {
         SocketProtocol::Udp => {
+            let addr = match Ipv4Address::parse_bytes(addr_string) {
+                Some(addr) => addr,
+                None => return Some(Err(IOError::InvalidArgument)),
+            };
             if addr != Ipv4Address([0, 0, 0, 0]) && addr != Ipv4Address([127, 0, 0, 1]) {
                 // We don't currently support declaring which local IP to use,
                 // so this is just an error case
@@ -135,33 +145,81 @@ pub fn socket_io_bind(
             Some(Ok(*socket_id))
         }
         SocketProtocol::Tcp => {
-            if addr == Ipv4Address([0, 0, 0, 0]) || addr == Ipv4Address([127, 0, 0, 1]) {
-                // This is a local TCP listener
-                let mut active_connections = ACTIVE_CONNECTIONS.write();
-                let port = SocketPort::new(port);
-                if let Some(_) = active_connections.get(&port) {
-                    return Some(Err(IOError::ResourceInUse));
+            if let Some(addr) = Ipv4Address::parse_bytes(addr_string) {
+                if addr == Ipv4Address([0, 0, 0, 0]) || addr == Ipv4Address([127, 0, 0, 1]) {
+                    // This is a local TCP listener
+                    let mut active_connections = ACTIVE_CONNECTIONS.write();
+                    let port = SocketPort::new(port);
+                    if let Some(_) = active_connections.get(&port) {
+                        return Some(Err(IOError::ResourceInUse));
+                    }
+
+                    let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
+                    active_connections.insert(port, socket_id);
+                    drop(active_connections);
+
+                    let listener = TcpListener::new(port);
+                    SOCKET_MAP
+                        .write()
+                        .insert(socket_id, SocketType::TcpListener(listener));
+                    return Some(Ok(*socket_id));
                 }
-
-                let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
-                active_connections.insert(port, socket_id);
-                drop(active_connections);
-
-                let listener = TcpListener::new(port);
-                SOCKET_MAP
-                    .write()
-                    .insert(socket_id, SocketType::TcpListener(listener));
-                Some(Ok(*socket_id))
-            } else {
-                // This is an attempt to connect to a remote TCP address.
-                // This process will be asynchronous, and will use the
-                // callback info to resolve the op later.
-                let mut active_connections = ACTIVE_CONNECTIONS.write();
-
-                None
             }
+            // this is an attempt to connect to a remote TCP address.
+            // It may be a known IP, or it may be a domain name that requires
+            // a DNS lookup.
+            //
+            // The process will be asynchronous, and will use the callback info
+            // to resolve the op later.
+            let remote_port = SocketPort::new(port);
+            let local_port = match get_ephemeral_port() {
+                Some(p) => p,
+                None => return Some(Err(IOError::ResourceLimitExceeded)),
+            };
+            let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
+            ACTIVE_CONNECTIONS.write().insert(local_port, socket_id);
+            let remote_addr = match Ipv4Address::parse_bytes(addr_string) {
+                Some(addr) => addr,
+                // It can't be the broadcast address, so we use that as a placeholder
+                None => Ipv4Address([255, 255, 255, 255]),
+            };
+            let conn = TcpConnection::new(
+                socket_id,
+                local_port,
+                remote_addr,
+                remote_port,
+                true,                    // is outbound
+                Some((callback, false)), // callback, not creating provider
+            );
+            SOCKET_MAP
+                .write()
+                .insert(socket_id, SocketType::TcpConnection(conn));
+
+            // TODO: this is wasteful, we shouldn't need to build a String
+            net_open_tcp(
+                local_port,
+                String::from_utf8_lossy(addr_string).to_string(),
+                remote_port,
+            );
+
+            None
         }
     }
+}
+
+pub fn get_ephemeral_port() -> Option<SocketPort> {
+    let mut test_port = 49152;
+    while test_port < 65535 {
+        let port = SocketPort::new(test_port);
+        {
+            let active_connections = ACTIVE_CONNECTIONS.read();
+            if !active_connections.contains_key(&port) {
+                return Some(port); // Found an available ephemeral port
+            }
+        }
+        test_port += 1;
+    }
+    None
 }
 
 /// Depending on the socket type, this may either

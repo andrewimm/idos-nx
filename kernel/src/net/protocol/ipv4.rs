@@ -1,3 +1,5 @@
+use core::str::FromStr;
+
 use super::{checksum::Checksum, packet::PacketHeader};
 
 /// Transparent wrapper for an IPV4 address, used for type safety
@@ -6,9 +8,7 @@ use super::{checksum::Checksum, packet::PacketHeader};
 pub struct Ipv4Address(pub [u8; 4]);
 
 impl Ipv4Address {
-    pub fn parse(addr: &str) -> Option<Self> {
-        let bytes = addr.as_bytes();
-
+    pub fn parse_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() < 7 || bytes.len() > 15 {
             // can't be less than 7 (eg 0.0.0.0) or more than 15
             return None;
@@ -38,6 +38,17 @@ impl Ipv4Address {
         }
 
         Some(Self(octets))
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Ipv4AddressParseError;
+
+impl FromStr for Ipv4Address {
+    type Err = Ipv4AddressParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::parse_bytes(s.as_bytes()).ok_or(Ipv4AddressParseError)
     }
 }
 
@@ -198,32 +209,33 @@ impl PacketHeader for Ipv4Header {}
 #[cfg(test)]
 mod tests {
     use super::Ipv4Address;
+    use core::str::FromStr;
 
     #[test_case]
     fn test_address_parse() {
         assert_eq!(
-            Ipv4Address::parse("192.168.0.1"),
+            Ipv4Address::from_str("192.168.0.1"),
             Some(Ipv4Address([192, 168, 0, 1]))
         );
         assert_eq!(
-            Ipv4Address::parse("127.0.0.1"),
+            Ipv4Address::from_str("127.0.0.1"),
             Some(Ipv4Address([127, 0, 0, 1]))
         );
 
         assert_eq!(
-            Ipv4Address::parse("0.0.0.0"),
+            Ipv4Address::from_str("0.0.0.0"),
             Some(Ipv4Address([0, 0, 0, 0]))
         );
 
-        assert_eq!(Ipv4Address::parse("127.0.0.01"), None);
-        assert_eq!(Ipv4Address::parse("www.example.net"), None);
-        assert_eq!(Ipv4Address::parse("12.0.0.256"), None);
-        assert_eq!(Ipv4Address::parse("192.168.1"), None);
-        assert_eq!(Ipv4Address::parse("192.168.1."), None);
-        assert_eq!(Ipv4Address::parse("192.168.1.1.1"), None);
-        assert_eq!(Ipv4Address::parse(".127.0.0.1"), None);
-        assert_eq!(Ipv4Address::parse("10.0..23"), None);
-        assert_eq!(Ipv4Address::parse("10"), None);
-        assert_eq!(Ipv4Address::parse(""), None);
+        assert_eq!(Ipv4Address::from_str("127.0.0.01"), None);
+        assert_eq!(Ipv4Address::from_str("www.example.net"), None);
+        assert_eq!(Ipv4Address::from_str("12.0.0.256"), None);
+        assert_eq!(Ipv4Address::from_str("192.168.1"), None);
+        assert_eq!(Ipv4Address::from_str("192.168.1."), None);
+        assert_eq!(Ipv4Address::from_str("192.168.1.1.1"), None);
+        assert_eq!(Ipv4Address::from_str(".127.0.0.1"), None);
+        assert_eq!(Ipv4Address::from_str("10.0..23"), None);
+        assert_eq!(Ipv4Address::from_str("10"), None);
+        assert_eq!(Ipv4Address::from_str(""), None);
     }
 }

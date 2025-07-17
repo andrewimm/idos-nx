@@ -3,6 +3,7 @@ use core::sync::atomic::Ordering;
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, VecDeque},
+    string::String,
     vec::Vec,
 };
 use idos_api::io::{AsyncOp, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
@@ -35,6 +36,8 @@ pub enum NetEvent {
 
     DhcpOffer(u32),
     DhcpAck(u32),
+
+    DnsResponse,
 }
 
 pub enum NetRequest {

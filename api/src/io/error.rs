@@ -24,6 +24,8 @@ pub enum IOError {
     InvalidArgument,
     /// Tried to bind to a resource (like a port) that is already in use
     ResourceInUse,
+    /// Maxed out a resource limit, like the number of open files or sockets
+    ResourceLimitExceeded,
 
     Unknown = 0xffffffff,
 }

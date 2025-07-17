@@ -7,7 +7,7 @@ use crate::io::provider::socket::SocketIOProvider;
 use crate::io::provider::IOProvider;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::virt::scratch::UnmappedPage;
-use crate::net::resident::net_send;
+use crate::net::resident::net_respond;
 use crate::net::socket::listen::complete_op;
 use crate::net::socket::AsyncCallback;
 use crate::task::map::get_task;
@@ -178,7 +178,7 @@ impl TcpConnection {
         };
 
         if let Some(packet) = packet_to_send {
-            net_send(remote_addr, packet);
+            net_respond(remote_addr, packet);
         }
     }
 

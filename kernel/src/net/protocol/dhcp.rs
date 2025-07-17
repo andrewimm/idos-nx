@@ -165,6 +165,8 @@ pub struct DhcpState {
     pub gateway_ip: Ipv4Address,
     /// Subnet mask for identifying IPs on the local network
     pub subnet_mask: Ipv4Address,
+    /// Set of possible DNS servers
+    pub dns_servers: Vec<Ipv4Address>,
 }
 
 /// State of DHCP resolution request
@@ -189,6 +191,7 @@ impl DhcpState {
             server_ip: Ipv4Address::default(),
             gateway_ip: Ipv4Address::default(),
             subnet_mask: Ipv4Address::default(),
+            dns_servers: Vec::new(),
         }
     }
 
@@ -368,6 +371,7 @@ impl DhcpState {
                 self.server_ip = dhcp_server;
                 self.gateway_ip = router;
                 self.subnet_mask = subnet_mask;
+                self.dns_servers = dns_servers;
                 return Ok((None, NetEvent::DhcpAck(xid)));
             }
             _ => (),

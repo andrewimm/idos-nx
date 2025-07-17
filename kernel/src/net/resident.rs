@@ -11,20 +11,23 @@ use crate::{
     },
 };
 
-use alloc::{boxed::Box, collections::VecDeque, string::String, sync::Arc, vec::Vec};
-
 use super::{
     hardware::HardwareAddress,
     netdevice::{NetDevice, NetEvent},
     protocol::{
         arp::ArpPacket,
         dhcp::{DhcpPacket, IpResolution},
+        dns::{DnsHeader, DnsQuestion},
         ethernet::EthernetFrameHeader,
         ipv4::Ipv4Address,
         packet::PacketHeader,
+        tcp::header::TcpHeader,
         udp::create_datagram,
     },
+    socket::port::SocketPort,
 };
+use alloc::{boxed::Box, collections::VecDeque, string::String, sync::Arc, vec::Vec};
+use core::str::FromStr;
 
 use spin::{Mutex, RwLock};
 
@@ -34,7 +37,9 @@ pub enum NetRequest {
     RegisterDevice(String, HardwareAddress),
     GetIp,
     GetMacForIp(Ipv4Address),
-    Send(Ipv4Address, Vec<u8>),
+    SendUdp(SocketPort, String, SocketPort, Vec<u8>),
+    OpenTcp(SocketPort, String, SocketPort),
+    Respond(Ipv4Address, Vec<u8>),
 }
 
 static NET_STACK_REQUESTS: Mutex<VecDeque<NetRequest>> = Mutex::new(VecDeque::new());
@@ -74,10 +79,23 @@ pub fn get_mac_for_ip(ip: Ipv4Address) {
     }
 }
 
-pub fn net_send(destination: Ipv4Address, payload: Vec<u8>) {
+pub fn net_open_tcp(local_port: SocketPort, destination: String, remote_port: SocketPort) {
     NET_STACK_REQUESTS
         .lock()
-        .push_back(NetRequest::Send(destination, payload));
+        .push_back(NetRequest::OpenTcp(local_port, destination, remote_port));
+
+    let wake_set = WAKE_SET.read().clone();
+    if let Some(waker) = wake_set {
+        waker.wake();
+    }
+}
+
+/// Special case of net_send where the destionation IP is already available
+/// because we are responding to an incoming packet.
+pub fn net_respond(destination: Ipv4Address, payload: Vec<u8>) {
+    NET_STACK_REQUESTS
+        .lock()
+        .push_back(NetRequest::Respond(destination, payload));
 
     let wake_set = WAKE_SET.read().clone();
     if let Some(waker) = wake_set {
@@ -150,16 +168,56 @@ pub fn net_stack_resident() -> ! {
                             }
                         });
                     }
-                    NetRequest::Send(dest, payload) => {
+                    NetRequest::SendUdp(local_port, dest, remote_port, payload) => {
                         LOGGER.log(format_args!("SEND PACKET TO {}", dest));
                         let (executor, active_device) = network_devices.get_mut(0).unwrap();
                         let device = active_device.clone();
                         let waker_reg = executor.waker_registry();
                         executor.spawn(async move {
-                            match send_packet(dest, payload, device, waker_reg).await {
+                            match send_udp(
+                                local_port,
+                                dest,
+                                remote_port,
+                                payload,
+                                device,
+                                waker_reg,
+                            )
+                            .await
+                            {
                                 Ok(_) => {}
                                 Err(_) => {
-                                    LOGGER.log(format_args!("Failed to send UDP packet"));
+                                    LOGGER.log(format_args!("Failed to send packet"));
+                                }
+                            }
+                        });
+                    }
+                    NetRequest::OpenTcp(local_port, dest, remote_port) => {
+                        LOGGER.log(format_args!(
+                            "OPEN TCP {} -> {}{}",
+                            local_port, dest, remote_port
+                        ));
+                        let (executor, active_device) = network_devices.get_mut(0).unwrap();
+                        let device = active_device.clone();
+                        let waker_reg = executor.waker_registry();
+                        executor.spawn(async move {
+                            match open_tcp(local_port, dest, remote_port, device, waker_reg).await {
+                                Ok(_) => {}
+                                Err(_) => {
+                                    LOGGER.log(format_args!("Failed to open TCP connection"));
+                                }
+                            }
+                        });
+                    }
+                    NetRequest::Respond(dest_ip, payload) => {
+                        LOGGER.log(format_args!("RESPOND TO {}", dest_ip));
+                        let (executor, active_device) = network_devices.get_mut(0).unwrap();
+                        let device = active_device.clone();
+                        let waker_reg = executor.waker_registry();
+                        executor.spawn(async move {
+                            match send_packet_direct(dest_ip, payload, device, waker_reg).await {
+                                Ok(_) => {}
+                                Err(_) => {
+                                    LOGGER.log(format_args!("Failed to respond to packet"));
                                 }
                             }
                         });
@@ -271,11 +329,65 @@ async fn get_next_hop(
 }
 
 async fn send_packet(
+    destination: String,
+    payload: Vec<u8>,
+    net_dev_lock: Arc<RwLock<NetDevice>>,
+    waker_registry: WakerRegistry<NetEvent>,
+) -> Result<(), ()> {
+    let dest_ip = if let Ok(ip) = Ipv4Address::from_str(&destination) {
+        ip
+    } else {
+        dns_lookup(destination, net_dev_lock.clone(), waker_registry.clone()).await?
+    };
+    send_packet_direct(dest_ip, payload, net_dev_lock, waker_registry).await
+}
+
+async fn send_udp(
+    local_port: SocketPort,
+    destination: String,
+    remote_port: SocketPort,
+    payload: Vec<u8>,
+    net_dev_lock: Arc<RwLock<NetDevice>>,
+    waker_registry: WakerRegistry<NetEvent>,
+) -> Result<(), ()> {
+    unimplemented!();
+}
+
+async fn open_tcp(
+    local_port: SocketPort,
+    destination: String,
+    remote_port: SocketPort,
+    net_dev_lock: Arc<RwLock<NetDevice>>,
+    waker_registry: WakerRegistry<NetEvent>,
+) -> Result<(), ()> {
+    let local_addr = get_local_ip(net_dev_lock.clone(), waker_registry.clone())
+        .await
+        .ok_or(())?;
+    let remote_addr = if let Ok(ip) = Ipv4Address::from_str(&destination) {
+        ip
+    } else {
+        dns_lookup(destination, net_dev_lock.clone(), waker_registry.clone()).await?
+    };
+    let tcp_packet = TcpHeader::create_packet(
+        local_addr,
+        local_port,
+        remote_addr,
+        remote_port,
+        0,                   // seq number
+        0,                   // ack number
+        TcpHeader::FLAG_SYN, // flags
+        &[],
+    );
+    send_packet_direct(remote_addr, tcp_packet, net_dev_lock, waker_registry).await
+}
+
+async fn send_packet_direct(
     destination: Ipv4Address,
     payload: Vec<u8>,
     net_dev_lock: Arc<RwLock<NetDevice>>,
     waker_registry: WakerRegistry<NetEvent>,
 ) -> Result<(), ()> {
+    crate::kprintln!("SEND DIRECT");
     let local_ip = get_local_ip(net_dev_lock.clone(), waker_registry.clone())
         .await
         .ok_or(())?;
@@ -295,4 +407,38 @@ async fn send_packet(
         net_dev.add_write(write);
     }
     Ok(())
+}
+
+async fn dns_lookup(
+    hostname: String,
+    net_dev_lock: Arc<RwLock<NetDevice>>,
+    waker_registry: WakerRegistry<NetEvent>,
+) -> Result<Ipv4Address, ()> {
+    LOGGER.log(format_args!("DNS lookup for {}", hostname));
+    let local_ip = get_local_ip(net_dev_lock.clone(), waker_registry.clone())
+        .await
+        .ok_or(())?;
+    let dns_server_ip = net_dev_lock
+        .read()
+        .dhcp_state
+        .dns_servers
+        .get(0)
+        .copied()
+        .ok_or(())?;
+
+    let dns_packet = DnsHeader::build_query_packet(&[DnsQuestion::a_record(hostname)]);
+
+    let outbound_port: u16 = 4000;
+    let eth_header =
+        EthernetFrameHeader::new_ipv4(net_dev_lock.read().mac, HardwareAddress::BROADCAST);
+    let ip_packet = create_datagram(local_ip, outbound_port, dns_server_ip, 53, &dns_packet);
+    {
+        let mut net_dev = net_dev_lock.write();
+        let write = net_dev.send_raw(eth_header, &ip_packet);
+        net_dev.add_write(write);
+    }
+
+    WaitForEvent::new(NetEvent::DnsResponse, waker_registry).await;
+
+    Err(())
 }

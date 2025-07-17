@@ -127,6 +127,20 @@ fn init_system() -> ! {
         console::console_ready();
     }
 
+    {
+        // tcp test 2
+        task::actions::sleep(1000);
+        let socket_handle = task::actions::handle::create_tcp_socket();
+        let dest = "gopher.floodgap.com";
+        let open_op = idos_api::io::AsyncOp {
+            op_code: idos_api::io::ASYNC_OP_OPEN,
+            return_value: core::sync::atomic::AtomicU32::new(0),
+            signal: core::sync::atomic::AtomicU32::new(0),
+            args: [dest.as_ptr() as u32, dest.len() as u32, 70],
+        };
+        let _ = task::actions::io::send_io_op(socket_handle, &open_op, None);
+    }
+
     let wake_set = task::actions::sync::create_wake_set();
     loop {
         task::actions::sync::block_on_wake_set(wake_set, None);

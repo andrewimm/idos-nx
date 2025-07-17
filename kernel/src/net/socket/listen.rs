@@ -3,14 +3,15 @@ use core::sync::atomic::Ordering;
 use alloc::collections::{BTreeMap, VecDeque};
 use idos_api::io::error::{IOError, IOResult};
 
-use crate::{net::protocol::packet::PacketHeader, task::map::get_task};
+use crate::task::map::get_task;
 
 use super::{
     super::protocol::{
         ipv4::Ipv4Address,
+        packet::PacketHeader,
         tcp::{connection::TcpConnection, header::TcpHeader},
     },
-    super::resident::net_send,
+    super::resident::net_respond,
     port::SocketPort,
     AsyncCallback, SocketId, SocketType,
 };
@@ -169,7 +170,7 @@ impl TcpListener {
             flags,
             &[],
         );
-        net_send(remote_addr, response);
+        net_respond(remote_addr, response);
 
         (socket_id, connection)
     }

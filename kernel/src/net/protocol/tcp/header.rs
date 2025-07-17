@@ -69,7 +69,7 @@ impl TcpHeader {
             dest_ip,
             zeroes: 0,
             protocol: IpProtocolType::Tcp as u8,
-            udp_length: ((Self::get_size() + data_length) as u16).to_be(),
+            udp_length: ((Self::get_size() + data.len()) as u16).to_be(),
         };
 
         let mut checksum = Checksum::new();

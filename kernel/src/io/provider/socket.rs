@@ -90,15 +90,13 @@ impl IOProvider for SocketIOProvider {
         if self.socket_id.read().is_some() {
             return Some(Err(IOError::AlreadyOpen));
         }
-        let binding_addr: Ipv4Address = Ipv4Address([
-            op.args[0] as u8,
-            (op.args[0] >> 8) as u8,
-            (op.args[0] >> 16) as u8,
-            (op.args[0] >> 24) as u8,
-        ]);
-        let binding_port = op.args[1] as u16;
+        let binding_ptr = op.args[0] as *const u8;
+        let binding_len = op.args[1] as usize;
+        let binding_slice = unsafe { core::slice::from_raw_parts(binding_ptr, binding_len) };
+        let binding_port = op.args[2] as u16;
+
         let callback = (get_current_id(), provider_index, id);
-        socket_io_bind(self.protocol, binding_addr, binding_port, callback)
+        socket_io_bind(self.protocol, binding_slice, binding_port, callback)
     }
 
     fn read(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
