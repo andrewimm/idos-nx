@@ -102,6 +102,13 @@ pub enum SocketProtocol {
 
 pub type AsyncCallback = (TaskID, u32, AsyncOpID);
 
+pub fn create_dns_socket(port: SocketPort) {
+    // This is a special socket that is used for DNS lookups.
+    // It's not actually used, it gets intercepted at the highest network layer
+    let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
+    ACTIVE_CONNECTIONS.write().insert(port, socket_id);
+}
+
 /// When a task issues a bind operation on a socket handle, this method contains
 /// the logic used to create the socket.
 /// Like all async IO operations, it returns an optional result. If the op can

@@ -17,14 +17,14 @@ use super::{
     protocol::{
         arp::ArpPacket,
         dhcp::{DhcpPacket, IpResolution},
-        dns::{DnsHeader, DnsQuestion},
+        dns::{get_dns_port, DnsHeader, DnsQuestion},
         ethernet::EthernetFrameHeader,
         ipv4::Ipv4Address,
         packet::PacketHeader,
         tcp::header::TcpHeader,
         udp::create_datagram,
     },
-    socket::port::SocketPort,
+    socket::{create_dns_socket, port::SocketPort},
 };
 use alloc::{boxed::Box, collections::VecDeque, string::String, sync::Arc, vec::Vec};
 use core::str::FromStr;
@@ -125,6 +125,9 @@ pub fn net_stack_resident() -> ! {
     //
     // each network device also has an associated state machine which stores
     // its own ARP, DHCP, and socket states
+
+    let dns_port = get_dns_port();
+    create_dns_socket(dns_port);
 
     let message_queue = open_message_queue();
 
@@ -428,7 +431,7 @@ async fn dns_lookup(
 
     let dns_packet = DnsHeader::build_query_packet(&[DnsQuestion::a_record(hostname)]);
 
-    let outbound_port: u16 = 4000;
+    let outbound_port: u16 = *get_dns_port();
     let eth_header =
         EthernetFrameHeader::new_ipv4(net_dev_lock.read().mac, HardwareAddress::BROADCAST);
     let ip_packet = create_datagram(local_ip, outbound_port, dns_server_ip, 53, &dns_packet);

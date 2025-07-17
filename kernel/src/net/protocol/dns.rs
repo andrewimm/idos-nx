@@ -1,6 +1,24 @@
+use core::sync::atomic::{AtomicU16, Ordering};
+
 use alloc::{string::String, vec::Vec};
 
+use crate::net::socket::{get_ephemeral_port, port::SocketPort};
+
 use super::packet::PacketHeader;
+
+static DNS_PORT: AtomicU16 = AtomicU16::new(0);
+
+pub fn get_dns_port() -> SocketPort {
+    let load = DNS_PORT.load(Ordering::SeqCst);
+    if load == 0 {
+        let new_port = get_ephemeral_port().unwrap();
+
+        DNS_PORT.store(*new_port, Ordering::SeqCst);
+        new_port
+    } else {
+        SocketPort::new(load)
+    }
+}
 
 #[repr(C, packed)]
 pub struct DnsHeader {
