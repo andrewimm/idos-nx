@@ -17,7 +17,7 @@ use crate::{
 use super::{
     protocol::{
         dhcp::{DhcpPacket, DhcpState, IpResolution},
-        dns::get_dns_port,
+        dns::{get_dns_port, handle_dns_packet},
         ethernet::EthernetFrameHeader,
         ipv4::{IpProtocolType, Ipv4Address, Ipv4Header},
         packet::PacketHeader,
@@ -274,6 +274,12 @@ impl NetDevice {
                 }
             } else if dest_port == *get_dns_port() {
                 super::resident::LOGGER.log(format_args!("Received DNS packet"));
+                match handle_dns_packet(udp_payload) {
+                    Ok(_) => {
+                        return Some(NetEvent::DnsResponse);
+                    }
+                    Err(_) => {}
+                }
             } else {
                 // this packet is bound for a socket
                 super::resident::LOGGER.log(format_args!("UDP BOUND FOR :{}", dest_port));
