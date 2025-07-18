@@ -17,7 +17,7 @@ use super::{
     protocol::{
         arp::ArpPacket,
         dhcp::{DhcpPacket, IpResolution},
-        dns::{get_dns_port, DnsHeader, DnsQuestion},
+        dns::{get_dns_port, lookup_dns, DnsHeader, DnsQuestion},
         ethernet::EthernetFrameHeader,
         ipv4::Ipv4Address,
         packet::PacketHeader,
@@ -418,6 +418,10 @@ async fn dns_lookup(
     waker_registry: WakerRegistry<NetEvent>,
 ) -> Result<Ipv4Address, ()> {
     LOGGER.log(format_args!("DNS lookup for {}", hostname));
+    // First, check if the hostname is already cached
+    if let Some(ip) = lookup_dns(&hostname) {
+        return Ok(ip);
+    }
     let local_ip = get_local_ip(net_dev_lock.clone(), waker_registry.clone())
         .await
         .ok_or(())?;
@@ -429,7 +433,7 @@ async fn dns_lookup(
         .copied()
         .ok_or(())?;
 
-    let dns_packet = DnsHeader::build_query_packet(&[DnsQuestion::a_record(hostname)]);
+    let dns_packet = DnsHeader::build_query_packet(&[DnsQuestion::a_record(hostname.clone())]);
 
     let outbound_port: u16 = *get_dns_port();
     let eth_header =
@@ -441,7 +445,12 @@ async fn dns_lookup(
         net_dev.add_write(write);
     }
 
-    WaitForEvent::new(NetEvent::DnsResponse, waker_registry).await;
+    loop {
+        WaitForEvent::new(NetEvent::DnsResponse, waker_registry.clone()).await;
+        if let Some(ip) = lookup_dns(&hostname) {
+            return Ok(ip);
+        }
+    }
 
     Err(())
 }

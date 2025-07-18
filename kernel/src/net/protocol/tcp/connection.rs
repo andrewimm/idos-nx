@@ -46,6 +46,7 @@ pub enum TcpAction {
     FinAck,
     /// Mark the connection as established
     Connect,
+    ConnectAck,
 }
 
 struct PendingRead {
@@ -108,7 +109,7 @@ impl TcpConnection {
                 // TODO: the socket connection needs to be cleaned up
                 None
             }
-            TcpAction::Connect => {
+            TcpAction::Connect | TcpAction::ConnectAck => {
                 self.state = TcpState::Established;
                 self.last_sequence_sent += 1;
                 if let Some((callback, should_create_provider)) = self.on_connect.take() {
@@ -128,7 +129,21 @@ impl TcpConnection {
                         complete_op(callback, Ok(*self.own_id));
                     }
                 }
-                None
+                if let TcpAction::ConnectAck = action {
+                    // If we established the connection, we need to send an ACK
+                    Some(TcpHeader::create_packet(
+                        local_addr,
+                        self.local_port,
+                        remote_addr,
+                        self.remote_port,
+                        self.last_sequence_sent,
+                        u32::from_be(header.sequence_number) + 1,
+                        TcpHeader::FLAG_ACK,
+                        &[],
+                    ))
+                } else {
+                    None
+                }
             }
             TcpAction::Discard => None,
             TcpAction::Enqueue => {
@@ -194,8 +209,7 @@ impl TcpConnection {
                 if !header.is_syn() || !header.is_ack() {
                     return TcpAction::Reset;
                 }
-                // TODO: how should this case be handled?
-                TcpAction::Discard
+                TcpAction::ConnectAck
             }
             TcpState::SynReceived => {
                 if !header.is_ack() {
