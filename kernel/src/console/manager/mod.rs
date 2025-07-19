@@ -4,6 +4,7 @@ pub mod window;
 
 use crate::collections::SlotList;
 use crate::io::filesystem::install_task_dev;
+use crate::task::id::TaskID;
 use crate::task::switching::get_current_id;
 
 use super::driver::PendingRead;
@@ -56,6 +57,11 @@ impl ConsoleManager {
         install_task_dev(&name, get_current_id(), index as u32);
 
         index
+    }
+
+    pub fn attach_reader_task_to_console(&mut self, console_index: usize, task: TaskID) {
+        let console = self.consoles.get_mut(console_index).unwrap();
+        console.add_reader_task(task);
     }
 
     /// Take a key action from the keyboard interrupt handler and send it to the

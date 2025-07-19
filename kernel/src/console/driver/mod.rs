@@ -2,7 +2,7 @@ use super::manager::ConsoleManager;
 use crate::{
     io::driver::comms::DriverCommand,
     memory::{address::VirtualAddress, shared::release_buffer},
-    task::messaging::Message,
+    task::{id::TaskID, messaging::Message},
 };
 use alloc::collections::VecDeque;
 use idos_api::io::error::{IOError, IOResult};
@@ -12,10 +12,15 @@ mod read;
 pub use self::read::PendingRead;
 
 impl ConsoleManager {
-    pub fn handle_request(&mut self, message: &Message) -> Option<IOResult> {
+    pub fn handle_request(&mut self, sender: TaskID, message: &Message) -> Option<IOResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::OpenRaw => {
                 let console_id = message.args[0] as usize;
+                let console = match self.consoles.get_mut(console_id) {
+                    Some(console) => console,
+                    None => return Some(Err(IOError::NotFound)),
+                };
+                console.add_reader_task(sender);
                 let handle = self.open_io.insert(console_id);
                 Some(Ok(handle as u32))
             }

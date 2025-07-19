@@ -16,12 +16,16 @@ impl KeyAction {
 }
 
 pub struct KeyState {
+    pub ctrl: bool,
     pub shift: bool,
 }
 
 impl KeyState {
     pub fn new() -> KeyState {
-        Self { shift: false }
+        Self {
+            ctrl: false,
+            shift: false,
+        }
     }
 
     pub fn process_key_action(&mut self, action: KeyAction, buffer: &mut [u8]) -> Option<usize> {
@@ -30,14 +34,23 @@ impl KeyState {
                 if code == KeyCode::Shift as u8 {
                     self.shift = true;
                     None
+                } else if code == KeyCode::Control as u8 {
+                    self.ctrl = true;
+                    None
                 } else {
                     let len = self.key_code_to_ascii(code, buffer);
-                    Some(len)
+                    if len > 0 {
+                        Some(len)
+                    } else {
+                        None
+                    }
                 }
             }
             KeyAction::Release(code) => {
                 if code == KeyCode::Shift as u8 {
                     self.shift = false;
+                } else if code == KeyCode::Control as u8 {
+                    self.ctrl = false;
                 }
                 None
             }
@@ -54,6 +67,16 @@ impl KeyState {
                 } else {
                     (0, 0)
                 };
+                if self.ctrl {
+                    if index < 0x60 {
+                        // Control characters are in the range 0x00 to 0x1F
+                        buffer[0] = (index & 0x1F) as u8; // Convert to control character
+                        return 1;
+                    } else {
+                        // Non-control characters are ignored when Ctrl is pressed
+                        return 0;
+                    }
+                }
                 buffer[0] = if self.shift { shifted } else { normal };
                 1
             }

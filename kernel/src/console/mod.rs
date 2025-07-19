@@ -1,3 +1,5 @@
+use core::sync::atomic::Ordering;
+
 use idos_api::io::AsyncOp;
 
 use crate::conman::{register_console_manager, InputBuffer};
@@ -12,6 +14,7 @@ use crate::task::actions::io::{close_sync, driver_io_complete, read_sync, send_i
 use crate::task::actions::lifecycle::{create_kernel_task, terminate};
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
+use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::messaging::Message;
 
@@ -123,8 +126,9 @@ pub fn manager_task() -> ! {
         }
 
         if message_read.is_complete() {
+            let sender = TaskID::new(message_read.return_value.load(Ordering::SeqCst));
             let request_id = incoming_message.unique_id;
-            match conman.handle_request(&incoming_message) {
+            match conman.handle_request(sender, &incoming_message) {
                 Some(result) => driver_io_complete(request_id, result),
                 None => (),
             }

@@ -78,6 +78,10 @@ pub fn terminate_id(id: TaskID, exit_code: u32) {
     wake_cleanup_resident();
 }
 
+pub fn terminate_task(id: TaskID, exit_code: u32) {
+    terminate_id(id, exit_code);
+}
+
 pub fn terminate(exit_code: u32) -> ! {
     let cur_id = super::switching::get_current_id();
     terminate_id(cur_id, exit_code);
