@@ -46,15 +46,6 @@ pub fn manager_task() -> ! {
     let keyboard_buffer = unsafe { &*keyboard_buffer_ptr };
     let mouse_buffer = unsafe { &*(keyboard_buffer_ptr.add(1)) };
 
-    /*
-    let text_buffer_base = map_memory(
-        None,
-        0x1000,
-        MemoryBacking::Direct(PhysicalAddress::new(0xb8000)),
-    )
-    .unwrap();
-    */
-
     let mut vbe_mode_info: VbeModeInfo = VbeModeInfo::default();
     get_vbe_mode_info(&mut vbe_mode_info, 0x0103);
     set_vbe_mode(0x0103);
@@ -63,15 +54,15 @@ pub fn manager_task() -> ! {
     let framebuffer_pages = (framebuffer_bytes + 0xfff) / 0x1000;
 
     let graphics_buffer_base = map_memory(
-        Some(VirtualAddress::new(0x10_0000)),
+        None,
         0x1000 * framebuffer_pages,
         MemoryBacking::Direct(PhysicalAddress::new(vbe_mode_info.framebuffer)),
     )
     .unwrap();
     let mut fb = Framebuffer {
-        width: 800,
-        height: 600,
-        stride: 800,
+        width: vbe_mode_info.width,
+        height: vbe_mode_info.height,
+        stride: vbe_mode_info.pitch,
         buffer: graphics_buffer_base,
     };
 
@@ -88,14 +79,11 @@ pub fn manager_task() -> ! {
     let console_font =
         graphics::font::psf::PsfFont::from_file("C:\\TERM14.PSF").expect("Failed to load font");
 
-    let mut mouse_x = 400;
-    let mut mouse_y = 300;
+    let mut mouse_x = vbe_mode_info.width as u32 / 2;
+    let mut mouse_y = vbe_mode_info.height as u32 / 2;
 
     let mut conman = ConsoleManager::new();
     let con1 = conman.add_console(); // create the first console (CON1)
-
-    //conman.clear_screen();
-    //conman.render_top_bar();
 
     let _ = write_sync(response_writer, &[0], 0);
     let _ = close_sync(response_writer);
@@ -158,10 +146,7 @@ pub fn manager_task() -> ! {
                 None => break,
             };
         }
-        draw_mouse(fb.get_buffer_mut(), mouse_x, mouse_y);
-
-        //conman.update_cursor();
-        //conman.update_clock(&mut fb, &console_font);
+        draw_mouse(&mut fb, mouse_x, mouse_y);
 
         block_on_wake_set(wake_set, None);
     }
@@ -182,23 +167,23 @@ pub fn console_ready() {
 
 fn draw_desktop(framebuffer: &Framebuffer, font: &PsfFont) {
     const TOP_BAR_HEIGHT: usize = 24;
-    const DISPLAY_WIDTH: usize = 800;
-    const DISPLAY_HEIGHT: usize = 600;
+    let display_width: usize = framebuffer.width as usize;
+    let display_height: usize = framebuffer.height as usize;
 
     let raw_buffer = framebuffer.get_buffer_mut();
 
     // draw the top bar
     for y in 0..(TOP_BAR_HEIGHT - 2) {
-        let offset = y * DISPLAY_WIDTH;
-        for x in 0..DISPLAY_WIDTH {
+        let offset = y * display_width;
+        for x in 0..display_width {
             raw_buffer[offset + x] = 0x12;
         }
     }
-    for x in 0..DISPLAY_WIDTH {
-        raw_buffer[DISPLAY_WIDTH * (TOP_BAR_HEIGHT - 2) + x] = 0x5b;
+    for x in 0..display_width {
+        raw_buffer[display_width * (TOP_BAR_HEIGHT - 2) + x] = 0x5b;
     }
-    for x in 0..DISPLAY_WIDTH {
-        raw_buffer[DISPLAY_WIDTH * (TOP_BAR_HEIGHT - 1) + x] = 0x5b;
+    for x in 0..display_width {
+        raw_buffer[display_width * (TOP_BAR_HEIGHT - 1) + x] = 0x5b;
     }
 
     let topbar_text_y = (TOP_BAR_HEIGHT - 2 - font.get_height() as usize) / 2;
@@ -211,27 +196,29 @@ fn draw_desktop(framebuffer: &Framebuffer, font: &PsfFont) {
     );
     // clear the rest of the desktop
 
-    for y in TOP_BAR_HEIGHT..DISPLAY_HEIGHT {
-        let offset = y * DISPLAY_WIDTH;
-        for x in 0..DISPLAY_WIDTH {
+    for y in TOP_BAR_HEIGHT..display_height {
+        let offset = y * display_width;
+        for x in 0..display_width {
             raw_buffer[offset + x] = 0x14;
         }
     }
 }
 
-fn draw_mouse(framebuffer: &mut [u8], mouse_x: u32, mouse_y: u32) {
-    let offset = (mouse_y * 800 + mouse_x) as usize;
+fn draw_mouse(framebuffer: &mut Framebuffer, mouse_x: u32, mouse_y: u32) {
+    let fb_width = framebuffer.width as usize;
+    let offset = mouse_y as usize * fb_width + mouse_x as usize;
+    let fb_raw = framebuffer.get_buffer_mut();
     for row in 0..16 {
-        let row_offset = offset + row * 800;
+        let row_offset = offset + row * fb_width;
         let mut cursor_row = CURSOR[row];
         let mut shadow = false;
         for col in 0..16 {
             if cursor_row & 1 != 0 {
                 shadow = true;
-                framebuffer[row_offset + col] = 0x0f;
+                fb_raw[row_offset + col] = 0x0f;
             } else if shadow {
                 shadow = false;
-                framebuffer[row_offset + col] = 0x13;
+                fb_raw[row_offset + col] = 0x13;
             } else {
                 shadow = false;
             }
