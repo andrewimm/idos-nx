@@ -6,13 +6,14 @@ use crate::{
     io::{
         async_io::{AsyncOpID, FILE_OP_STAT},
         filesystem::{
-            driver::DriverID, driver_close, driver_open, driver_read, driver_stat, driver_write,
-            get_driver_id_by_name,
+            driver::DriverID, driver_close, driver_open, driver_read, driver_stat, driver_transfer,
+            driver_write, get_driver_id_by_name,
         },
         handle::Handle,
     },
     task::{
         id::{AtomicTaskID, TaskID},
+        map::get_task,
         switching::get_current_id,
     },
 };
@@ -192,6 +193,28 @@ impl IOProvider for FileIOProvider {
             return driver_close(
                 driver_id,
                 instance,
+                (self.source_id.load(Ordering::SeqCst), provider_index, id),
+            );
+        }
+        Some(Err(IOError::FileHandleInvalid))
+    }
+
+    fn transfer(
+        &self,
+        provider_index: u32,
+        id: AsyncOpID,
+        op: UnmappedAsyncOp,
+    ) -> Option<super::IOResult> {
+        if let Some(instance) = self.bound_instance.lock().clone() {
+            let driver_id: DriverID = self.driver_id.lock().unwrap();
+            let transfer_to = TaskID::new(op.args[0] as u32);
+            if get_task(transfer_to).is_none() {
+                return Some(Err(IOError::InvalidArgument));
+            }
+            return driver_transfer(
+                driver_id,
+                instance,
+                transfer_to,
                 (self.source_id.load(Ordering::SeqCst), provider_index, id),
             );
         }

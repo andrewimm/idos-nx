@@ -268,3 +268,22 @@ pub fn driver_stat(
         }
     })
 }
+
+pub fn driver_transfer(
+    id: DriverID,
+    instance: u32,
+    transfer_to: TaskID,
+    io_callback: AsyncIOCallback,
+) -> Option<IOResult> {
+    with_driver(id, |driver| match driver {
+        DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
+            d.transfer(instance, transfer_to, io_callback)
+        }
+
+        DriverType::TaskFilesystem(task_id) | DriverType::TaskDevice(task_id, _) => {
+            let action = DriverIOAction::Transfer(instance, transfer_to.into());
+            send_async_request(*task_id, io_callback, action);
+            None
+        }
+    })
+}

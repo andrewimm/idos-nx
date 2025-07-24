@@ -115,6 +115,10 @@ impl AsyncDriver for AtaDeviceDriver {
 
         Ok(bytes_read)
     }
+
+    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IOResult {
+        Err(IOError::UnsupportedOperation)
+    }
 }
 
 /// This task is designed to be run once for each ATA controller. Controllers

@@ -57,12 +57,11 @@ pub const ASYNC_OP_OPEN: u32 = 1;
 pub const ASYNC_OP_READ: u32 = 2;
 pub const ASYNC_OP_WRITE: u32 = 3;
 pub const ASYNC_OP_CLOSE: u32 = 4;
+pub const ASYNC_OP_TRANSFER: u32 = 5;
 
-pub const FILE_OP_STAT: u32 = 5;
+pub const FILE_OP_STAT: u32 = 0x10;
 
-pub const SOCKET_OP_BROADCAST: u32 = 6;
-pub const SOCKET_OP_MULTICAST: u32 = 7;
-pub const SOCKET_OP_ACCEPT: u32 = 8;
+pub const SOCKET_OP_BROADCAST: u32 = 0x23;
 
 /// When an op is added to an open IO instance, it is given a unique identifier
 /// This can be used to cancel or complete the operation from an outside source

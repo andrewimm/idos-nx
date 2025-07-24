@@ -21,52 +21,47 @@ pub enum DriverIOAction {
     Write(u32, u32, u32, u32),
     /// Stat(instance, buffer pointer, buffer length)
     Stat(u32, u32, u32),
+    /// Transfer(instance, dest task id)
+    Transfer(u32, u32),
 }
 
 impl DriverIOAction {
     pub fn encode_to_message(&self, request_id: u32) -> Message {
         match self {
-            Self::Open(path_ptr, path_len) => {
-                Message {
-                    message_type: DriverCommand::Open as u32,
-                    unique_id: request_id,
-                    args: [*path_ptr, *path_len, 0, 0, 0, 0],
-                }
+            Self::Open(path_ptr, path_len) => Message {
+                message_type: DriverCommand::Open as u32,
+                unique_id: request_id,
+                args: [*path_ptr, *path_len, 0, 0, 0, 0],
             },
-            Self::OpenRaw(id) => {
-                Message {
-                    message_type: DriverCommand::OpenRaw as u32,
-                    unique_id: request_id,
-                    args: [*id, 0, 0, 0, 0, 0],
-                }
+            Self::OpenRaw(id) => Message {
+                message_type: DriverCommand::OpenRaw as u32,
+                unique_id: request_id,
+                args: [*id, 0, 0, 0, 0, 0],
             },
-            Self::Close(id) => {
-                Message {
-                    message_type: DriverCommand::Close as u32,
-                    unique_id: request_id,
-                    args: [*id, 0, 0, 0, 0, 0],
-                }
+            Self::Close(id) => Message {
+                message_type: DriverCommand::Close as u32,
+                unique_id: request_id,
+                args: [*id, 0, 0, 0, 0, 0],
             },
-            Self::Read(open_instance, buffer_ptr, buffer_len, offset) => {
-                Message {
-                    message_type: DriverCommand::Read as u32,
-                    unique_id: request_id,
-                    args: [*open_instance, *buffer_ptr, *buffer_len, *offset, 0, 0],
-                }
+            Self::Read(open_instance, buffer_ptr, buffer_len, offset) => Message {
+                message_type: DriverCommand::Read as u32,
+                unique_id: request_id,
+                args: [*open_instance, *buffer_ptr, *buffer_len, *offset, 0, 0],
             },
-            Self::Write(open_instance, buffer_ptr, buffer_len, offset) => {
-                Message {
-                    message_type: DriverCommand::Write as u32,
-                    unique_id: request_id,
-                    args: [*open_instance, *buffer_ptr, *buffer_len, *offset, 0, 0],
-                }
+            Self::Write(open_instance, buffer_ptr, buffer_len, offset) => Message {
+                message_type: DriverCommand::Write as u32,
+                unique_id: request_id,
+                args: [*open_instance, *buffer_ptr, *buffer_len, *offset, 0, 0],
             },
-            Self::Stat(open_instance, buffer_ptr, buffer_len) => {
-                Message {
-                    message_type: DriverCommand::Stat as u32,
-                    unique_id: request_id,
-                    args: [*open_instance, *buffer_ptr, *buffer_len, 0, 0, 0],
-                }
+            Self::Stat(open_instance, buffer_ptr, buffer_len) => Message {
+                message_type: DriverCommand::Stat as u32,
+                unique_id: request_id,
+                args: [*open_instance, *buffer_ptr, *buffer_len, 0, 0, 0],
+            },
+            Self::Transfer(open_instance, transfer_to) => Message {
+                message_type: DriverCommand::Transfer as u32,
+                unique_id: request_id,
+                args: [*open_instance, *transfer_to, 0, 0, 0, 0],
             },
         }
     }
@@ -80,8 +75,8 @@ pub enum DriverCommand {
     Write,
     Close,
     Stat,
+    Transfer,
     // Every time a new command is added, modify the method below that decodes the command
-
     Invalid = 0xffffffff,
 }
 
@@ -89,15 +84,10 @@ impl DriverCommand {
     pub fn from_u32(code: u32) -> DriverCommand {
         // UPDATE THIS NUMBER when new commands are added
         //                      V
-        if code >= 1 && code <= 6 {
+        if code >= 1 && code <= 7 {
             unsafe { core::mem::transmute(code) }
         } else {
             DriverCommand::Invalid
         }
     }
 }
-
-/// Messages from drivers to the Driver IO system will send this magic u32 in
-/// their first message payload. That will tell the kernel that this is a valid
-/// driver message and not just noise.
-pub const DRIVER_RESPONSE_MAGIC: u32 = 0x00534552; // "RES\0"

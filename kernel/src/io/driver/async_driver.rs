@@ -2,7 +2,7 @@ use super::comms::{DriverCommand, IOResult};
 use crate::{
     files::stat::FileStatus,
     memory::{address::VirtualAddress, shared::release_buffer},
-    task::messaging::Message,
+    task::{id::TaskID, messaging::Message},
 };
 use alloc::string::ToString;
 use idos_api::io::error::IOError;
@@ -45,6 +45,22 @@ pub trait AsyncDriver {
                 release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
                 Some(result)
             }
+            DriverCommand::Write => {
+                let instance = message.args[0];
+                let buffer_ptr = message.args[1] as *const u8;
+                let buffer_len = message.args[2] as usize;
+                let offset = message.args[3];
+                let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_len) };
+                let result = self.write(instance, buffer, offset);
+                release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
+                Some(result)
+            }
+            DriverCommand::Transfer => {
+                let instance = message.args[0];
+                let transfer_to_id = TaskID::new(message.args[1]);
+                let result = self.transfer(instance, transfer_to_id);
+                Some(result)
+            }
             DriverCommand::Stat => {
                 let instance = message.args[0];
                 let struct_ptr = message.args[1] as *mut FileStatus;
@@ -60,7 +76,7 @@ pub trait AsyncDriver {
                 release_buffer(VirtualAddress::new(struct_ptr as u32), struct_len);
                 Some(result)
             }
-            _ => {
+            DriverCommand::Invalid => {
                 crate::kprintln!("Async driver: Unknown Request");
                 None
             }
@@ -72,6 +88,12 @@ pub trait AsyncDriver {
     fn close(&mut self, instance: u32) -> IOResult;
 
     fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IOResult;
+
+    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IOResult;
+
+    fn transfer(&mut self, instance: u32, transfer_to_id: TaskID) -> IOResult {
+        Err(IOError::UnsupportedOperation)
+    }
 
     fn stat(&mut self, instance: u32, status_struct: &mut FileStatus) -> IOResult {
         Err(IOError::UnsupportedOperation)

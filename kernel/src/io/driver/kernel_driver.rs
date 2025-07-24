@@ -3,6 +3,7 @@ use idos_api::io::error::IOError;
 use crate::{
     files::{path::Path, stat::FileStatus},
     io::filesystem::driver::AsyncIOCallback,
+    task::id::TaskID,
 };
 
 use super::comms::IOResult;
@@ -41,6 +42,15 @@ pub trait KernelDriver {
         &self,
         instance: u32,
         file_status: &mut FileStatus,
+        io_callback: AsyncIOCallback,
+    ) -> Option<IOResult> {
+        Some(Err(IOError::UnsupportedOperation))
+    }
+
+    fn transfer(
+        &self,
+        instance: u32,
+        target_task_id: TaskID,
         io_callback: AsyncIOCallback,
     ) -> Option<IOResult> {
         Some(Err(IOError::UnsupportedOperation))

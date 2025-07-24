@@ -74,6 +74,10 @@ impl AsyncDriver for FatDriver {
         }
     }
 
+    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> Result<u32, IOError> {
+        Err(IOError::UnsupportedOperation)
+    }
+
     fn stat(&mut self, instance: u32, status: &mut FileStatus) -> Result<u32, IOError> {
         let handle = self
             .open_handle_map

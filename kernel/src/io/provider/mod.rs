@@ -14,7 +14,9 @@ use crate::{
 };
 
 use super::{
-    async_io::{AsyncOpID, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE},
+    async_io::{
+        AsyncOpID, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_TRANSFER, ASYNC_OP_WRITE,
+    },
     handle::Handle,
 };
 
@@ -45,6 +47,8 @@ pub trait IOProvider {
 
     fn remove_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp>;
 
+    /// Convert an internal IOResult into a value that can be transferred
+    /// through an atomic signal.
     fn transform_result(&self, op_code: u32, result: IOResult) -> u32 {
         let mapped_result = if op_code & 0xffff == ASYNC_OP_OPEN {
             // Opening a handle has some funky special behavior, since we
@@ -87,6 +91,7 @@ pub trait IOProvider {
             ASYNC_OP_CLOSE => self.close(provider_index, id, op),
             ASYNC_OP_READ => self.read(provider_index, id, op),
             ASYNC_OP_WRITE => self.write(provider_index, id, op),
+            ASYNC_OP_TRANSFER => self.transfer(provider_index, id, op),
             _ => self.extended_op(provider_index, id, op),
         }
     }
@@ -95,22 +100,45 @@ pub trait IOProvider {
         // default behavior is a no-op
     }
 
+    /// `open` attaches a new IO provider to an actual data source, like a file or a socket.
     fn open(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
         Some(Err(IOError::UnsupportedOperation))
     }
 
+    /// `read` transfers data from the IO provider to a buffer. Typically this
+    /// is byte data, but it is also used for other pull-type actions like
+    /// waiting for an interrupt or accepting a listening socket.
     fn read(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
         Some(Err(IOError::UnsupportedOperation))
     }
 
+    /// `write` transfers data from a buffer to the IO provider. This is usually
+    /// a stream of bytes, but it can also be used for push-type actions like
+    /// acknowledging an interrupt.
     fn write(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
         Some(Err(IOError::UnsupportedOperation))
     }
 
+    /// `close` detaches the IO provider from the data source, and cleans up
+    /// any associated resources. Once a provider is closed, it cannot
+    /// be used again, and any further operations on it will return an error.
     fn close(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
         Some(Err(IOError::UnsupportedOperation))
     }
 
+    /// `transfer` takes an IO provider and attaches it to a different Task.
+    /// This may require special handling at the provider or driver level, which
+    /// may allocate per-Task resources.
+    fn transfer(
+        &self,
+        provider_index: u32,
+        id: AsyncOpID,
+        op: UnmappedAsyncOp,
+    ) -> Option<IOResult> {
+        Some(Err(IOError::UnsupportedOperation))
+    }
+
+    /// All other provider-specific operations are handled by `extended_op`.
     fn extended_op(
         &self,
         provider_index: u32,
