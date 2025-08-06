@@ -15,7 +15,7 @@ use crate::{
 
 use super::{
     async_io::{
-        AsyncOpID, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_TRANSFER, ASYNC_OP_WRITE,
+        AsyncOpID, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_SHARE, ASYNC_OP_WRITE,
     },
     handle::Handle,
 };
@@ -91,7 +91,7 @@ pub trait IOProvider {
             ASYNC_OP_CLOSE => self.close(provider_index, id, op),
             ASYNC_OP_READ => self.read(provider_index, id, op),
             ASYNC_OP_WRITE => self.write(provider_index, id, op),
-            ASYNC_OP_TRANSFER => self.transfer(provider_index, id, op),
+            ASYNC_OP_SHARE => self.share(provider_index, id, op),
             _ => self.extended_op(provider_index, id, op),
         }
     }
@@ -126,15 +126,10 @@ pub trait IOProvider {
         Some(Err(IOError::UnsupportedOperation))
     }
 
-    /// `transfer` takes an IO provider and attaches it to a different Task.
+    /// `share` takes an IO provider and attaches it to a different Task.
     /// This may require special handling at the provider or driver level, which
     /// may allocate per-Task resources.
-    fn transfer(
-        &self,
-        provider_index: u32,
-        id: AsyncOpID,
-        op: UnmappedAsyncOp,
-    ) -> Option<IOResult> {
+    fn share(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
         Some(Err(IOError::UnsupportedOperation))
     }
 

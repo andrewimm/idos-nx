@@ -47,10 +47,11 @@ pub trait KernelDriver {
         Some(Err(IOError::UnsupportedOperation))
     }
 
-    fn transfer(
+    fn share(
         &self,
         instance: u32,
         target_task_id: TaskID,
+        is_move: bool,
         io_callback: AsyncIOCallback,
     ) -> Option<IOResult> {
         Some(Err(IOError::UnsupportedOperation))

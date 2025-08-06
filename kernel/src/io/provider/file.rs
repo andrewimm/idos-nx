@@ -6,7 +6,7 @@ use crate::{
     io::{
         async_io::{AsyncOpID, FILE_OP_STAT},
         filesystem::{
-            driver::DriverID, driver_close, driver_open, driver_read, driver_stat, driver_transfer,
+            driver::DriverID, driver_close, driver_open, driver_read, driver_share, driver_stat,
             driver_write, get_driver_id_by_name,
         },
         handle::Handle,
@@ -23,6 +23,7 @@ use spin::{Mutex, RwLock};
 
 /// Inner contents of a handle that is bound to a file for reading/writing
 pub struct FileIOProvider {
+    /// ID of the task that created the provider
     source_id: AtomicTaskID,
     driver_id: Mutex<Option<DriverID>>,
     bound_instance: Mutex<Option<u32>>,
@@ -199,7 +200,13 @@ impl IOProvider for FileIOProvider {
         Some(Err(IOError::FileHandleInvalid))
     }
 
-    fn transfer(
+    /// Shares the provider with another task.
+    /// A task may have multiple handles open to the same backing provider.
+    /// When transferring one of those handles, the kernel determines whether
+    /// the provider should be fully transferred or duplicated.
+    /// This flag is passed onto the driver, which may need to handle resources
+    /// differently based on how many Tasks are referencing the same provider.
+    fn share(
         &self,
         provider_index: u32,
         id: AsyncOpID,
@@ -208,13 +215,15 @@ impl IOProvider for FileIOProvider {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let driver_id: DriverID = self.driver_id.lock().unwrap();
             let transfer_to = TaskID::new(op.args[0] as u32);
+            let is_move = op.args[1] != 0;
             if get_task(transfer_to).is_none() {
                 return Some(Err(IOError::InvalidArgument));
             }
-            return driver_transfer(
+            return driver_share(
                 driver_id,
                 instance,
                 transfer_to,
+                is_move,
                 (self.source_id.load(Ordering::SeqCst), provider_index, id),
             );
         }

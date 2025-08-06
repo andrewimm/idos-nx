@@ -21,8 +21,8 @@ pub enum DriverIOAction {
     Write(u32, u32, u32, u32),
     /// Stat(instance, buffer pointer, buffer length)
     Stat(u32, u32, u32),
-    /// Transfer(instance, dest task id)
-    Transfer(u32, u32),
+    /// Transfer(instance, dest task id, is move)
+    Share(u32, u32, u32),
 }
 
 impl DriverIOAction {
@@ -58,10 +58,10 @@ impl DriverIOAction {
                 unique_id: request_id,
                 args: [*open_instance, *buffer_ptr, *buffer_len, 0, 0, 0],
             },
-            Self::Transfer(open_instance, transfer_to) => Message {
-                message_type: DriverCommand::Transfer as u32,
+            Self::Share(open_instance, transfer_to, is_move) => Message {
+                message_type: DriverCommand::Share as u32,
                 unique_id: request_id,
-                args: [*open_instance, *transfer_to, 0, 0, 0, 0],
+                args: [*open_instance, *transfer_to, *is_move, 0, 0, 0],
             },
         }
     }
@@ -75,7 +75,7 @@ pub enum DriverCommand {
     Write,
     Close,
     Stat,
-    Transfer,
+    Share,
     // Every time a new command is added, modify the method below that decodes the command
     Invalid = 0xffffffff,
 }
