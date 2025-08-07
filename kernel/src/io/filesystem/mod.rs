@@ -133,7 +133,7 @@ pub fn driver_open(
                 return dev.open(None, io_callback);
             }
             DriverType::TaskDevice(dev, sub) => {
-                let action = DriverIOAction::OpenRaw(*sub);
+                let action = DriverIOAction::OpenRaw { driver_id: *sub };
                 send_async_request(*dev, io_callback, action);
                 return None;
             }
@@ -155,7 +155,10 @@ pub fn driver_open(
                 let path_len = path.as_str().len();
                 let action = if path_len == 0 {
                     // can't share memory for an empty slice, just hardcode it
-                    DriverIOAction::Open(0, 0)
+                    DriverIOAction::Open {
+                        path_str_vaddr: VirtualAddress::new(0),
+                        path_str_len: 0,
+                    }
                 } else {
                     // create a new frame of memory
                     let page_start =
@@ -167,7 +170,10 @@ pub fn driver_open(
                     path_slice.copy_from_slice(path.as_str().as_bytes());
                     let shared_vaddr = share_buffer(*task, page_start, path_len);
                     release_buffer(page_start, path_len);
-                    DriverIOAction::Open(shared_vaddr.as_u32(), path_len as u32)
+                    DriverIOAction::Open {
+                        path_str_vaddr: shared_vaddr,
+                        path_str_len: path_len,
+                    }
                 };
 
                 send_async_request(*task, io_callback, action);
@@ -184,7 +190,7 @@ pub fn driver_close(id: DriverID, instance: u32, io_callback: AsyncIOCallback) -
         }
 
         DriverType::TaskFilesystem(task_id) | DriverType::TaskDevice(task_id, _) => {
-            let action = DriverIOAction::Close(instance);
+            let action = DriverIOAction::Close { instance };
             send_async_request(*task_id, io_callback, action);
             None
         }
@@ -207,8 +213,12 @@ pub fn driver_read(
             let range_start = VirtualAddress::new(buffer.as_ptr() as u32);
             let shared_vaddr = share_buffer(*task_id, range_start, buffer.len());
 
-            let action =
-                DriverIOAction::Read(instance, shared_vaddr.as_u32(), buffer.len() as u32, offset);
+            let action = DriverIOAction::Read {
+                instance,
+                buffer_ptr_vaddr: shared_vaddr,
+                buffer_len: buffer.len(),
+                starting_offset: offset,
+            };
 
             send_async_request(*task_id, io_callback, action);
             None
@@ -232,8 +242,12 @@ pub fn driver_write(
             let range_start = VirtualAddress::new(buffer.as_ptr() as u32);
             let shared_vaddr = share_buffer(*task_id, range_start, buffer.len());
 
-            let action =
-                DriverIOAction::Write(instance, shared_vaddr.as_u32(), buffer.len() as u32, offset);
+            let action = DriverIOAction::Write {
+                instance,
+                buffer_ptr_vaddr: shared_vaddr,
+                buffer_len: buffer.len(),
+                starting_offset: offset,
+            };
 
             send_async_request(*task_id, io_callback, action);
             None
@@ -257,11 +271,11 @@ pub fn driver_stat(
             let shared_vaddr =
                 share_buffer(*task_id, range_start, core::mem::size_of::<FileStatus>());
 
-            let action = DriverIOAction::Stat(
+            let action = DriverIOAction::Stat {
                 instance,
-                shared_vaddr.as_u32(),
-                core::mem::size_of::<FileStatus>() as u32,
-            );
+                stat_ptr_vaddr: shared_vaddr,
+                stat_len: core::mem::size_of::<FileStatus>(),
+            };
 
             send_async_request(*task_id, io_callback, action);
             None
@@ -282,8 +296,11 @@ pub fn driver_share(
         }
 
         DriverType::TaskFilesystem(task_id) | DriverType::TaskDevice(task_id, _) => {
-            let move_flag = if is_move { 1 } else { 0 };
-            let action = DriverIOAction::Share(instance, transfer_to.into(), move_flag);
+            let action = DriverIOAction::Share {
+                instance,
+                dest_task_id: transfer_to,
+                is_move,
+            };
             send_async_request(*task_id, io_callback, action);
             None
         }
