@@ -257,6 +257,7 @@ mod tests {
     use crate::memory::address::VirtualAddress;
     use crate::task::actions::io::send_io_op;
     use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
+    use crate::task::id::TaskID;
     use crate::task::switching::get_current_task;
 
     #[test_case]
@@ -647,10 +648,56 @@ mod tests {
     #[test_case]
     fn share_file_failure() {
         // a failed share should not close the original handle
+        let handle = super::create_file_handle();
+        super::handle_op_open(handle, "TEST:\\MYFILE.TXT")
+            .submit_io()
+            .wait_for_completion();
+
+        let invalid_task_id = TaskID::new(0xffffffff);
+        let result = PendingHandleOp::new(handle, ASYNC_OP_SHARE, invalid_task_id.into(), 0, 0)
+            .submit_io()
+            .wait_for_completion();
+
+        // should fail because the task ID is invalid
+        assert!(result & 0x80000000 == 0x80000000);
+        assert!(super::handle_exists(handle));
     }
 
     #[test_case]
     fn transfer_duplicated_file() {
         // transferring a duplicated file should not close the original handle
+        let handle = super::create_file_handle();
+        super::handle_op_open(handle, "TEST:\\MYFILE.TXT")
+            .submit_io()
+            .wait_for_completion();
+
+        let handle_dup = super::dup_handle(handle).unwrap();
+
+        let (new_task_handle, new_task_id) = super::create_kernel_task(
+            || {
+                let transferred = Handle::new(0);
+                while !super::handle_exists(transferred) {
+                    crate::task::actions::sleep(10);
+                }
+                let mut read_buffer: [u8; 3] = [0; 3];
+                let result = super::handle_op_read(transferred, &mut read_buffer, 0)
+                    .submit_io()
+                    .wait_for_completion();
+                assert_eq!(result, 3);
+                assert_eq!(read_buffer, [b'A', b'B', b'C']);
+                crate::task::actions::lifecycle::terminate(0);
+            },
+            Some("CHILD"),
+        );
+
+        PendingHandleOp::new(handle_dup, ASYNC_OP_SHARE, new_task_id.into(), 0, 0)
+            .submit_io()
+            .wait_for_completion();
+        assert!(super::handle_exists(handle));
+        assert!(!super::handle_exists(handle_dup));
+
+        super::handle_op_read(new_task_handle, &mut [], 0)
+            .submit_io()
+            .wait_for_completion();
     }
 }

@@ -15,7 +15,8 @@ use crate::{
 
 use super::{
     async_io::{
-        AsyncOpID, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_SHARE, ASYNC_OP_WRITE,
+        AsyncOpID, IOType, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_SHARE,
+        ASYNC_OP_WRITE,
     },
     handle::Handle,
 };
@@ -212,15 +213,28 @@ impl UnmappedAsyncOp {
             task.open_handles.remove(Handle::new(self.args[0] as usize));
         } else if self.op_code & 0xfff == ASYNC_OP_SHARE {
             let mut task = task_lock.write();
-            if let Some(io_entry) = task.async_io_table.remove_reference(source_io) {
+            let dest_task_id = TaskID::new(self.args[0]);
+            let io_entry = if let Some(io_entry) = task.async_io_table.remove_reference(source_io) {
                 // move the io provider to the new task
-                let dest_task_id = TaskID::new(self.args[0]);
                 io_entry.set_task(dest_task_id);
-                if let Some(dest_task_lock) = get_task(dest_task_id) {
-                    let mut dest_task = dest_task_lock.write();
-                    let dest_index = dest_task.async_io_table.insert(io_entry);
-                    dest_task.open_handles.insert(dest_index);
-                }
+                io_entry
+            } else {
+                // duplicate the io provider
+                let entry = task.async_io_table.get(source_io).unwrap();
+                // TODO: Should this go into the generic IOType impl?
+                let dup = match *entry.io_type {
+                    IOType::File(ref file_io) => {
+                        let new_io = file_io.duplicate(dest_task_id);
+                        IOType::File(new_io)
+                    }
+                    _ => unimplemented!(),
+                };
+                Arc::new(dup)
+            };
+            if let Some(dest_task_lock) = get_task(dest_task_id) {
+                let mut dest_task = dest_task_lock.write();
+                let dest_index = dest_task.async_io_table.insert(io_entry);
+                dest_task.open_handles.insert(dest_index);
             }
             task.open_handles.remove(Handle::new(self.args[2] as usize));
         }
