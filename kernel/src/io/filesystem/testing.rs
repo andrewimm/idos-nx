@@ -84,6 +84,16 @@ pub mod sync_fs {
         fn close(&self, _instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
             panic!("not implemented");
         }
+
+        fn share(
+            &self,
+            instance: u32,
+            target_task_id: TaskID,
+            is_move: bool,
+            io_callback: AsyncIOCallback,
+        ) -> Option<IOResult> {
+            Some(Ok(1))
+        }
     }
 }
 
@@ -146,8 +156,16 @@ pub mod async_fs {
             Ok(buffer.len() as u32)
         }
 
+        fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IOResult {
+            unimplemented!()
+        }
+
         fn close(&mut self, _instance: u32) -> IOResult {
             panic!("not implemented");
+        }
+
+        fn share(&mut self, instance: u32, transfer_to_id: TaskID, is_move: bool) -> IOResult {
+            Ok(1)
         }
     }
 
@@ -246,6 +264,10 @@ pub mod async_dev {
                 found.written += 1;
             }
             Ok(written as u32)
+        }
+
+        fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IOResult {
+            unimplemented!()
         }
 
         fn close(&mut self, _instance: u32) -> IOResult {

@@ -41,10 +41,16 @@ impl InterruptIOProvider {
 }
 
 impl IOProvider for InterruptIOProvider {
-    fn add_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
+    fn add_op(
+        &self,
+        provider_index: u32,
+        op: &AsyncOp,
+        args: [u32; 3],
+        wake_set: Option<Handle>,
+    ) -> AsyncOpID {
         let id = self.id_gen.next_id();
         let unmapped =
-            UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
+            UnmappedAsyncOp::from_op(op, args, wake_set.map(|handle| (get_current_id(), handle)));
         self.pending_ops.write().insert(id, unmapped);
 
         match self.run_op(provider_index, id) {

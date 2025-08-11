@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::collections::VecDeque;
+use alloc::{collections::VecDeque, sync::Arc};
 use idos_api::io::{error::IOError, AsyncOp};
 use spin::RwLock;
 
@@ -10,7 +10,7 @@ use crate::{
         virt::scratch::UnmappedPage,
     },
     sync::futex::futex_wake_inner,
-    task::{id::TaskID, map::get_task, paging::get_current_physical_address},
+    task::{id::TaskID, map::get_task, paging::get_current_physical_address, state::Task},
 };
 
 use super::{
@@ -41,7 +41,13 @@ pub trait IOProvider {
     /// is removed from the set when the op is completed.
     /// The method returns the unique ID of the newly added op, which can be
     /// used to reference, complete, or cancel the op.
-    fn add_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID;
+    fn add_op(
+        &self,
+        provider_index: u32,
+        op: &AsyncOp,
+        args: [u32; 3],
+        wake_set: Option<Handle>,
+    ) -> AsyncOpID;
 
     fn get_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp>;
 
@@ -72,15 +78,10 @@ pub trait IOProvider {
     }
 
     /// Finish an op that could not complete immediately.
-    fn async_complete(&self, id: AsyncOpID, result: IOResult) {
-        let found_op = match self.remove_op(id) {
-            Some(op) => op,
-            None => {
-                // If the op is not found, we can't complete it
-                return;
-            }
-        };
+    fn async_complete(&self, id: AsyncOpID, result: IOResult) -> Option<UnmappedAsyncOp> {
+        let found_op = self.remove_op(id)?;
         found_op.complete(self.transform_result(found_op.op_code, result));
+        Some(found_op)
     }
 
     /// Look up the active op, and run a specific io method based on its op code
@@ -154,7 +155,7 @@ pub struct UnmappedAsyncOp {
 }
 
 impl UnmappedAsyncOp {
-    pub fn from_op(op: &AsyncOp, wake_set: Option<(TaskID, Handle)>) -> Self {
+    pub fn from_op(op: &AsyncOp, args: [u32; 3], wake_set: Option<(TaskID, Handle)>) -> Self {
         let signal_vaddr = VirtualAddress::new(op.signal.as_ptr() as u32);
         let return_value_vaddr = VirtualAddress::new(op.return_value.as_ptr() as u32);
         let signal_paddr =
@@ -165,7 +166,7 @@ impl UnmappedAsyncOp {
             op_code: op.op_code,
             signal_address: signal_paddr,
             return_value_address: return_value_paddr,
-            args: [op.args[0], op.args[1], op.args[2]],
+            args,
             wake_set,
         }
     }
@@ -199,6 +200,29 @@ impl UnmappedAsyncOp {
             if let Some(wake_set) = wake_set_found {
                 wake_set.wake();
             }
+        }
+    }
+
+    /// When an async op is successfully closed or shared, we need to remove the
+    /// handle that was removed from the original task
+    pub fn maybe_close_handle(&self, task_lock: Arc<RwLock<Task>>, source_io: u32) {
+        if self.op_code & 0xfff == ASYNC_OP_CLOSE {
+            let mut task = task_lock.write();
+            task.async_io_table.remove_reference(source_io);
+            task.open_handles.remove(Handle::new(self.args[0] as usize));
+        } else if self.op_code & 0xfff == ASYNC_OP_SHARE {
+            let mut task = task_lock.write();
+            if let Some(io_entry) = task.async_io_table.remove_reference(source_io) {
+                // move the io provider to the new task
+                let dest_task_id = TaskID::new(self.args[0]);
+                io_entry.set_task(dest_task_id);
+                if let Some(dest_task_lock) = get_task(dest_task_id) {
+                    let mut dest_task = dest_task_lock.write();
+                    let dest_index = dest_task.async_io_table.insert(io_entry);
+                    dest_task.open_handles.insert(dest_index);
+                }
+            }
+            task.open_handles.remove(Handle::new(self.args[2] as usize));
         }
     }
 }

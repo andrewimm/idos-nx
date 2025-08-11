@@ -14,7 +14,7 @@ use crate::{
     task::{
         id::{AtomicTaskID, TaskID},
         map::get_task,
-        switching::get_current_id,
+        switching::{get_current_id, get_current_task},
     },
 };
 use alloc::collections::BTreeMap;
@@ -78,15 +78,25 @@ impl FileIOProvider {
 }
 
 impl IOProvider for FileIOProvider {
-    fn add_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
+    fn add_op(
+        &self,
+        provider_index: u32,
+        op: &AsyncOp,
+        args: [u32; 3],
+        wake_set: Option<Handle>,
+    ) -> AsyncOpID {
         let id = self.id_gen.next_id();
         let unmapped =
-            UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
+            UnmappedAsyncOp::from_op(op, args, wake_set.map(|handle| (get_current_id(), handle)));
         self.pending_ops.write().insert(id, unmapped);
 
         match self.run_op(provider_index, id) {
             Some(result) => {
-                self.remove_op(id);
+                if let Some(completed_op) = self.remove_op(id) {
+                    if let Ok(_) = result {
+                        completed_op.maybe_close_handle(get_current_task(), provider_index);
+                    }
+                }
                 let return_value = self.transform_result(op.op_code, result);
                 op.return_value.store(return_value, Ordering::SeqCst);
                 op.signal.store(1, Ordering::SeqCst);

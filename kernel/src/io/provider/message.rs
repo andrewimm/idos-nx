@@ -79,21 +79,27 @@ impl MessageIOProvider {
 }
 
 impl IOProvider for MessageIOProvider {
-    fn add_op(&self, provider_index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
+    fn add_op(
+        &self,
+        provider_index: u32,
+        op: &AsyncOp,
+        args: [u32; 3],
+        wake_set: Option<Handle>,
+    ) -> AsyncOpID {
         // convert the virtual address of the message pointer to a physical
         // address
         // TODO: if the message spans two physical pages, we're gonna have a problem!
         let message_size = core::mem::size_of::<Message>() as u32;
-        if (op.args[0] & 0xfffff000) != ((op.args[0] + message_size) & 0xfffff000) {
+        if (args[0] & 0xfffff000) != ((args[0] + message_size) & 0xfffff000) {
             panic!("Messages can't bridge multiple pages (yet)");
         }
-        let message_virt = VirtualAddress::new(op.args[0]);
+        let message_virt = VirtualAddress::new(args[0]);
         let message_phys = get_current_physical_address(message_virt)
             .expect("Tried to reference unmapped address");
 
         let id = self.id_gen.next_id();
         let mut unmapped =
-            UnmappedAsyncOp::from_op(op, wake_set.map(|handle| (get_current_id(), handle)));
+            UnmappedAsyncOp::from_op(op, args, wake_set.map(|handle| (get_current_id(), handle)));
         unmapped.args[0] = message_phys.as_u32();
 
         self.pending_ops.write().insert(id, unmapped);

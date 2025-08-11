@@ -197,6 +197,12 @@ pub fn dup_handle(handle: Handle) -> Option<Handle> {
     Some(task.open_handles.insert(io_index))
 }
 
+pub fn handle_exists(handle: Handle) -> bool {
+    let task_lock = get_current_task();
+    let task = task_lock.read();
+    task.open_handles.get(handle).is_some()
+}
+
 pub fn handle_op_open(handle: Handle, path: &str) -> PendingHandleOp {
     use crate::io::async_io::ASYNC_OP_OPEN;
 
@@ -244,8 +250,10 @@ pub fn handle_op_close(handle: Handle) -> PendingHandleOp {
 #[cfg(test)]
 mod tests {
     use super::super::io::read_sync;
-    use crate::io::async_io::{ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE};
-    use crate::io::handle::PendingHandleOp;
+    use crate::io::async_io::{
+        ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_SHARE, ASYNC_OP_WRITE,
+    };
+    use crate::io::handle::{Handle, PendingHandleOp};
     use crate::memory::address::VirtualAddress;
     use crate::task::actions::io::send_io_op;
     use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
@@ -594,5 +602,55 @@ mod tests {
             .submit_io()
             .wait_for_completion();
         assert_eq!(read_buffer, [b'G', b'H', b'I']);
+    }
+
+    #[test_case]
+    fn share_file() {
+        // sharing a file that has only been opened once, which transfers
+        // the backing io provider to the new task
+
+        // create a handle and open a file in one task; then transfer it to another task
+        // the second task should confirm that it can read from the file, and the first task should not be able to read anymore
+        let handle = super::create_file_handle();
+        super::handle_op_open(handle, "TEST:\\MYFILE.TXT")
+            .submit_io()
+            .wait_for_completion();
+
+        let (new_task_handle, new_task_id) = super::create_kernel_task(
+            || {
+                let transferred = Handle::new(0);
+                while !super::handle_exists(transferred) {
+                    crate::task::actions::sleep(10);
+                }
+                let mut read_buffer: [u8; 3] = [0; 3];
+                let result = super::handle_op_read(transferred, &mut read_buffer, 0)
+                    .submit_io()
+                    .wait_for_completion();
+                assert_eq!(result, 3);
+                assert_eq!(read_buffer, [b'A', b'B', b'C']);
+                crate::task::actions::lifecycle::terminate(0);
+            },
+            Some("CHILD"),
+        );
+
+        PendingHandleOp::new(handle, ASYNC_OP_SHARE, new_task_id.into(), 0, 0)
+            .submit_io()
+            .wait_for_completion();
+
+        assert!(!super::handle_exists(handle));
+
+        super::handle_op_read(new_task_handle, &mut [], 0)
+            .submit_io()
+            .wait_for_completion();
+    }
+
+    #[test_case]
+    fn share_file_failure() {
+        // a failed share should not close the original handle
+    }
+
+    #[test_case]
+    fn transfer_duplicated_file() {
+        // transferring a duplicated file should not close the original handle
     }
 }

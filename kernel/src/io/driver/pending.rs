@@ -4,7 +4,11 @@ use alloc::collections::BTreeMap;
 use spin::Mutex;
 
 use crate::{
-    io::{async_io::AsyncOpID, filesystem::driver::AsyncIOCallback},
+    io::{
+        async_io::{AsyncOpID, ASYNC_OP_CLOSE, ASYNC_OP_SHARE},
+        filesystem::driver::AsyncIOCallback,
+        handle::Handle,
+    },
     task::{actions::send_message, id::TaskID, map::get_task, switching::get_current_id},
 };
 
@@ -54,9 +58,17 @@ pub fn request_complete(request_id: u32, return_value: IOResult) {
         if let Some(task_lock) = get_task(request.source_task) {
             let io_entry = task_lock.read().async_io_complete(request.source_io);
             if let Some(entry) = io_entry {
-                entry
+                if let Some(op) = entry
                     .inner()
-                    .async_complete(request.source_op, return_value);
+                    .async_complete(request.source_op, return_value.clone())
+                {
+                    // If the operation was successful, and it was a close or share,
+                    // we need to remove the original handle. It would be incorrect
+                    // to prematurely remove it before the result is known.
+                    if let Ok(_) = return_value {
+                        op.maybe_close_handle(task_lock, request.source_io);
+                    }
+                }
             }
         }
     }

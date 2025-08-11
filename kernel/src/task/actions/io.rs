@@ -3,7 +3,11 @@ use core::sync::atomic::Ordering;
 use idos_api::io::{error::IOError, AsyncOp};
 
 use crate::{
-    io::{async_io::ASYNC_OP_CLOSE, handle::Handle, provider::IOResult},
+    io::{
+        async_io::{ASYNC_OP_CLOSE, ASYNC_OP_SHARE},
+        handle::Handle,
+        provider::IOResult,
+    },
     memory::address::VirtualAddress,
     sync::futex::futex_wait,
     task::switching::get_current_task,
@@ -16,6 +20,7 @@ use crate::{
 pub fn send_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> Result<(), ()> {
     let task_lock = get_current_task();
     let code = op.op_code;
+    let mut args = [op.args[0], op.args[1], op.args[2]];
     if code & 0xfff == ASYNC_OP_CLOSE {
         // Check how many copies of this handle are open
         // If it's only one, we need to issue the close op; if there are
@@ -37,6 +42,29 @@ pub fn send_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> Res
             op.signal.store(1, Ordering::SeqCst);
             return Ok(());
         }
+        // if this is the only handle, it needs to be closed on driver success.
+        // args[0] is the original user-facing handle, so that it can be
+        // removed on success
+        args[0] = *handle as u32;
+    } else if code & 0xfff == ASYNC_OP_SHARE {
+        // Sharing a handle will remove the Handle itself if successful.
+        // The backing IO Provider may be transferred if it is the only
+        // instance, or it will be cloned if there are multiple references.
+        // op.args[0] is the new task ID to share with, and is the only arg
+        // set by the user.
+        // op.args[1] should determine if this is a move or a duplicate action.
+        // If there are multiple references to the same IO instance, this must
+        // be a duplicate (0). If this is the only reference, it can be a move (1).
+        // op.args[2] should be set to the original user-facing handle, so that
+        // it can be removed on success
+        let mut task = task_lock.read();
+        let io_index = task.open_handles.get(handle).ok_or(())?.clone();
+        let ref_count = task
+            .async_io_table
+            .get_reference_count(io_index)
+            .ok_or(())?;
+        args[1] = if ref_count > 1 { 0 } else { 1 }; // non-zero means is_move
+        args[2] = *handle as u32;
     }
 
     let (io_instance, io_type) = {
@@ -46,7 +74,7 @@ pub fn send_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> Res
         (io_instance, io.io_type.clone())
     };
 
-    io_type.op_request(io_instance, op, wake_set);
+    io_type.op_request(io_instance, op, args, wake_set);
 
     Ok(())
 }

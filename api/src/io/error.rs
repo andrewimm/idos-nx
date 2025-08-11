@@ -1,4 +1,4 @@
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[repr(u32)]
 pub enum IOError {
     // No enum value should be backed by a value of 0

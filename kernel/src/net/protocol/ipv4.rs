@@ -208,34 +208,58 @@ impl PacketHeader for Ipv4Header {}
 
 #[cfg(test)]
 mod tests {
-    use super::Ipv4Address;
+    use super::{Ipv4Address, Ipv4AddressParseError};
     use core::str::FromStr;
 
     #[test_case]
     fn test_address_parse() {
         assert_eq!(
             Ipv4Address::from_str("192.168.0.1"),
-            Some(Ipv4Address([192, 168, 0, 1]))
+            Ok(Ipv4Address([192, 168, 0, 1]))
         );
         assert_eq!(
             Ipv4Address::from_str("127.0.0.1"),
-            Some(Ipv4Address([127, 0, 0, 1]))
+            Ok(Ipv4Address([127, 0, 0, 1]))
         );
 
         assert_eq!(
             Ipv4Address::from_str("0.0.0.0"),
-            Some(Ipv4Address([0, 0, 0, 0]))
+            Ok(Ipv4Address([0, 0, 0, 0]))
         );
 
-        assert_eq!(Ipv4Address::from_str("127.0.0.01"), None);
-        assert_eq!(Ipv4Address::from_str("www.example.net"), None);
-        assert_eq!(Ipv4Address::from_str("12.0.0.256"), None);
-        assert_eq!(Ipv4Address::from_str("192.168.1"), None);
-        assert_eq!(Ipv4Address::from_str("192.168.1."), None);
-        assert_eq!(Ipv4Address::from_str("192.168.1.1.1"), None);
-        assert_eq!(Ipv4Address::from_str(".127.0.0.1"), None);
-        assert_eq!(Ipv4Address::from_str("10.0..23"), None);
-        assert_eq!(Ipv4Address::from_str("10"), None);
-        assert_eq!(Ipv4Address::from_str(""), None);
+        assert_eq!(
+            Ipv4Address::from_str("127.0.0.01"),
+            Err(Ipv4AddressParseError)
+        );
+        assert_eq!(
+            Ipv4Address::from_str("www.example.net"),
+            Err(Ipv4AddressParseError)
+        );
+        assert_eq!(
+            Ipv4Address::from_str("12.0.0.256"),
+            Err(Ipv4AddressParseError)
+        );
+        assert_eq!(
+            Ipv4Address::from_str("192.168.1"),
+            Err(Ipv4AddressParseError)
+        );
+        assert_eq!(
+            Ipv4Address::from_str("192.168.1."),
+            Err(Ipv4AddressParseError)
+        );
+        assert_eq!(
+            Ipv4Address::from_str("192.168.1.1.1"),
+            Err(Ipv4AddressParseError)
+        );
+        assert_eq!(
+            Ipv4Address::from_str(".127.0.0.1"),
+            Err(Ipv4AddressParseError)
+        );
+        assert_eq!(
+            Ipv4Address::from_str("10.0..23"),
+            Err(Ipv4AddressParseError)
+        );
+        assert_eq!(Ipv4Address::from_str("10"), Err(Ipv4AddressParseError));
+        assert_eq!(Ipv4Address::from_str(""), Err(Ipv4AddressParseError));
     }
 }

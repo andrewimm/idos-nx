@@ -32,9 +32,15 @@ impl IOType {
         }
     }
 
-    pub fn op_request(&self, index: u32, op: &AsyncOp, wake_set: Option<Handle>) -> AsyncOpID {
+    pub fn op_request(
+        &self,
+        index: u32,
+        op: &AsyncOp,
+        args: [u32; 3],
+        wake_set: Option<Handle>,
+    ) -> AsyncOpID {
         let provider = self.inner();
-        provider.add_op(index, op, wake_set)
+        provider.add_op(index, op, args, wake_set)
     }
 
     pub fn set_task(&self, task: TaskID) {
