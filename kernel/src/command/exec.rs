@@ -9,7 +9,7 @@ use crate::io::async_io::FILE_OP_STAT;
 use crate::io::filesystem::get_all_drive_names;
 use crate::io::handle::{Handle, PendingHandleOp};
 use crate::task::actions::handle::create_file_handle;
-use crate::task::actions::io::{close_sync, open_sync, read_sync, write_sync};
+use crate::task::actions::io::{close_sync, open_sync, read_sync, share_sync, write_sync};
 use crate::task::actions::memory::map_memory;
 use crate::task::memory::MemoryBacking;
 use crate::time::date::DateTime;
@@ -212,8 +212,8 @@ fn try_exec(
 
     let _ = crate::loader::load_executable(child_id, name);
 
-    crate::task::actions::handle::transfer_handle(stdin_dup, child_id).unwrap();
-    crate::task::actions::handle::transfer_handle(stdout_dup, child_id).unwrap();
+    share_sync(stdin_dup, child_id).unwrap();
+    share_sync(stdout_dup, child_id).unwrap();
 
     let _ = read_sync(child_handle, &mut [0u8], 0);
     /*

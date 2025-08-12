@@ -92,7 +92,7 @@ pub trait AsyncDriver {
     fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IOResult;
 
     fn share(&mut self, instance: u32, transfer_to_id: TaskID, is_move: bool) -> IOResult {
-        Err(IOError::UnsupportedOperation)
+        Ok(1)
     }
 
     fn stat(&mut self, instance: u32, status_struct: &mut FileStatus) -> IOResult {

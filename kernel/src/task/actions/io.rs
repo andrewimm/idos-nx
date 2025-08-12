@@ -10,7 +10,7 @@ use crate::{
     },
     memory::address::VirtualAddress,
     sync::futex::futex_wait,
-    task::switching::get_current_task,
+    task::{id::TaskID, switching::get_current_task},
 };
 
 /// Enqueue an IO operation for the specified handle. Progress can be tracked
@@ -125,6 +125,10 @@ pub fn write_struct_sync<T: Sized>(handle: Handle, struct_ref: &T) -> IOResult {
 
 pub fn close_sync(handle: Handle) -> IOResult {
     io_sync(handle, ASYNC_OP_CLOSE, 0, 0, 0)
+}
+
+pub fn share_sync(handle: Handle, transfer_to: TaskID) -> IOResult {
+    io_sync(handle, ASYNC_OP_SHARE, transfer_to.into(), 0, 0)
 }
 
 pub fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) -> IOResult {

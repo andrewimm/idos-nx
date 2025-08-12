@@ -54,6 +54,8 @@ pub trait KernelDriver {
         is_move: bool,
         io_callback: AsyncIOCallback,
     ) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+        // default behavior is to return Ok, since it is assumed sharing is
+        // safe unless drivers have special internal behavior
+        Some(Ok(1))
     }
 }

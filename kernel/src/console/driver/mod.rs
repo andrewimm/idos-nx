@@ -54,6 +54,24 @@ impl ConsoleManager {
                 Some(result)
             }
 
+            DriverCommand::Share => {
+                let instance = message.args[0];
+                let dest_task_id = TaskID::new(message.args[1]);
+                let is_move = message.args[2] != 0;
+                if is_move {
+                    // TODO: not sure what to do here
+                } else {
+                    let console_id = match self.open_io.get(instance as usize) {
+                        Some(id) => id,
+                        None => return Some(Err(IOError::FileHandleInvalid)),
+                    };
+
+                    let console = self.consoles.get_mut(*console_id).unwrap();
+                    console.add_reader_task(dest_task_id);
+                }
+                Some(Ok(1))
+            }
+
             _ => Some(Err(IOError::UnsupportedOperation)),
         }
     }

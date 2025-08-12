@@ -54,8 +54,8 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
                 0x03 => {
                     // Ctrl-C character
                     // check the read mode, in DOS this might just break the read op
-                    crate::kprintln!("TERMINATE");
                     self.maybe_terminate_task();
+                    continue;
                 }
                 0x08 => {
                     // Backspace character
