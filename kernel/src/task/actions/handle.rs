@@ -646,6 +646,44 @@ mod tests {
     }
 
     #[test_case]
+    fn share_file_async_driver() {
+        // sharing a file that has only been opened once, which transfers
+        // the backing io provider to the new task
+
+        // create a handle and open a file in one task; then transfer it to another task
+        // the second task should confirm that it can read from the file, and the first task should not be able to read anymore
+        let handle = super::create_file_handle();
+        super::handle_op_open(handle, "ATEST:\\MYFILE.TXT")
+            .submit_io()
+            .wait_for_completion();
+
+        let (new_task_handle, new_task_id) = super::create_kernel_task(
+            || {
+                let transferred = Handle::new(0);
+                while !super::handle_exists(transferred) {
+                    crate::task::actions::yield_coop();
+                }
+                let mut read_buffer: [u8; 3] = [0; 3];
+                let result = super::handle_op_read(transferred, &mut read_buffer, 0)
+                    .submit_io()
+                    .wait_for_completion();
+                assert_eq!(result, 3);
+                assert_eq!(read_buffer, [b'A', b'B', b'C']);
+                crate::task::actions::lifecycle::terminate(0);
+            },
+            Some("CHILD"),
+        );
+
+        PendingHandleOp::new(handle, ASYNC_OP_SHARE, new_task_id.into(), 0, 0)
+            .submit_io()
+            .wait_for_completion();
+        assert!(!super::handle_exists(handle));
+        super::handle_op_read(new_task_handle, &mut [], 0)
+            .submit_io()
+            .wait_for_completion();
+    }
+
+    #[test_case]
     fn share_file_failure() {
         // a failed share should not close the original handle
         let handle = super::create_file_handle();
