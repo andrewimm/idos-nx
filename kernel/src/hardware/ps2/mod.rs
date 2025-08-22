@@ -35,7 +35,17 @@ pub fn install_drivers() {
         while !self::controller::data_read_ready() {}
         self::controller::read_ps2_data();
         self::controller::send_ps2_command(0xd4);
-        self::controller::write_ps2_data(60); // 60 samples per second
+        self::controller::write_ps2_data(100);
+        while !self::controller::data_read_ready() {}
+        self::controller::read_ps2_data();
+
+        // set resolution
+        self::controller::send_ps2_command(0xd4);
+        self::controller::write_ps2_data(0xe8);
+        while !self::controller::data_read_ready() {}
+        self::controller::read_ps2_data();
+        self::controller::send_ps2_command(0xd4);
+        self::controller::write_ps2_data(3); // 4 pixels per count
         while !self::controller::data_read_ready() {}
         self::controller::read_ps2_data();
 

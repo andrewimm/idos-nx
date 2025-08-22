@@ -84,6 +84,8 @@ pub fn manager_task() -> ! {
 
     let mut mouse_x = vbe_mode_info.width as u32 / 2;
     let mut mouse_y = vbe_mode_info.height as u32 / 2;
+    let mut mouse_read: [u8; 3] = [0, 0, 0];
+    let mut mouse_read_index = 0;
 
     let mut conman = ConsoleManager::new();
     let con1 = conman.add_console(); // create the first console (CON1)
@@ -122,6 +124,47 @@ pub fn manager_task() -> ! {
                     None => (),
                 }
                 last_action_type = 0;
+            }
+        }
+
+        loop {
+            let next_mouse_byte = match mouse_buffer.read() {
+                Some(byte) => byte,
+                None => break,
+            };
+            mouse_read[mouse_read_index] = next_mouse_byte;
+            mouse_read_index += 1;
+            if mouse_read_index == 1 {
+                if next_mouse_byte & 0x08 == 0 {
+                    mouse_read_index = 0; // first byte is not a valid mouse packet
+                }
+            } else if mouse_read_index == 3 {
+                // we have a complete mouse packet
+                let mut dx = mouse_read[1] as u32;
+                let mut dy = mouse_read[2] as u32;
+                if mouse_read[0] & 0x10 != 0 {
+                    dx |= 0xffffff00;
+                }
+                if mouse_read[0] & 0x20 != 0 {
+                    dy |= 0xffffff00;
+                }
+                let mouse_x_next = mouse_x as i32 + dx as i32;
+                let mouse_y_next = mouse_y as i32 - dy as i32;
+                if mouse_x_next < 0 {
+                    mouse_x = 0;
+                } else if mouse_x_next >= vbe_mode_info.width as i32 {
+                    mouse_x = vbe_mode_info.width as u32 - 1;
+                } else {
+                    mouse_x = mouse_x_next as u32;
+                }
+                if mouse_y_next < 0 {
+                    mouse_y = 0;
+                } else if mouse_y_next >= vbe_mode_info.height as i32 {
+                    mouse_y = vbe_mode_info.height as u32 - 1;
+                } else {
+                    mouse_y = mouse_y_next as u32;
+                }
+                mouse_read_index = 0; // reset for the next packet
             }
         }
 
@@ -212,11 +255,14 @@ fn draw_mouse(framebuffer: &mut Framebuffer, mouse_x: u32, mouse_y: u32) {
     let fb_width = framebuffer.width as usize;
     let offset = mouse_y as usize * fb_width + mouse_x as usize;
     let fb_raw = framebuffer.get_buffer_mut();
-    for row in 0..16 {
+
+    let total_rows = 16.min(framebuffer.height as u32 - mouse_y) as usize;
+    let total_cols = 16.min(framebuffer.width as u32 - mouse_x) as usize;
+    for row in 0..total_rows {
         let row_offset = offset + row * fb_width;
         let mut cursor_row = CURSOR[row];
         let mut shadow = false;
-        for col in 0..16 {
+        for col in 0..total_cols {
             if cursor_row & 1 != 0 {
                 shadow = true;
                 fb_raw[row_offset + col] = 0x0f;
