@@ -81,3 +81,26 @@ pub fn set_vbe_mode(mode: u16) {
     );
     futex_wait(signal_addr, 0, None);
 }
+
+pub fn set_display_start_point(x: u16, y: u16) {
+    let gfx_task = GFX_TASK.load(Ordering::SeqCst);
+    let mut signal = Box::<u32>::new(0);
+    let signal_addr = VirtualAddress::new(&mut *signal as *mut u32 as u32);
+    send_message(
+        gfx_task,
+        Message {
+            unique_id: 0,
+            message_type: 0x17,
+            args: [
+                x as u32,
+                y as u32,
+                get_current_physical_address(signal_addr).unwrap().as_u32(),
+                0,
+                0,
+                0,
+            ],
+        },
+        0xffff_ffff,
+    );
+    futex_wait(signal_addr, 0, None);
+}

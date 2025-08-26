@@ -5,7 +5,7 @@ use idos_api::io::AsyncOp;
 use crate::conman::{register_console_manager, InputBuffer};
 use crate::console::graphics::font::psf::PsfFont;
 use crate::console::graphics::font::Font;
-use crate::graphics::{get_vbe_mode_info, set_vbe_mode, VbeModeInfo};
+use crate::graphics::{get_vbe_mode_info, set_display_start_point, set_vbe_mode, VbeModeInfo};
 use crate::io::async_io::ASYNC_OP_READ;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
@@ -17,6 +17,7 @@ use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::messaging::Message;
+use crate::time::system::get_system_ticks;
 
 use self::graphics::framebuffer::Framebuffer;
 use self::input::KeyAction;
@@ -53,7 +54,7 @@ pub fn manager_task() -> ! {
     get_vbe_mode_info(&mut vbe_mode_info, 0x0103);
     set_vbe_mode(0x0103);
 
-    let framebuffer_bytes = (vbe_mode_info.width as u32) * (vbe_mode_info.height as u32);
+    let framebuffer_bytes = (vbe_mode_info.pitch as u32) * (vbe_mode_info.height as u32);
     let framebuffer_pages = (framebuffer_bytes + 0xfff) / 0x1000;
 
     let graphics_buffer_base = map_memory(
@@ -62,6 +63,7 @@ pub fn manager_task() -> ! {
         MemoryBacking::Direct(PhysicalAddress::new(vbe_mode_info.framebuffer)),
     )
     .unwrap();
+
     let mut fb = Framebuffer {
         width: vbe_mode_info.width,
         height: vbe_mode_info.height,

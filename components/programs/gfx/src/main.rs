@@ -111,6 +111,24 @@ pub extern "C" fn main() {
                 0x13 => {
                     // get current VBE mode
                 }
+
+                0x17 => {
+                    // set display start point
+                    let x = incoming_message.args[0] as u16;
+                    let y = incoming_message.args[1] as u16;
+
+                    if let Some(signal_ptr) = map_signal(incoming_message.args[2]) {
+                        vm_regs.ecx = x as u32;
+                        vm_regs.edx = y as u32;
+                        video_bios_interrupt(0x4F07, &mut vm_regs, stack_top);
+
+                        unsafe {
+                            *signal_ptr = 1;
+                        }
+                        futex_wake(signal_ptr as u32, 1);
+                        unmap_signal(signal_ptr);
+                    }
+                }
                 _ => (),
             }
 
