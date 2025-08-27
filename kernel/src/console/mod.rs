@@ -106,9 +106,12 @@ pub fn manager_task() -> ! {
     );
     let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
 
+    let mut compositor =
+        manager::compositor::Compositor::<{ manager::compositor::ColorDepth::Color8Bit }>::new(fb);
+
     let mut last_action_type: u8 = 0;
     loop {
-        draw_desktop(&fb, &console_font);
+        //draw_desktop(&fb, &console_font);
 
         loop {
             // read input actions and pass them to the current console
@@ -187,6 +190,7 @@ pub fn manager_task() -> ! {
             let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
         }
 
+        /*
         conman.draw_window(con1, &mut fb, &console_font);
 
         loop {
@@ -196,6 +200,9 @@ pub fn manager_task() -> ! {
             };
         }
         draw_mouse(&mut fb, mouse_x, mouse_y);
+        */
+
+        compositor.render(mouse_x as u16, mouse_y as u16);
 
         block_on_wake_set(wake_set, None);
     }

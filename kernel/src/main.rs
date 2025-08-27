@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![feature(abi_x86_interrupt)]
+#![feature(adt_const_params)]
 #![feature(alloc_error_handler)]
 #![feature(custom_test_frameworks)]
 #![feature(map_try_insert)]

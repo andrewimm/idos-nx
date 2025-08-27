@@ -13,7 +13,7 @@ impl Framebuffer {
         unsafe {
             core::slice::from_raw_parts_mut(
                 self.buffer.as_ptr_mut::<u8>(),
-                self.width as usize * self.height as usize,
+                self.stride as usize * self.height as usize,
             )
         }
     }

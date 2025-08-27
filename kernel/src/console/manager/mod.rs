@@ -1,3 +1,4 @@
+pub mod compositor;
 pub mod decor;
 pub mod topbar;
 pub mod window;
