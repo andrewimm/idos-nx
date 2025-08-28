@@ -42,4 +42,14 @@ impl Framebuffer {
             buffer: self.buffer + offset,
         }
     }
+
+    pub fn from_offset(&self, col: u16, row: u16) -> Self {
+        let offset = (self.stride as u32) * (row as u32) + (col as u32);
+        Self {
+            width: self.width - col,
+            stride: self.stride,
+            height: self.height - row,
+            buffer: self.buffer + offset,
+        }
+    }
 }

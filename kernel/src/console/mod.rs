@@ -109,6 +109,8 @@ pub fn manager_task() -> ! {
     let mut compositor =
         manager::compositor::Compositor::<{ manager::compositor::ColorDepth::Color8Bit }>::new(fb);
 
+    compositor.add_window(con1);
+
     let mut last_action_type: u8 = 0;
     loop {
         //draw_desktop(&fb, &console_font);
@@ -202,7 +204,7 @@ pub fn manager_task() -> ! {
         draw_mouse(&mut fb, mouse_x, mouse_y);
         */
 
-        compositor.render(mouse_x as u16, mouse_y as u16);
+        compositor.render(mouse_x as u16, mouse_y as u16, &conman, &console_font);
 
         block_on_wake_set(wake_set, None);
     }

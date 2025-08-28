@@ -5,9 +5,11 @@ use core::marker::ConstParamTy;
 
 use self::cursor::Cursor;
 use crate::{
-    console::graphics::{framebuffer::Framebuffer, Region},
+    console::graphics::{font::Font, framebuffer::Framebuffer, Region},
     memory::address::VirtualAddress,
 };
+
+use super::ConsoleManager;
 
 #[derive(ConstParamTy, Clone, Copy, PartialEq, Eq)]
 pub enum ColorDepth {
@@ -28,6 +30,10 @@ impl ColorDepth {
     }
 }
 
+struct Window {
+    console_index: usize,
+}
+
 pub struct Compositor<const COLOR_DEPTH: ColorDepth> {
     /// Framebuffer representing the graphics memory to draw to
     fb: Framebuffer,
@@ -44,6 +50,8 @@ pub struct Compositor<const COLOR_DEPTH: ColorDepth> {
     current_cursor: Cursor,
 
     dirty_regions: Vec<Region>,
+
+    windows: Vec<Window>,
 }
 
 impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
@@ -71,6 +79,8 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
             current_cursor: Cursor::new(16, 16, &DEFAULT_CURSOR),
 
             dirty_regions: Vec::new(),
+
+            windows: Vec::new(),
         };
         compositor.draw_bg();
 
@@ -101,7 +111,13 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
         }
     }
 
-    pub fn render(&mut self, mouse_x: u16, mouse_y: u16) {
+    pub fn render<F: Font>(
+        &mut self,
+        mouse_x: u16,
+        mouse_y: u16,
+        conman: &ConsoleManager,
+        font: &F,
+    ) {
         self.dirty_regions.clear();
 
         if self.force_redraw {
@@ -112,6 +128,11 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
                 height: self.fb.height,
             });
         }
+
+        // draw the top bar
+
+        // draw any active windows
+        self.draw_windows(conman, font);
 
         // copy the dirty region of the scratch buffer to the main framebuffer
         self.blit_scratch_to_fb();
@@ -135,6 +156,44 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
     }
 
     pub fn draw_top_bar(&mut self) {}
+
+    pub fn draw_windows<F: Font>(&mut self, conman: &ConsoleManager, font: &F) {
+        let Self {
+            ref windows,
+            ref mut dirty_regions,
+            ..
+        } = self;
+        windows
+            .iter()
+            .filter_map(|window| {
+                let console_index = window.console_index;
+                let mut sub_buffer = Framebuffer {
+                    width: self.fb.width - 5,
+                    height: self.fb.height - 29,
+                    stride: self.fb.stride,
+                    buffer: self.scratch_buffer_vaddr + (29 * self.fb.stride as u32) + 5,
+                };
+
+                let console = conman.consoles.get(console_index).unwrap();
+
+                conman
+                    .draw_window(console, &mut sub_buffer, font)
+                    .map(|r| Region {
+                        x: r.x + 5,
+                        y: r.y + 29,
+                        width: r.width,
+                        height: r.height,
+                    })
+            })
+            .for_each(|dirty| {
+                if !dirty_regions
+                    .iter()
+                    .any(|existing| existing.fully_contains(&dirty))
+                {
+                    dirty_regions.push(dirty);
+                }
+            });
+    }
 
     pub fn blit_scratch_to_fb(&mut self) {
         let fb_raw = self.fb.get_buffer_mut();
@@ -214,6 +273,10 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
 
         self.cursor_x = new_x;
         self.cursor_y = new_y;
+    }
+
+    pub fn add_window(&mut self, console_index: usize) {
+        self.windows.push(Window { console_index });
     }
 }
 

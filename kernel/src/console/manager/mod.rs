@@ -11,7 +11,7 @@ use crate::task::switching::get_current_id;
 use super::driver::PendingRead;
 use super::graphics::font::Font;
 use super::graphics::framebuffer::Framebuffer;
-use super::graphics::Point;
+use super::graphics::{Point, Region};
 use super::{
     console::Console,
     input::{KeyAction, KeyState},
@@ -93,21 +93,42 @@ impl ConsoleManager {
 
     // Move these to another location:
 
-    pub fn draw_window<F: Font>(&self, index: usize, fb: &mut Framebuffer, font: &F) {
-        let console = self.consoles.get(index).unwrap();
-        let mut desktop_fb = fb.from_row(24);
-        let window_pos = Point { x: 5, y: 5 };
-        self::decor::draw_window_bar(&mut desktop_fb, window_pos, 180, font, "C:\\COMMAND.ELF");
-        self::decor::draw_window_border(&mut desktop_fb, window_pos, 640, 400);
+    pub fn draw_window<F: Font>(
+        &self,
+        console: &Console<COLS, ROWS>,
+        fb: &mut Framebuffer,
+        font: &F,
+    ) -> Option<Region> {
+        let window_pos = Point { x: 0, y: 0 };
+        self::decor::draw_window_bar(fb, window_pos, 180, font, "C:\\COMMAND.ELF");
+
+        // This needs to be an abstracted call to fill a rectangle, since
+        // it cannot assume a color depth
+        let buffer = fb.get_buffer_mut();
+        for row in 0..400 {
+            let offset = (20 + row) * fb.stride as usize + 2;
+            for px in 0..640 {
+                buffer[offset + px] = 0x00;
+            }
+        }
 
         for row in 0..ROWS {
             font.draw_string(
-                &mut desktop_fb,
+                fb,
                 window_pos.x + 2,
                 (window_pos.y + 20) + (row as u16 * 16),
                 console.row_text_iter(row),
                 0x0f,
             );
         }
+
+        self::decor::draw_window_border(fb, window_pos, 640, 400);
+
+        Some(Region {
+            x: window_pos.x,
+            y: window_pos.y,
+            width: 644,
+            height: 422,
+        })
     }
 }
