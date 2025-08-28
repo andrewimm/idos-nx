@@ -11,7 +11,10 @@ extern crate idos_api;
 pub mod panic;
 use core::arch::{asm, global_asm};
 
-use idos_api::compat::VMRegisters;
+use idos_api::{
+    compat::VMRegisters,
+    io::{termios::Termios, Handle},
+};
 
 global_asm!(
     r#"
@@ -27,9 +30,32 @@ _start:
 "#
 );
 
+static mut TERMIOS_ORIG: Termios = Termios::default();
+static STDIN: Handle = Handle::new(0);
+
 #[no_mangle]
 pub extern "C" fn compat_start(psp_segment: u32, _argc: u32, _argv: *const u32) {
     //env::init_args(argc, argv);
+
+    let mut termios = Termios::default();
+    let _ = idos_api::io::sync::ioctl_sync(
+        STDIN,
+        idos_api::io::termios::TCGETS,
+        &mut termios as *mut Termios as u32,
+        core::mem::size_of::<Termios>() as u32,
+    )
+    .unwrap();
+
+    unsafe {
+        TERMIOS_ORIG = termios.clone();
+    }
+    termios.lflags &= !(idos_api::io::termios::ECHO | idos_api::io::termios::ICANON);
+    let _ = idos_api::io::sync::ioctl_sync(
+        STDIN,
+        idos_api::io::termios::TCSETS,
+        &termios as *const Termios as u32,
+        core::mem::size_of::<Termios>() as u32,
+    );
 
     let stdaux = idos_api::syscall::io::create_file_handle();
     let _ = idos_api::io::sync::open_sync(stdaux, "DEV:\\COM1");
@@ -63,7 +89,21 @@ pub extern "C" fn compat_start(psp_segment: u32, _argc: u32, _argv: *const u32) 
         }
     }
 
-    idos_api::syscall::exec::terminate(0)
+    exit(0);
+}
+
+fn exit(code: u32) {
+    // reset termios
+    unsafe {
+        let _ = idos_api::io::sync::ioctl_sync(
+            STDIN,
+            idos_api::io::termios::TCSETS,
+            &raw const TERMIOS_ORIG as *const Termios as u32,
+            core::mem::size_of::<Termios>() as u32,
+        );
+    }
+
+    idos_api::syscall::exec::terminate(code)
 }
 
 unsafe fn handle_fault(vm_regs: &mut VMRegisters) -> bool {
@@ -134,7 +174,7 @@ pub fn terminate(regs: &mut VMRegisters) {
     //   set cs to termination vector segment
     //   set eip to termination vector offset
 
-    idos_api::syscall::exec::terminate(1);
+    exit(1);
 }
 
 /// AH=0x01 - Read from STDIN and echo to STDOUT

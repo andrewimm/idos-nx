@@ -39,5 +39,5 @@ start:
   jmp $
 
 message_prompt: .ascii "Enter 5 characters: $"
-message_done: .ascii "DONE.\n$"
+message_done: .ascii "\nDONE.\n$"
 message_aux: .ascii "DOS AUX\n"

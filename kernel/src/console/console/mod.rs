@@ -5,6 +5,7 @@ use crate::task::id::TaskID;
 
 use self::term::Terminal;
 use alloc::{collections::VecDeque, vec::Vec};
+use idos_api::io::termios;
 
 pub struct Console<const COLS: usize, const ROWS: usize> {
     pub terminal: Terminal<COLS, ROWS>,
@@ -73,20 +74,15 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
                 }
                 _ => {}
             }
-            if *ch == 0x0a {
-                should_flush = true;
-            } else if *ch == 0x08 {
-                if !self.pending_input.is_empty() {
-                    self.terminal.backspace();
-                    self.terminal.write_character(0x20); // Write a space to clear the character
-                    self.pending_input.pop();
-                    self.terminal.backspace(); // Move cursor back again, since writing space moved it forward
-                }
-                continue;
+            if self.terminal.lflags & termios::ECHO != 0 {
+                self.terminal.write_character(*ch);
             }
-            self.terminal.write_character(*ch);
 
             self.pending_input.push(*ch);
+        }
+
+        if self.terminal.lflags & termios::ICANON == 0 {
+            should_flush = true;
         }
 
         if should_flush {

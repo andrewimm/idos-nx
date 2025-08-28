@@ -3,7 +3,7 @@
 pub struct Handle(u32);
 
 impl Handle {
-    pub fn new(handle: u32) -> Self {
+    pub const fn new(handle: u32) -> Self {
         Handle(handle)
     }
 

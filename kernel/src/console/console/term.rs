@@ -1,5 +1,6 @@
 use super::textmode::{Color, ColorCode, TextBuffer};
 use alloc::vec::Vec;
+use idos_api::io::termios;
 
 /// Handles terminal state management, including handling of ANSI escape codes
 /// and other terminal emulation. The Terminal struct is not responsible for
@@ -11,6 +12,12 @@ pub struct Terminal<const COLS: usize, const ROWS: usize> {
     ansi_params: Vec<u8>,
 
     pub text_buffer: TextBuffer<COLS, ROWS>,
+
+    // termios flags
+    pub iflags: u32,
+    pub oflags: u32,
+    pub cflags: u32,
+    pub lflags: u32,
 }
 
 impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
@@ -30,6 +37,11 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
             ansi_params: Vec::new(),
 
             text_buffer,
+
+            iflags: 0,
+            oflags: 0,
+            cflags: 0,
+            lflags: termios::ECHO | termios::ICANON | termios::ISIG,
         }
     }
 
@@ -147,6 +159,20 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
             }
             _ => {}
         }
+    }
+
+    pub fn set_termios(&mut self, termios_struct: &termios::Termios) {
+        self.iflags = termios_struct.iflags;
+        self.oflags = termios_struct.oflags;
+        self.cflags = termios_struct.cflags;
+        self.lflags = termios_struct.lflags;
+    }
+
+    pub fn get_termios(&self, termios_struct: &mut termios::Termios) {
+        termios_struct.iflags = self.iflags;
+        termios_struct.oflags = self.oflags;
+        termios_struct.cflags = self.cflags;
+        termios_struct.lflags = self.lflags;
     }
 }
 

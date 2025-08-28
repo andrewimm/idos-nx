@@ -5,7 +5,10 @@ use crate::{
     task::{id::TaskID, messaging::Message},
 };
 use alloc::collections::VecDeque;
-use idos_api::io::error::{IOError, IOResult};
+use idos_api::io::{
+    error::{IOError, IOResult},
+    termios,
+};
 
 mod read;
 
@@ -70,6 +73,24 @@ impl ConsoleManager {
                     console.add_reader_task(dest_task_id);
                 }
                 Some(Ok(1))
+            }
+
+            DriverCommand::Ioctl => {
+                let instance = message.args[0];
+                let ioctl = message.args[1];
+                let arg = message.args[2];
+                let arg_len = message.args[3] as usize;
+
+                if arg_len != 0 {
+                    // attempt to interpret arg as pointer to struct
+                    let result = self.ioctl_struct(instance, ioctl, arg as *mut u8, arg_len);
+                    release_buffer(VirtualAddress::new(arg), arg_len);
+                    Some(result)
+                } else {
+                    // assume arg is just a u32 value
+                    let result = self.ioctl(instance, ioctl, arg);
+                    Some(result)
+                }
             }
 
             _ => Some(Err(IOError::UnsupportedOperation)),
@@ -145,5 +166,51 @@ impl ConsoleManager {
             console.terminal.write_character(*ch);
         }
         Ok(buffer.len() as u32)
+    }
+
+    pub fn ioctl(&mut self, instance: u32, ioctl: u32, arg: u32) -> IOResult {
+        let console_id = self
+            .open_io
+            .get(instance as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
+
+        let console = self.consoles.get_mut(*console_id).unwrap();
+        match ioctl {
+            _ => Err(IOError::UnsupportedOperation),
+        }
+    }
+
+    pub fn ioctl_struct(
+        &mut self,
+        instance: u32,
+        ioctl: u32,
+        arg_ptr: *mut u8,
+        arg_len: usize,
+    ) -> IOResult {
+        let console_id = self
+            .open_io
+            .get(instance as usize)
+            .ok_or(IOError::FileHandleInvalid)?;
+
+        let console = self.consoles.get_mut(*console_id).unwrap();
+        match ioctl {
+            termios::TCSETS => {
+                if arg_len != core::mem::size_of::<termios::Termios>() {
+                    return Err(IOError::InvalidArgument);
+                }
+                let termios_struct = unsafe { &*(arg_ptr as *const termios::Termios) };
+                console.terminal.set_termios(termios_struct);
+                Ok(1)
+            }
+            termios::TCGETS => {
+                if arg_len != core::mem::size_of::<termios::Termios>() {
+                    return Err(IOError::InvalidArgument);
+                }
+                let termios_struct = unsafe { &mut *(arg_ptr as *mut termios::Termios) };
+                console.terminal.get_termios(termios_struct);
+                Ok(1)
+            }
+            _ => Err(IOError::UnsupportedOperation),
+        }
     }
 }
