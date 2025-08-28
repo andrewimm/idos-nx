@@ -76,6 +76,22 @@ pub trait AsyncDriver {
                 release_buffer(VirtualAddress::new(struct_ptr as u32), struct_len);
                 Some(result)
             }
+            DriverCommand::Ioctl => {
+                let instance = message.args[0];
+                let ioctl = message.args[1];
+                let arg = message.args[2];
+                let arg_len = message.args[3] as usize;
+                if arg_len != 0 {
+                    // attempt to interpret arg as pointer to struct
+                    let result = self.ioctl_struct(instance, ioctl, arg as *mut u8, arg_len);
+                    release_buffer(VirtualAddress::new(arg), arg_len);
+                    Some(result)
+                } else {
+                    // assume arg is just a u32 value
+                    let result = self.ioctl(instance, ioctl, arg);
+                    Some(result)
+                }
+            }
             DriverCommand::Invalid => {
                 crate::kprintln!("Async driver: Unknown Request");
                 None
@@ -96,6 +112,20 @@ pub trait AsyncDriver {
     }
 
     fn stat(&mut self, instance: u32, status_struct: &mut FileStatus) -> IOResult {
+        Err(IOError::UnsupportedOperation)
+    }
+
+    fn ioctl(&mut self, instance: u32, ioctl: u32, arg: u32) -> IOResult {
+        Err(IOError::UnsupportedOperation)
+    }
+
+    fn ioctl_struct(
+        &mut self,
+        instance: u32,
+        ioctl: u32,
+        arg_ptr: *mut u8,
+        arg_len: usize,
+    ) -> IOResult {
         Err(IOError::UnsupportedOperation)
     }
 }

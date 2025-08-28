@@ -4,10 +4,10 @@ use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
 use crate::{
     files::{path::Path, stat::FileStatus},
     io::{
-        async_io::{AsyncOpID, FILE_OP_STAT},
+        async_io::{AsyncOpID, FILE_OP_IOCTL, FILE_OP_STAT},
         filesystem::{
-            driver::DriverID, driver_close, driver_open, driver_read, driver_share, driver_stat,
-            driver_write, get_driver_id_by_name,
+            driver::DriverID, driver_close, driver_ioctl, driver_open, driver_read, driver_share,
+            driver_stat, driver_write, get_driver_id_by_name,
         },
         handle::Handle,
     },
@@ -260,6 +260,21 @@ impl IOProvider for FileIOProvider {
                         driver_id,
                         instance,
                         file_status,
+                        (self.source_id.load(Ordering::SeqCst), provider_index, id),
+                    );
+                }
+                FILE_OP_IOCTL => {
+                    let ioctl = op.args[0];
+                    let arg = op.args[1];
+                    // if arg is a pointer, this is the length. Otherwise it's zero
+                    let arg_len = op.args[2] as usize;
+                    let driver_id: DriverID = self.driver_id.lock().unwrap();
+                    return driver_ioctl(
+                        driver_id,
+                        instance,
+                        ioctl,
+                        arg,
+                        arg_len,
                         (self.source_id.load(Ordering::SeqCst), provider_index, id),
                     );
                 }

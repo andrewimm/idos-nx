@@ -58,4 +58,15 @@ pub trait KernelDriver {
         // safe unless drivers have special internal behavior
         Some(Ok(1))
     }
+
+    fn ioctl(
+        &self,
+        instance: u32,
+        ioctl: u32,
+        arg: u32,
+        arg_len: usize,
+        io_callback: AsyncIOCallback,
+    ) -> Option<IOResult> {
+        Some(Err(IOError::UnsupportedOperation))
+    }
 }

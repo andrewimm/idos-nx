@@ -50,6 +50,15 @@ pub enum DriverIOAction {
         dest_task_id: TaskID,
         is_move: bool,
     },
+    /// General IOCTL
+    Ioctl { instance: u32, ioctl: u32, arg: u32 },
+    /// IOCTL with struct arg
+    IoctlStruct {
+        instance: u32,
+        ioctl: u32,
+        arg_ptr_vaddr: VirtualAddress,
+        arg_len: usize,
+    },
 }
 
 impl DriverIOAction {
@@ -139,6 +148,32 @@ impl DriverIOAction {
                     0,
                 ],
             },
+            Self::Ioctl {
+                instance,
+                ioctl,
+                arg,
+            } => Message {
+                message_type: DriverCommand::Ioctl as u32,
+                unique_id: request_id,
+                args: [*instance, *ioctl, *arg, 0, 0, 0],
+            },
+            Self::IoctlStruct {
+                instance,
+                ioctl,
+                arg_ptr_vaddr,
+                arg_len,
+            } => Message {
+                message_type: DriverCommand::Ioctl as u32,
+                unique_id: request_id,
+                args: [
+                    *instance,
+                    *ioctl,
+                    arg_ptr_vaddr.as_u32(),
+                    *arg_len as u32,
+                    0,
+                    0,
+                ],
+            },
         }
     }
 }
@@ -152,6 +187,7 @@ pub enum DriverCommand {
     Close,
     Stat,
     Share,
+    Ioctl,
     // Every time a new command is added, modify the method below that decodes the command
     Invalid = 0xffffffff,
 }
@@ -166,6 +202,7 @@ impl DriverCommand {
             5 => DriverCommand::Close,
             6 => DriverCommand::Stat,
             7 => DriverCommand::Share,
+            8 => DriverCommand::Ioctl,
             _ => DriverCommand::Invalid,
         }
     }

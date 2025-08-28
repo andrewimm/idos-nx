@@ -306,3 +306,42 @@ pub fn driver_share(
         }
     })
 }
+
+pub fn driver_ioctl(
+    id: DriverID,
+    instance: u32,
+    ioctl: u32,
+    arg: u32,
+    arg_len: usize,
+    io_callback: AsyncIOCallback,
+) -> Option<IOResult> {
+    with_driver(id, |driver| match driver {
+        DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
+            d.ioctl(instance, ioctl, arg, arg_len, io_callback)
+        }
+
+        DriverType::TaskFilesystem(task_id) | DriverType::TaskDevice(task_id, _) => {
+            let action = if arg_len > 0 {
+                // validate that the pointer can be used safely
+                // TODO: maybe fail if arg is in kernel space? Could cause some gnarly problems for uspace programs to do that
+
+                let struct_start = VirtualAddress::new(arg);
+                let shared_vaddr = share_buffer(*task_id, struct_start, arg_len);
+                DriverIOAction::IoctlStruct {
+                    instance,
+                    ioctl,
+                    arg_ptr_vaddr: shared_vaddr,
+                    arg_len,
+                }
+            } else {
+                DriverIOAction::Ioctl {
+                    instance,
+                    ioctl,
+                    arg,
+                }
+            };
+            send_async_request(*task_id, io_callback, action);
+            None
+        }
+    })
+}

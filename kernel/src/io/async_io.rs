@@ -66,6 +66,7 @@ pub const ASYNC_OP_CLOSE: u32 = 4;
 pub const ASYNC_OP_SHARE: u32 = 5;
 
 pub const FILE_OP_STAT: u32 = 0x10;
+pub const FILE_OP_IOCTL: u32 = 0x11;
 
 pub const SOCKET_OP_BROADCAST: u32 = 0x23;
 
