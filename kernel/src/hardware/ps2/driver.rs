@@ -47,8 +47,6 @@ pub fn ps2_driver_task() -> ! {
         loop {
             match MOUSE_BUFFER.read() {
                 Some(data) => {
-                    crate::kprint!("M{:X}", data);
-
                     mouse_packet[mouse_packet_seq] = data;
                     mouse_packet_seq += 1;
                     if mouse_packet_seq >= 3 {

@@ -137,7 +137,10 @@ pub extern "C" fn _handle_pic_interrupt(_registers: SavedState, irq: u32, _frame
 
     try_installed_handler(irq);
 
-    crate::kprintln!("!!! INT {}", irq);
+    if irq != 1 && irq != 12 {
+        // don't spam the console for keyboard and mouse interrupts
+        crate::kprintln!("!!! INT {}", irq);
+    }
 
     let should_notify = has_listeners(irq as u8);
     if should_notify {

@@ -22,7 +22,7 @@ pub fn install_drivers() {
     if self::controller::reset_device() {
         // initialize keyboard
         crate::kprint!("PS/2 Keyboard reset, ready\n");
-        install_interrupt_handler(1, interrupt_handler, None);
+        install_interrupt_handler(1, kbd_handler, None);
     }
 
     self::controller::send_ps2_command(0xd4);
@@ -55,7 +55,7 @@ pub fn install_drivers() {
         while !self::controller::data_read_ready() {}
         self::controller::read_ps2_data();
 
-        install_interrupt_handler(12, interrupt_handler, None);
+        install_interrupt_handler(12, mouse_handler, None);
     }
 
     let task_id = create_kernel_task(self::driver::ps2_driver_task, Some("PS2DEV"));
@@ -64,22 +64,23 @@ pub fn install_drivers() {
     crate::kprint!("PS/2 set up complete.\n");
 }
 
-fn interrupt_handler(irq: u32) {
-    crate::kprint!("!");
-    if irq == 1 {
-        let data = self::controller::read_ps2_data();
-        if !self::driver::KEYBOARD_BUFFER.write(data) {
-            crate::kprint!("Keyboard overflow\n");
-        }
-    } else if irq == 12 {
+fn kbd_handler(_: u32) {
+    let data = self::controller::read_ps2_data();
+    if !self::driver::KEYBOARD_BUFFER.write(data) {
+        crate::kprintln!("Keyboard overflow");
+    }
+    driver::DATA_READY.fetch_add(1, Ordering::SeqCst);
+    futex_wake(VirtualAddress::new(driver::DATA_READY.as_ptr() as u32), 1);
+}
+
+fn mouse_handler(_: u32) {
+    while self::controller::data_read_ready() {
         let data = self::controller::read_ps2_data();
         if !self::driver::MOUSE_BUFFER.write(data) {
-            crate::kprint!("Mouse overflow\n");
+            crate::kprintln!("Mouse overflow");
+            break;
         }
-    } else {
-        return;
     }
-
     driver::DATA_READY.fetch_add(1, Ordering::SeqCst);
     futex_wake(VirtualAddress::new(driver::DATA_READY.as_ptr() as u32), 1);
 }
