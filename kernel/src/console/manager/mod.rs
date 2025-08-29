@@ -112,14 +112,32 @@ impl ConsoleManager {
             }
         }
 
-        for row in 0..ROWS {
-            font.draw_string(
-                fb,
-                window_pos.x + 2,
-                (window_pos.y + 20) + (row as u16 * 16),
-                console.row_text_iter(row),
-                0x0f,
-            );
+        if let Some(graphics_buffer) = &console.terminal.graphics_buffer {
+            match graphics_buffer.bits_per_pixel {
+                8 => {
+                    let copy_width = 640.min(graphics_buffer.width as usize);
+                    let copy_height = 400.min(graphics_buffer.height as usize);
+                    let raw_buffer = graphics_buffer.get_buffer();
+                    for row in 0..copy_height {
+                        let dest_offset = (20 + row) * fb.stride as usize + 2; // assume 1 byte per pixel
+                        let src_offset = row * graphics_buffer.width as usize;
+                        let src_slice = &raw_buffer[src_offset..src_offset + copy_width];
+                        let dest_slice = &mut buffer[dest_offset..dest_offset + copy_width];
+                        dest_slice.copy_from_slice(src_slice);
+                    }
+                }
+                _ => unimplemented!(),
+            }
+        } else {
+            for row in 0..ROWS {
+                font.draw_string(
+                    fb,
+                    window_pos.x + 2,
+                    (window_pos.y + 20) + (row as u16 * 16),
+                    console.row_text_iter(row),
+                    0x0f,
+                );
+            }
         }
 
         self::decor::draw_window_border(fb, window_pos, 640, 400);

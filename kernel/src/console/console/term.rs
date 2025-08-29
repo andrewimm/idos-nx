@@ -1,3 +1,5 @@
+use crate::memory::address::VirtualAddress;
+
 use super::textmode::{Color, ColorCode, TextBuffer};
 use alloc::vec::Vec;
 use idos_api::io::termios;
@@ -13,11 +15,28 @@ pub struct Terminal<const COLS: usize, const ROWS: usize> {
 
     pub text_buffer: TextBuffer<COLS, ROWS>,
 
+    pub graphics_buffer: Option<GraphicsBuffer>,
+
     // termios flags
     pub iflags: u32,
     pub oflags: u32,
     pub cflags: u32,
     pub lflags: u32,
+}
+
+pub struct GraphicsBuffer {
+    pub vaddr: VirtualAddress,
+    pub allocated_size: usize,
+
+    pub width: u16,
+    pub height: u16,
+    pub bits_per_pixel: usize,
+}
+
+impl GraphicsBuffer {
+    pub fn get_buffer(&self) -> &mut [u8] {
+        unsafe { core::slice::from_raw_parts_mut(self.vaddr.as_ptr_mut(), self.allocated_size) }
+    }
 }
 
 impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
@@ -37,6 +56,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
             ansi_params: Vec::new(),
 
             text_buffer,
+            graphics_buffer: None,
 
             iflags: 0,
             oflags: 0,
@@ -173,6 +193,46 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         termios_struct.oflags = self.oflags;
         termios_struct.cflags = self.cflags;
         termios_struct.lflags = self.lflags;
+    }
+
+    pub fn set_graphics_mode(&mut self, graphics_struct: &mut termios::GraphicsMode) {
+        if let Some(existing_buffer) = &self.graphics_buffer {
+            // resize the graphics buffer if necessary, otherwise do nothing
+            unimplemented!()
+        }
+        // color depth is in the first 8 bits, and is a number of bits-per-pixel
+        // not all values are valid, we should probably validate here and also
+        // have some error handling...
+        let bits_per_pixel = graphics_struct.bpp_flags as usize & 0xff;
+        let bytes_per_pixel = (bits_per_pixel + 7) / 8;
+        // the buffer starts with 4 16-bit values that are used to signal to
+        // the compositor that the buffer is dirty. They represent a dirty
+        // rectangle in (x, y, width, height) format. To redraw the whole screen
+        // set bytes 4-7 to 0xff.
+        let buffer_size = 8
+            + (graphics_struct.width as usize)
+                * (graphics_struct.height as usize)
+                * bytes_per_pixel;
+
+        let pages_needed = (buffer_size + 0xfff) / 0x1000;
+        let buffer_vaddr = crate::task::actions::memory::map_memory(
+            None,
+            pages_needed as u32 * 0x1000,
+            crate::task::memory::MemoryBacking::Anonymous,
+        )
+        .unwrap();
+
+        let paddr = crate::task::paging::get_current_physical_address(buffer_vaddr).unwrap();
+
+        self.graphics_buffer = Some(GraphicsBuffer {
+            vaddr: buffer_vaddr,
+            allocated_size: pages_needed * 0x1000,
+            width: graphics_struct.width,
+            height: graphics_struct.height,
+            bits_per_pixel,
+        });
+
+        graphics_struct.framebuffer = paddr.as_u32();
     }
 }
 

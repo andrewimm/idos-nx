@@ -65,8 +65,14 @@ pub struct WinSize {
 // GRAPHICS MODE: structure for getting / setting graphics mode
 #[repr(C, packed)]
 pub struct GraphicsMode {
-    pub width: u32,
-    pub height: u32,
-    pub bpp: u32,
-    pub framebuffer: u32, // physical address of the framebuffer
+    /// requested width of the new buffer
+    pub width: u16,
+    /// requested height of the new buffer
+    pub height: u16,
+    /// stores information on the color depth and has room for other flags
+    pub bpp_flags: u32,
+    /// on return, this field will be set to the physical address of the
+    /// graphics framebuffer (including the 8-byte header), and can be mapped
+    /// to local memory space to draw graphics to the screen
+    pub framebuffer: u32,
 }

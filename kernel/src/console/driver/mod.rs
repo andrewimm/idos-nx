@@ -210,6 +210,14 @@ impl ConsoleManager {
                 console.terminal.get_termios(termios_struct);
                 Ok(1)
             }
+            termios::TSETGFX => {
+                if arg_len != core::mem::size_of::<termios::GraphicsMode>() {
+                    return Err(IOError::InvalidArgument);
+                }
+                let gfx_struct = unsafe { &mut *(arg_ptr as *mut termios::GraphicsMode) };
+                console.terminal.set_graphics_mode(gfx_struct);
+                Ok(1)
+            }
             _ => Err(IOError::UnsupportedOperation),
         }
     }
