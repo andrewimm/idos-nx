@@ -32,6 +32,9 @@ impl ColorDepth {
 
 struct Window {
     console_index: usize,
+
+    last_width: u16,
+    last_height: u16,
 }
 
 pub struct Compositor<const COLOR_DEPTH: ColorDepth> {
@@ -82,7 +85,12 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
 
             windows: Vec::new(),
         };
-        compositor.draw_bg();
+        compositor.draw_bg(Region {
+            x: 0,
+            y: 0,
+            width: compositor.fb.width,
+            height: compositor.fb.height,
+        });
 
         compositor
     }
@@ -96,14 +104,14 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
         }
     }
 
-    pub fn draw_bg(&mut self) {
+    pub fn draw_bg(&mut self, region: Region) {
         let buffer = self.get_scratch_buffer();
         match COLOR_DEPTH {
             ColorDepth::Color8Bit => {
-                for row in 0..self.fb.height as usize {
-                    let offset = self.fb.stride as usize * row;
-                    for col in 0..self.fb.width as usize {
-                        buffer[offset + col] = 0x00;
+                for row in region.y..(region.y + region.height) {
+                    let offset = self.fb.stride as usize * row as usize;
+                    for col in region.x..(region.x + region.width) {
+                        buffer[offset + col as usize] = 0x00;
                     }
                 }
             }
@@ -159,12 +167,12 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
 
     pub fn draw_windows<F: Font>(&mut self, conman: &ConsoleManager, font: &F) {
         let Self {
-            ref windows,
+            ref mut windows,
             ref mut dirty_regions,
             ..
         } = self;
         windows
-            .iter()
+            .iter_mut()
             .filter_map(|window| {
                 let console_index = window.console_index;
                 let mut sub_buffer = Framebuffer {
@@ -176,14 +184,67 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
 
                 let console = conman.consoles.get(console_index).unwrap();
 
-                conman
-                    .draw_window(console, &mut sub_buffer, font)
-                    .map(|r| Region {
-                        x: r.x + 5,
-                        y: r.y + 29,
-                        width: r.width,
-                        height: r.height,
-                    })
+                let (new_width, new_height, dirty_region) =
+                    conman.draw_window(console, &mut sub_buffer, font);
+                if new_width != window.last_width || new_height != window.last_height {
+                    // window size changed, may need to redraw background
+                    if new_width < window.last_width && new_height < window.last_height {
+                        // if we need to redraw the right and the bottom, might as well redraw the whole previous window area
+                        draw_bg(
+                            &mut sub_buffer,
+                            COLOR_DEPTH,
+                            Region {
+                                x: 0,
+                                y: 0,
+                                width: window.last_width + 4,
+                                height: window.last_height + 22,
+                            },
+                        );
+                    } else if new_width < window.last_width {
+                        // redraw the right side
+                        draw_bg(
+                            &mut sub_buffer,
+                            COLOR_DEPTH,
+                            Region {
+                                x: new_width + 4,
+                                y: 0,
+                                width: window.last_width - new_width,
+                                height: new_height,
+                            },
+                        );
+                    } else if new_height < window.last_height {
+                        // redraw the bottom side
+                        draw_bg(
+                            &mut sub_buffer,
+                            COLOR_DEPTH,
+                            Region {
+                                x: 0,
+                                y: new_height + 22,
+                                width: new_width,
+                                height: window.last_height - new_height,
+                            },
+                        );
+                    }
+
+                    let dirty = Region {
+                        x: 0,
+                        y: 0,
+                        width: window.last_width.max(new_width) + 4,
+                        height: window.last_height.max(new_height) + 22,
+                    };
+                    window.last_width = new_width;
+                    window.last_height = new_height;
+                    Some(dirty)
+                } else {
+                    dirty_region
+                }
+            })
+            // remap dirty region to screen space
+            .map(|r| Region {
+                x: r.x + 5,
+                y: r.y + 29,
+                width: r.width,
+                height: r.height,
             })
             .for_each(|dirty| {
                 if !dirty_regions
@@ -276,7 +337,26 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
     }
 
     pub fn add_window(&mut self, console_index: usize) {
-        self.windows.push(Window { console_index });
+        self.windows.push(Window {
+            console_index,
+            last_width: 0,
+            last_height: 0,
+        });
+    }
+}
+
+fn draw_bg(framebuffer: &mut Framebuffer, color_depth: ColorDepth, region: Region) {
+    let buffer = framebuffer.get_buffer_mut();
+    match color_depth {
+        ColorDepth::Color8Bit => {
+            for row in region.y..(region.y + region.height) {
+                let offset = framebuffer.stride as usize * row as usize;
+                for col in region.x..(region.x + region.width) {
+                    buffer[offset + col as usize] = 0x00;
+                }
+            }
+        }
+        _ => unimplemented!(),
     }
 }
 

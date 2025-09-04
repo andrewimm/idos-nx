@@ -98,25 +98,27 @@ impl ConsoleManager {
         console: &Console<COLS, ROWS>,
         fb: &mut Framebuffer,
         font: &F,
-    ) -> Option<Region> {
+    ) -> (u16, u16, Option<Region>) {
         let window_pos = Point { x: 0, y: 0 };
         self::decor::draw_window_bar(fb, window_pos, 180, font, "C:\\COMMAND.ELF");
 
-        // This needs to be an abstracted call to fill a rectangle, since
-        // it cannot assume a color depth
-        let buffer = fb.get_buffer_mut();
-        for row in 0..400 {
-            let offset = (20 + row) * fb.stride as usize + 2;
-            for px in 0..640 {
-                buffer[offset + px] = 0x00;
+        let (width, height) = if let Some(graphics_buffer) = &console.terminal.graphics_buffer {
+            let width = graphics_buffer.width as usize;
+            let height = graphics_buffer.height as usize;
+            // clear screen
+            let buffer = fb.get_buffer_mut();
+            for row in 0..height {
+                let offset = (20 + row) * fb.stride as usize + 2;
+                for px in 0..width {
+                    // this should be abstracted, since it cannot assume color depth
+                    buffer[offset + px] = 0x00;
+                }
             }
-        }
 
-        if let Some(graphics_buffer) = &console.terminal.graphics_buffer {
             match graphics_buffer.bits_per_pixel {
                 8 => {
-                    let copy_width = 640.min(graphics_buffer.width as usize);
-                    let copy_height = 400.min(graphics_buffer.height as usize);
+                    let copy_width = width.min(graphics_buffer.width as usize);
+                    let copy_height = height.min(graphics_buffer.height as usize);
                     let raw_buffer = graphics_buffer.get_buffer();
                     for row in 0..copy_height {
                         let dest_offset = (20 + row) * fb.stride as usize + 2; // assume 1 byte per pixel
@@ -128,7 +130,20 @@ impl ConsoleManager {
                 }
                 _ => unimplemented!(),
             }
+
+            (width, height)
         } else {
+            let width = 640;
+            let height = 400;
+            let buffer = fb.get_buffer_mut();
+            for row in 0..height {
+                let offset = (20 + row) * fb.stride as usize + 2;
+                for px in 0..width {
+                    // this should be abstracted, since it cannot assume color depth
+                    buffer[offset + px] = 0x00;
+                }
+            }
+
             for row in 0..ROWS {
                 font.draw_string(
                     fb,
@@ -138,15 +153,20 @@ impl ConsoleManager {
                     0x0f,
                 );
             }
-        }
+            (width, height)
+        };
 
-        self::decor::draw_window_border(fb, window_pos, 640, 400);
+        self::decor::draw_window_border(fb, window_pos, width as u16, height as u16);
 
-        Some(Region {
-            x: window_pos.x,
-            y: window_pos.y,
-            width: 644,
-            height: 422,
-        })
+        (
+            width as u16,
+            height as u16,
+            Some(Region {
+                x: window_pos.x,
+                y: window_pos.y,
+                width: width as u16 + 4,
+                height: height as u16 + 22,
+            }),
+        )
     }
 }
