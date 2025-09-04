@@ -1,4 +1,4 @@
-use crate::memory::address::VirtualAddress;
+use crate::{memory::address::VirtualAddress, task::switching::get_current_id};
 
 use super::textmode::{Color, ColorCode, TextBuffer};
 use alloc::vec::Vec;
@@ -233,6 +233,18 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         });
 
         graphics_struct.framebuffer = paddr.as_u32();
+    }
+
+    pub fn exit_graphics_mode(&mut self) {
+        if let Some(existing_buffer) = self.graphics_buffer.take() {
+            crate::task::actions::memory::unmap_memory_for_task(
+                get_current_id(),
+                existing_buffer.vaddr,
+                existing_buffer.allocated_size as u32,
+            )
+            .unwrap();
+            crate::kprintln!("EXIT GRAPHICS MODE");
+        }
     }
 }
 

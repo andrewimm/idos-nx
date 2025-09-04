@@ -176,6 +176,10 @@ impl ConsoleManager {
 
         let console = self.consoles.get_mut(*console_id).unwrap();
         match ioctl {
+            termios::TSETTEXT => {
+                console.terminal.exit_graphics_mode();
+                Ok(1)
+            }
             _ => Err(IOError::UnsupportedOperation),
         }
     }

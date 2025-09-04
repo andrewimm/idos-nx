@@ -14,6 +14,8 @@ use idos_api::{
 #[no_mangle]
 pub extern "C" fn main() {
     let stdin = Handle::new(0);
+    let serial = idos_api::syscall::io::create_file_handle();
+    idos_api::io::sync::open_sync(serial, "DEV:\\COM1").unwrap();
 
     let mut termios = Termios::default();
     let _ = idos_api::io::sync::ioctl_sync(
@@ -68,9 +70,11 @@ pub extern "C" fn main() {
     );
     append_io_op(stdin, &read_op, None);
 
+    idos_api::io::sync::write_sync(serial, b"Begin game", 0).unwrap();
+
     let mut pixel_offset = 408;
 
-    loop {
+    'gameloop: loop {
         if read_op.is_complete() {
             let return_value = read_op.return_value.load(Ordering::SeqCst);
             if return_value & 0x80000000 == 0 {
@@ -79,7 +83,7 @@ pub extern "C" fn main() {
                     let byte = read_buffer[i as usize];
                     if byte == b'q' {
                         // exit on 'q'
-                        break;
+                        break 'gameloop;
                     } else {
                         // draw a pixel at a random position
                         framebuffer[pixel_offset] = 0x0f;
@@ -95,10 +99,14 @@ pub extern "C" fn main() {
                 read_buffer.len() as u32,
                 0,
             );
+            append_io_op(stdin, &read_op, None);
         }
 
-        futex_wait_u32(&read_op.signal, 0, Some(16));
+        futex_wait_u32(&read_op.signal, 0, None);
     }
+    idos_api::io::sync::write_sync(serial, b"Exit game\n", 0).unwrap();
+
+    let _ = idos_api::io::sync::ioctl_sync(stdin, idos_api::io::termios::TSETTEXT, 0, 0);
 
     let _ = idos_api::io::sync::ioctl_sync(
         stdin,
