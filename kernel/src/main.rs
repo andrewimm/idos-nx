@@ -128,7 +128,7 @@ fn init_system() -> ! {
         console::console_ready();
     }
 
-    {
+    /*{
         // tcp test 2
         task::actions::sleep(1000);
         let socket_handle = task::actions::handle::create_tcp_socket();
@@ -140,7 +140,7 @@ fn init_system() -> ! {
             args: [dest.as_ptr() as u32, dest.len() as u32, 70],
         };
         let _ = task::actions::io::send_io_op(socket_handle, &open_op, None);
-    }
+    }*/
 
     let wake_set = task::actions::sync::create_wake_set();
     loop {

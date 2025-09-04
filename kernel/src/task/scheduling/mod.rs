@@ -171,7 +171,7 @@ pub fn get_lapic() -> LocalAPIC {
 
 /// Put a task back on any work queue, making it eligible for execution again.
 pub fn reenqueue_task(id: TaskID) {
-    crate::kprintln!("SCHEDULER: re-enqueue task {:?}", id);
+    //crate::kprintln!("SCHEDULER: re-enqueue task {:?}", id);
     let scheduler = get_cpu_scheduler();
     scheduler.reenqueue_work_item(WorkItem::Task(id));
 }

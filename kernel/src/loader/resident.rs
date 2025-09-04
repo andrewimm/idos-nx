@@ -30,7 +30,13 @@ fn loader_resident() -> ! {
 
         let (file_handle, mut env) = match load_file(&incoming_request.path) {
             Ok(handle) => handle,
-            Err(_) => continue,
+            Err(_) => {
+                super::LOGGER.log(format_args!(
+                    "Failed to load executable \"{}\"",
+                    &incoming_request.path
+                ));
+                continue;
+            }
         };
 
         env.map_memory(incoming_request.task);

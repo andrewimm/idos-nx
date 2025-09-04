@@ -9,8 +9,8 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use idos_api::io::{
-    handle::{dup_handle, transfer_handle},
-    sync::{close_sync, open_sync, read_sync, write_sync},
+    handle::dup_handle,
+    sync::{close_sync, open_sync, read_sync, share_sync, write_sync},
 };
 use idos_api::syscall::io::create_file_handle;
 use idos_api::syscall::memory::map_memory;
@@ -287,8 +287,8 @@ fn try_exec(env: &Environment, name: &String, args: &Vec<String>) -> bool {
 
     load_executable(child_id, exec_path.as_str());
 
-    transfer_handle(stdin_dup, child_id).unwrap();
-    transfer_handle(stdout_dup, child_id).unwrap();
+    share_sync(stdin_dup, child_id).unwrap();
+    share_sync(stdout_dup, child_id).unwrap();
 
     let _ = read_sync(child_handle, &mut [0u8], 0);
     true

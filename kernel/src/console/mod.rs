@@ -9,8 +9,12 @@ use crate::graphics::{get_vbe_mode_info, set_display_start_point, set_vbe_mode, 
 use crate::io::async_io::ASYNC_OP_READ;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
-use crate::task::actions::handle::{create_pipe_handles, open_message_queue, transfer_handle};
-use crate::task::actions::io::{close_sync, driver_io_complete, read_sync, send_io_op, write_sync};
+use crate::task::actions::handle::{
+    create_file_handle, create_pipe_handles, create_task, open_message_queue, transfer_handle,
+};
+use crate::task::actions::io::{
+    close_sync, driver_io_complete, open_sync, read_sync, send_io_op, write_sync,
+};
 use crate::task::actions::lifecycle::{create_kernel_task, terminate};
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
@@ -220,7 +224,27 @@ pub fn init_console() {
 }
 
 pub fn console_ready() {
-    crate::command::start_command(0);
+    //crate::command::start_command(0);
+    let _command_task_handle = start_command(0);
+}
+
+fn start_command(console_index: usize) -> Handle {
+    let path = alloc::format!("DEV:\\CON{}", console_index + 1);
+
+    let stdin = create_file_handle();
+    open_sync(stdin, path.as_str()).unwrap();
+    let stdout = create_file_handle();
+    open_sync(stdout, path.as_str()).unwrap();
+
+    let _ = write_sync(stdout, b"Loading COMMAND.ELF from C:\n\n", 0);
+
+    let (task_handle, task_id) = create_task();
+    transfer_handle(stdin, task_id);
+    transfer_handle(stdout, task_id);
+
+    let _ = crate::loader::load_executable(task_id, "C:\\COMMAND.ELF");
+
+    task_handle
 }
 
 fn draw_desktop(framebuffer: &Framebuffer, font: &PsfFont) {

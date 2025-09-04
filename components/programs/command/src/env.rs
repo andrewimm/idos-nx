@@ -78,9 +78,10 @@ impl Environment {
     }
 
     pub fn full_file_path(&self, file: &String) -> String {
-        // check if path is absolute, if so, return it as is
+        // TODO: check if `file` is absolute, if so, return it as is
+
         let mut full_path = String::from(self.cwd_string());
-        let mut split_iter = file.split('\\');
+        let mut split_iter = file.split('\\').peekable();
         loop {
             match split_iter.next() {
                 Some(chunk) => match chunk {
@@ -100,7 +101,9 @@ impl Environment {
                     dir => {
                         if !dir.is_empty() {
                             full_path.push_str(dir);
-                            full_path.push('\\');
+                            if split_iter.peek().is_some() {
+                                full_path.push('\\');
+                            }
                         }
                     }
                 },

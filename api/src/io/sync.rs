@@ -63,6 +63,12 @@ pub fn close_sync(handle: Handle) -> IOResult {
     io_sync(handle, ASYNC_OP_CLOSE, 0, 0, 0)
 }
 
+pub fn share_sync(handle: Handle, transfer_to: u32) -> IOResult {
+    use crate::io::ASYNC_OP_SHARE;
+
+    io_sync(handle, ASYNC_OP_SHARE, transfer_to, 0, 0)
+}
+
 pub fn ioctl_sync(handle: Handle, ioctl: u32, arg: u32, arg_len: u32) -> IOResult {
     use crate::io::FILE_OP_IOCTL;
 
