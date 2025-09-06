@@ -45,10 +45,52 @@ pub fn create_idle_task(stack: Box<[u8]>) -> TaskID {
 pub fn add_args<I, A>(id: TaskID, args: I)
 where
     I: IntoIterator<Item = A>,
-    A: AsRef<str>,
+    A: AsRef<[u8]>,
 {
     let task_lock = super::super::map::get_task(id).unwrap();
     task_lock.write().push_args(args);
+}
+
+/// An iterator designed to read and emit args passed by the add_args syscall
+pub struct InMemoryArgsIterator {
+    buffer_start: *const u8,
+    total_length: usize,
+
+    current_index: usize,
+    current_offset: usize,
+}
+
+impl InMemoryArgsIterator {
+    pub fn new(buffer_start: *const u8, total_length: usize) -> Self {
+        Self {
+            buffer_start,
+            total_length,
+            current_index: 0,
+            current_offset: 0,
+        }
+    }
+}
+
+impl Iterator for InMemoryArgsIterator {
+    type Item = &'static [u8];
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current_offset >= self.total_length {
+            return None;
+        }
+
+        unsafe {
+            let size_ptr = self.buffer_start.add(self.current_offset) as *const u16;
+            let arg_size = (*size_ptr as usize).min(self.total_length - self.current_offset);
+            let arg_bytes = core::slice::from_raw_parts(
+                self.buffer_start.add(self.current_offset + 2),
+                arg_size,
+            );
+            self.current_offset += 2 + arg_size;
+            self.current_index += 1;
+            Some(arg_bytes)
+        }
+    }
 }
 
 pub fn terminate_id(id: TaskID, exit_code: u32) {
@@ -96,4 +138,43 @@ pub fn exception() {
 
     terminate_id(cur_id, 255);
     yield_coop();
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec::Vec;
+
+    #[test_case]
+    fn test_adding_args() {
+        let task_id = super::create_task();
+
+        let args = alloc::vec!["arg_one", "arg_2", "arg_three"];
+        let total_length = args.iter().map(|s| s.len() + 2).sum::<usize>();
+
+        let mut buffer = Vec::with_capacity(total_length);
+
+        for arg in args.iter() {
+            let arg_bytes = arg.as_bytes();
+            let len = arg_bytes.len();
+            buffer.push((len & 0xFF) as u8);
+            buffer.push(((len >> 8) & 0xFF) as u8);
+            buffer.extend_from_slice(arg_bytes);
+        }
+
+        assert_eq!(buffer.len(), total_length);
+
+        let arg_iter = super::InMemoryArgsIterator::new(buffer.as_ptr(), total_length);
+        super::add_args(task_id, args.iter());
+
+        let task_lock = crate::task::map::get_task(task_id).unwrap();
+        let task = task_lock.read();
+
+        let collected_args = task.args.get_raw().clone();
+        let mut expected_args = Vec::new();
+        for s in args.iter() {
+            expected_args.extend_from_slice(s.as_bytes());
+            expected_args.push(0); // Add null terminator after each string
+        }
+        assert_eq!(collected_args, expected_args);
+    }
 }

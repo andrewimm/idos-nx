@@ -20,6 +20,10 @@ pub fn create_task() -> (Handle, u32) {
     (Handle::new(handle), task_id)
 }
 
+pub fn add_args(task_id: u32, args_ptr: *const u8, args_len: u32) {
+    super::syscall(0x05, task_id, args_ptr as u32, args_len);
+}
+
 pub fn load_executable(task_id: u32, path: &str) {
     let path_ptr = path.as_ptr() as u32;
     let path_len = path.len() as u32;

@@ -205,7 +205,6 @@ fn try_exec(
         Err(_) => return false,
     }
     let (child_handle, child_id) = crate::task::actions::handle::create_task();
-    crate::task::actions::lifecycle::add_args(child_id, args);
 
     let stdin_dup = crate::task::actions::handle::dup_handle(stdin).unwrap();
     let stdout_dup = crate::task::actions::handle::dup_handle(stdout).unwrap();

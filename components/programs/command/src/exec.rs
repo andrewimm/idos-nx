@@ -280,7 +280,20 @@ fn try_exec(env: &Environment, name: &String, args: &Vec<String>) -> bool {
     }
     let (child_handle, child_id) = create_task();
 
-    //crate::task::actions::lifecycle::add_args(child_id, args);
+    let arg_structure_size: usize = args.iter().map(|s| s.len() + 2).sum();
+    let mut arg_structure_buffer = Vec::with_capacity(arg_structure_size);
+    for arg in args {
+        let len_low = (arg.len() & 0xFF) as u8;
+        let len_high = ((arg.len() >> 8) & 0xFF) as u8;
+        arg_structure_buffer.push(len_low);
+        arg_structure_buffer.push(len_high);
+        arg_structure_buffer.extend_from_slice(arg.as_bytes());
+    }
+    idos_api::syscall::exec::add_args(
+        child_id,
+        arg_structure_buffer.as_ptr(),
+        arg_structure_size as u32,
+    );
 
     let stdin_dup = dup_handle(env.stdin).unwrap();
     let stdout_dup = dup_handle(env.stdout).unwrap();

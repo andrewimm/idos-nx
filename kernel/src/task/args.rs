@@ -30,11 +30,9 @@ impl ExecArgs {
 
     /// Append a new argument to the list, storing it in a way that will be
     /// easily copied to the stack later.
-    pub fn add(&mut self, arg: &str) -> &mut Self {
+    pub fn add(&mut self, arg: &[u8]) -> &mut Self {
         self.lengths.push(arg.len() as u32 + 1);
-        for b in arg.bytes() {
-            self.raw.push(b);
-        }
+        self.raw.extend_from_slice(arg);
         self.raw.push(0);
         self
     }
@@ -62,5 +60,9 @@ impl ExecArgs {
             string_length += 4 - (string_length & 3);
         }
         string_length + self.lengths.len() * 4 + 4
+    }
+
+    pub fn get_raw(&self) -> &Vec<u8> {
+        &self.raw
     }
 }

@@ -252,14 +252,14 @@ impl Task {
         }
     }
 
-    pub fn push_arg(&mut self, arg: &str) {
+    pub fn push_arg(&mut self, arg: &[u8]) {
         self.args.add(arg);
     }
 
     pub fn push_args<I, A>(&mut self, args: I)
     where
         I: IntoIterator<Item = A>,
-        A: AsRef<str>,
+        A: AsRef<[u8]>,
     {
         for arg in args {
             self.args.add(arg.as_ref());

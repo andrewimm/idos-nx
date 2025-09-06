@@ -6,7 +6,7 @@ use crate::{
     io::handle::Handle,
     memory::address::{PhysicalAddress, VirtualAddress},
     task::{
-        actions::{self, memory::map_memory, send_message},
+        actions::{self, lifecycle::InMemoryArgsIterator, memory::map_memory, send_message},
         id::TaskID,
         map::get_task,
         memory::MemoryBacking,
@@ -138,11 +138,35 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             registers.eax = parent.into();
         }
         0x05 => {
-            // add args
+            // Add args to a task
+            // We choose to take the pre-parsed, array-of-strings approach of
+            // Unix rather than the raw commandline approach of Windows.
+            // This means that the syscall caller is responsible for passing
+            // a data format that can be split up by the kernel.
+            // The format is designed so that:
+            //   - Args should be able to contain any character, including null
+            //   - A zero-length arg is perfectly valid
+            //   - A list of args can be gradually built up (the offset table is
+            //     a trailer at the end, and can be moved further back to add more args)
+            //
+            // The syscall is additive -- it appends args to the task rather than
+            // replacing them. Calling this method multiple times will not modify
+            // previously-added args.
+            //
+            // The format is as follows:
+            // [u16 len1][arg1][u16 len2][arg2]...[u16 lenN][argN]
+            //
+            // And three registers are passed to the syscall:
+            // ebx: task id to add the args to
+            // ecx: virtual address of the start of the buffer
+            // edx: length of the buffer in bytes
             let task_id = TaskID::new(registers.ebx);
             match get_task(task_id) {
-                Some(task) => {
-                    // TODO: implement arg appends
+                Some(task_lock) => {
+                    let args_ptr = registers.ecx as *const u8;
+                    let args_len = registers.edx as usize;
+                    let args_iter = InMemoryArgsIterator::new(args_ptr, args_len);
+                    task_lock.write().push_args(args_iter);
                     registers.eax = 1;
                 }
                 None => {
