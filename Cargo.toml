@@ -9,6 +9,7 @@ members = [
   "components/programs/doslayer",
   "components/programs/gamedemo",
   "components/programs/gfx",
+  "components/programs/gopher",
   "components/programs/netcat",
   "kernel",
   "sdk",

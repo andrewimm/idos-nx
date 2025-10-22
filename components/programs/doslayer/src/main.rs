@@ -8,6 +8,7 @@
 
 extern crate idos_api;
 
+pub mod api;
 pub mod panic;
 use core::arch::{asm, global_asm};
 
