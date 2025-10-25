@@ -213,21 +213,21 @@ impl AtaChannel {
         buffer: &mut [u8],
     ) -> Result<u32, ()> {
         if buffer.len() % SECTOR_SIZE != 0 {
-            crate::kprintln!(
+            super::LOGGER.log(format_args!(
                 "ATA READ: Buffer must be divisible by sector size ({})",
                 SECTOR_SIZE
-            );
+            ));
             return Err(());
         }
         match self.bus_master_port {
             Some(_port) => {
                 // Use DMA transfer if bus mastering is available
-                crate::kprintln!("ATA READ: Using DMA transfer");
+                super::LOGGER.log(format_args!("READ using DMA"));
                 return self.read_dma(drive, first_sector, buffer);
             }
             None => {
                 // Use PIO transfer
-                crate::kprintln!("ATA READ: Using PIO transfer");
+                super::LOGGER.log(format_args!("READ using PIO"));
                 return self.read_pio(drive, first_sector, buffer);
             }
         }
@@ -260,7 +260,10 @@ impl AtaChannel {
             yield_coop();
         }
 
-        crate::kprintln!("DMA Ready, read from sector {}", first_sector);
+        super::LOGGER.log(format_args!(
+            "DMA Complete, read from sector {}",
+            first_sector
+        ));
         let sector_count = buffer.len() as u32 / 512;
         Port::new(self.base_port + 2).write_u8(sector_count as u8);
         Port::new(self.base_port + 3).write_u8(first_sector as u8);
@@ -297,11 +300,10 @@ impl AtaChannel {
             if status & 0x02 != 0 {
                 Port::new(bus_master_port).write_u8(0);
                 let err = Port::new(self.base_port + 1).read_u8();
-                crate::kprintln!(
-                    "ATA READ: DMA transfer failed with status: {:02x}, err: {:X}",
-                    status,
-                    err
-                );
+                super::LOGGER.log(format_args!(
+                    "READ: DMA transfer failed with status {:02X}, err: {:X}",
+                    status, err
+                ));
                 return Err(());
             }
         }
@@ -332,14 +334,16 @@ impl AtaChannel {
         buffer: &mut [u8],
     ) -> Result<u32, ()> {
         if first_sector > 0x00ffffff {
-            crate::kprintln!("ATA READ: PIO transfer with >24bits not supported yet");
+            super::LOGGER.log(format_args!("PIO transfer with >24bits not supported yet"));
             return Err(());
         }
 
         let sectors = (buffer.len() + SECTOR_SIZE - 1) / SECTOR_SIZE;
 
         if sectors > 256 {
-            crate::kprintln!("ATA READ: PIO can only transfer 256 sectors at a time");
+            super::LOGGER.log(format_args!(
+                "PIO can only transfer up to 256 sectors at a time"
+            ));
             return Err(());
         }
 

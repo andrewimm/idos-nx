@@ -408,16 +408,6 @@ impl File {
                 self.cache_cluster_chain(table, self.dir_entry.first_file_cluster as u32, disk);
             }
 
-            /*
-            let current_cluster = match table.get_nth_cluster(
-                self.dir_entry.first_file_cluster as u32,
-                current_relative_cluster,
-                disk,
-            ) {
-                Some(cluster) => cluster,
-                None => return bytes_written as u32,
-            };
-            */
             let current_cluster = match self.cluster_cache.get(current_relative_cluster as usize) {
                 Some(&cluster) => cluster,
                 None => return bytes_written as u32,

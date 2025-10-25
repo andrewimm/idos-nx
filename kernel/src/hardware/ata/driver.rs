@@ -44,7 +44,7 @@ impl AsyncDriver for AtaDeviceDriver {
         // The `path` should be a stringified version of the driver index.
         // The driver number is 1-indexed, while the internal array is
         // 0-indexed.
-        crate::kprintln!("ATA Open Path {}", path);
+        super::LOGGER.log(format_args!("Open path \"{}\"", path));
         let attached_index = match path.parse::<usize>() {
             Ok(i) => i - 1,
             Err(_) => return Err(IOError::NotFound),
@@ -140,12 +140,10 @@ pub fn run_driver() -> ! {
     let _ = read_struct_sync(args_reader, &mut port_args, 0);
     let _ = read_sync(args_reader, &mut irq_args, 0);
 
-    crate::kprintln!(
-        "Install ATA driver ({:X} {:X} {:X})",
-        port_args[0],
-        port_args[1],
-        port_args[2]
-    );
+    super::LOGGER.log(format_args!(
+        "Install driver ({:X} {:X} {:X})",
+        port_args[0], port_args[1], port_args[2]
+    ));
 
     // access for primary channel
     let channel = AtaChannel {
@@ -164,11 +162,11 @@ pub fn run_driver() -> ! {
     let mut driver_impl = AtaDeviceDriver::new(channel);
     for disk in disks {
         if let Some(info) = disk {
-            crate::kprintln!("    {}", info);
+            super::LOGGER.log(format_args!("    {}", info));
             driver_impl.attached[device_count] = Some(info.location);
             let drive_number = drive_args[0] + device_count as u8 + 1;
             let dev_name = alloc::format!("ATA{}", drive_number);
-            crate::kprintln!("Install driver as DEV:\\{}", dev_name);
+            super::LOGGER.log(format_args!("Installed driver as DEV:\\{}", dev_name));
             device_count += 1;
             install_task_dev(dev_name.as_str(), task_id, device_count as u32);
         }
@@ -178,7 +176,7 @@ pub fn run_driver() -> ! {
     let _ = close_sync(response_writer);
 
     if device_count == 0 {
-        crate::kprintln!("No ATA devices found");
+        super::LOGGER.log(format_args!("No devices found"));
         crate::task::actions::lifecycle::terminate(0);
     }
     // prepare message event loop

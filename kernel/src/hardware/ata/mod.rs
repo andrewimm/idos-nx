@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 
 use crate::hardware::pci::devices::PciDevice;
+use crate::log::TaggedLogger;
 use crate::task::actions::{
     handle::{create_kernel_task, create_pipe_handles, transfer_handle},
     io::{close_sync, read_sync, write_struct_sync, write_sync},
@@ -11,6 +12,8 @@ use super::pci::get_bus_devices;
 pub mod controller;
 pub mod driver;
 pub mod protocol;
+
+const LOGGER: TaggedLogger = TaggedLogger::new("ATA", 36);
 
 pub fn install() {
     let pci_devices = get_bus_devices();

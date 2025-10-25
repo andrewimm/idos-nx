@@ -4,6 +4,7 @@ use idos_api::{compat::VMRegisters, io::AsyncOp};
 
 use crate::{
     io::handle::Handle,
+    log::TaggedLogger,
     memory::address::{PhysicalAddress, VirtualAddress},
     task::{
         actions::{self, lifecycle::InMemoryArgsIterator, memory::map_memory, send_message},
@@ -106,9 +107,48 @@ impl core::fmt::Debug for FullSavedRegisters {
     }
 }
 
+const LOGGER: TaggedLogger = TaggedLogger::new("SYSCALL", 93);
+
+fn log_syscall(registers: &FullSavedRegisters) {
+    let eax = registers.eax;
+    let name = match eax {
+        0x00 => "exit",
+        0x01 => "yield",
+        0x02 => "sleep",
+        0x03 => "get current task id",
+        0x04 => "get parent task id",
+        0x05 => "add args to task",
+        0x06 => "load executable",
+        0x07 => "enter 8086",
+        0x10 => "submit async io op",
+        0x11 => "send message",
+        0x12 => "driver io complete",
+        0x13 => "futex wait",
+        0x14 => "futex wake",
+        0x15 => "create wake set",
+        0x16 => "block on wake set",
+        0x20 => "create task",
+        0x21 => "open message queue",
+        0x22 => "open irq handle",
+        0x23 => "create file handle",
+        0x24 => "create pipe handles",
+        0x25 => "create udp socket handle",
+        0x26 => "create tcp socket handle",
+        0x2b => "dup handle",
+        0x30 => "map memory",
+        0xffff => "internal debug",
+        _ => "unknown",
+    };
+
+    LOGGER.log(format_args!(
+        "{:#02X} {}\n          {:?}",
+        eax, name, registers
+    ));
+}
+
 #[no_mangle]
 pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
-    crate::kprint!("SYSCALL REG: {:?}\n", registers);
+    log_syscall(registers);
     let eax = registers.eax;
     match eax {
         // task lifecycle and interop

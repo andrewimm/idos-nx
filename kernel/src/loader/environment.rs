@@ -34,7 +34,10 @@ impl ExecutionEnvironment {
         let task_pagedir = get_task(task_id).unwrap().read().page_directory;
         // TODO: store mappings on the task itself, so they can be unmapped on termination
 
-        crate::kprintln!("LOADER - Memory Mapped. Pagedir at {:?}", task_pagedir);
+        super::LOGGER.log(format_args!(
+            "Memory mapped for {:?}. Pagedir at {:?}",
+            task_id, task_pagedir
+        ));
     }
 
     pub fn fill_sections(&mut self, exec_handle: Handle) {
@@ -82,11 +85,10 @@ impl ExecutionEnvironment {
                             let buffer_start = unmapped_page.virtual_address() + relative_offset;
                             let buffer_len = overlap_end - overlap_start;
 
-                            crate::kprintln!(
-                                "  \\ Load from {:#X} in file to {:#X}",
-                                file_offset,
-                                buffer_start.as_u32(),
-                            );
+                            super::LOGGER.log(format_args!(
+                                "  \\ Load from {:#X} in file to {:?}",
+                                file_offset, buffer_start
+                            ));
                             let _ = io_sync(
                                 exec_handle,
                                 ASYNC_OP_READ,
