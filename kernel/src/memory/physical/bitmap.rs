@@ -181,6 +181,9 @@ impl FrameBitmap {
 
     /// Finds the first free range containing the requested number of
     /// consecutive frames. If no suitable range is found, returns None.
+    /// Note: I really, *really* want to leverage a lookup table here. It
+    /// probably needs three lookup types: can fit, can fit (continuing to next
+    /// byte), can fit (continuing from previous byte).
     pub fn find_free_range(&self, frame_count: usize) -> Option<FrameRange> {
         let mut frame = 0;
         let mut remaining = frame_count;
