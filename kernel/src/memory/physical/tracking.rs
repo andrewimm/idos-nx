@@ -189,3 +189,246 @@ impl AddressTree {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_case]
+    fn new_tree_is_empty() {
+        let tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0x1000);
+        assert!(!tree.contains(addr));
+    }
+
+    #[test_case]
+    fn add_reference_creates_entry() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0x1000);
+
+        let count = tree.add_reference(addr);
+        assert_eq!(count, 1);
+        assert!(tree.contains(addr));
+    }
+
+    #[test_case]
+    fn add_reference_increments_existing() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0x2000);
+
+        let count = tree.add_reference(addr);
+        assert_eq!(count, 1);
+
+        let count = tree.add_reference(addr);
+        assert_eq!(count, 2);
+
+        let count = tree.add_reference(addr);
+        assert_eq!(count, 3);
+
+        assert!(tree.contains(addr));
+    }
+
+    #[test_case]
+    fn if_exists_returns_none_for_new_address() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0x3000);
+
+        let result = tree.add_reference_if_exists(addr);
+        assert_eq!(result, None);
+        assert!(!tree.contains(addr));
+    }
+
+    #[test_case]
+    fn if_exists_increments_existing() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0x4000);
+
+        tree.add_reference(addr);
+
+        let count = tree.add_reference_if_exists(addr);
+        assert_eq!(count, Some(2));
+        assert!(tree.contains(addr));
+    }
+
+    #[test_case]
+    fn remove_reference_decrements_count() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0x5000);
+
+        tree.add_reference(addr);
+        tree.add_reference(addr);
+        let count = tree.add_reference(addr);
+        assert_eq!(count, 3);
+
+        let count = tree.remove_reference(addr);
+        assert_eq!(count, Some(2));
+        assert!(tree.contains(addr));
+    }
+
+    #[test_case]
+    fn remove_reference_removes_entry_at_zero() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0x6000);
+
+        tree.add_reference(addr);
+
+        let count = tree.remove_reference(addr);
+        assert_eq!(count, Some(0));
+        assert!(!tree.contains(addr));
+    }
+
+    #[test_case]
+    fn remove_reference_from_nonexistent_returns_none() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0x7000);
+
+        let result = tree.remove_reference(addr);
+        assert_eq!(result, None);
+    }
+
+    #[test_case]
+    fn multiple_addresses_independent() {
+        let mut tree = AddressTree::new();
+        let addr1 = PhysicalAddress::new(0x8000);
+        let addr2 = PhysicalAddress::new(0x9000);
+        let addr3 = PhysicalAddress::new(0xa000);
+
+        tree.add_reference(addr1);
+        tree.add_reference(addr2);
+        tree.add_reference(addr2);
+        tree.add_reference(addr3);
+        tree.add_reference(addr3);
+        tree.add_reference(addr3);
+
+        assert!(tree.contains(addr1));
+        assert!(tree.contains(addr2));
+        assert!(tree.contains(addr3));
+
+        assert_eq!(tree.remove_reference(addr2), Some(1));
+        assert!(tree.contains(addr1));
+        assert!(tree.contains(addr2));
+        assert!(tree.contains(addr3));
+
+        assert_eq!(tree.remove_reference(addr1), Some(0));
+        assert!(!tree.contains(addr1));
+        assert!(tree.contains(addr2));
+        assert!(tree.contains(addr3));
+    }
+
+    #[test_case]
+    fn addresses_with_different_radix_indices() {
+        let mut tree = AddressTree::new();
+        // Create addresses that differ at different radix tree levels
+        let addr1 = PhysicalAddress::new(0x00001000); // Level 3 index 1
+        let addr2 = PhysicalAddress::new(0x00020000); // Level 2 index 1
+        let addr3 = PhysicalAddress::new(0x00400000); // Level 1 index 1
+        let addr4 = PhysicalAddress::new(0x08000000); // Level 0 index 1
+
+        tree.add_reference(addr1);
+        tree.add_reference(addr2);
+        tree.add_reference(addr3);
+        tree.add_reference(addr4);
+
+        assert!(tree.contains(addr1));
+        assert!(tree.contains(addr2));
+        assert!(tree.contains(addr3));
+        assert!(tree.contains(addr4));
+    }
+
+    #[test_case]
+    fn reference_cycle_add_remove_add() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0xb000);
+
+        tree.add_reference(addr);
+        assert!(tree.contains(addr));
+
+        tree.remove_reference(addr);
+        assert!(!tree.contains(addr));
+
+        tree.add_reference(addr);
+        assert!(tree.contains(addr));
+        assert_eq!(tree.add_reference(addr), 2);
+    }
+
+    #[test_case]
+    fn test_high_reference_count() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0xc000);
+
+        for i in 1..=100 {
+            let count = tree.add_reference(addr);
+            assert_eq!(count, i);
+        }
+
+        assert!(tree.contains(addr));
+
+        for i in (1..=99).rev() {
+            let count = tree.remove_reference(addr);
+            assert_eq!(count, Some(i));
+        }
+
+        assert!(tree.contains(addr));
+        assert_eq!(tree.remove_reference(addr), Some(0));
+        assert!(!tree.contains(addr));
+    }
+
+    #[test_case]
+    fn test_contains_after_removal_of_different_address() {
+        let mut tree = AddressTree::new();
+        let addr1 = PhysicalAddress::new(0xd000);
+        let addr2 = PhysicalAddress::new(0xe000);
+
+        tree.add_reference(addr1);
+        tree.add_reference(addr2);
+
+        tree.remove_reference(addr1);
+
+        assert!(!tree.contains(addr1));
+        assert!(tree.contains(addr2));
+    }
+
+    #[test_case]
+    fn add_reference_if_exists_after_removal() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0xf000);
+
+        tree.add_reference(addr);
+        tree.remove_reference(addr);
+
+        let result = tree.add_reference_if_exists(addr);
+        assert_eq!(result, None);
+    }
+
+    #[test_case]
+    fn test_adjacent_pages() {
+        let mut tree = AddressTree::new();
+        let addr1 = PhysicalAddress::new(0x10000);
+        let addr2 = PhysicalAddress::new(0x11000);
+        let addr3 = PhysicalAddress::new(0x12000);
+
+        tree.add_reference(addr1);
+        tree.add_reference(addr2);
+        tree.add_reference(addr3);
+
+        assert!(tree.contains(addr1));
+        assert!(tree.contains(addr2));
+        assert!(tree.contains(addr3));
+
+        tree.remove_reference(addr2);
+
+        assert!(tree.contains(addr1));
+        assert!(!tree.contains(addr2));
+        assert!(tree.contains(addr3));
+    }
+
+    #[test_case]
+    fn test_empty_tree_operations() {
+        let mut tree = AddressTree::new();
+        let addr = PhysicalAddress::new(0x13000);
+
+        assert_eq!(tree.remove_reference(addr), None);
+        assert_eq!(tree.add_reference_if_exists(addr), None);
+        assert!(!tree.contains(addr));
+    }
+}
