@@ -35,6 +35,7 @@ pub mod allocated_frame;
 pub mod bios;
 pub mod bitmap;
 pub mod range;
+pub mod tracking;
 
 use crate::memory::physical::bios::BIOS_MEMORY_MAP_LOCATION;
 
