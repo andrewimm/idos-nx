@@ -90,7 +90,7 @@ impl DmaRange {
 
     pub fn with_page_count(page_count: usize) -> Result<Self, MemMapError> {
         let size = page_count as u32 * 0x1000;
-        let vaddr_start = map_memory(None, size, MemoryBacking::DMA)?;
+        let vaddr_start = map_memory(None, size, MemoryBacking::IsaDma)?;
         // Paging a DMA-backed region ensures that the backing frames are
         // physically contiguous
         let paddr_start = page_on_demand(vaddr_start).ok_or(MemMapError::MappingFailed)?;

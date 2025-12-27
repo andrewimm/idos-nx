@@ -28,7 +28,7 @@ impl DiskAccess {
         let buffer_size = 4096;
 
         let buffer_location =
-            map_memory(None, buffer_size as u32, MemoryBacking::Anonymous).unwrap();
+            map_memory(None, buffer_size as u32, MemoryBacking::FreeMemory).unwrap();
 
         let disk = Self {
             mount_handle,

@@ -42,10 +42,10 @@ pub enum MemoryBacking {
     Direct(PhysicalAddress),
     /// This region is backed by an arbitrary section of physical memory,
     /// allocated on demand. Continuity is not guaranteed.
-    Anonymous,
-    /// Similar to Anonymous, but guarantees the memory will be a contiguous
+    FreeMemory,
+    /// Similar to FreeMemory, but guarantees the memory will be a contiguous
     /// region within the first 16 MiB of physical address space.
-    DMA,
+    IsaDma,
 }
 
 /// MappedMemory is a collection of memory mappings. The const parameter
@@ -320,7 +320,7 @@ mod tests {
                 .map_memory(
                     Some(VirtualAddress::new(0x4000)),
                     0x1000,
-                    MemoryBacking::Anonymous
+                    MemoryBacking::FreeMemory
                 )
                 .unwrap(),
             VirtualAddress::new(0x4000),
@@ -330,7 +330,7 @@ mod tests {
                 .map_memory(
                     Some(VirtualAddress::new(0x6000)),
                     0x2000,
-                    MemoryBacking::Anonymous
+                    MemoryBacking::FreeMemory
                 )
                 .unwrap(),
             VirtualAddress::new(0x6000),
@@ -340,7 +340,7 @@ mod tests {
                 .map_memory(
                     Some(VirtualAddress::new(0x5000)),
                     0x2000,
-                    MemoryBacking::Anonymous
+                    MemoryBacking::FreeMemory
                 )
                 .unwrap(),
             VirtualAddress::new(0xbfffc000),
@@ -352,13 +352,13 @@ mod tests {
         let mut regions = MappedMemory::<0xbfff_e000>::new();
         assert_eq!(
             regions
-                .map_memory(None, 0x1000, MemoryBacking::Anonymous)
+                .map_memory(None, 0x1000, MemoryBacking::FreeMemory)
                 .unwrap(),
             VirtualAddress::new(0xbfffd000),
         );
         assert_eq!(
             regions
-                .map_memory(None, 0x400, MemoryBacking::Anonymous)
+                .map_memory(None, 0x400, MemoryBacking::FreeMemory)
                 .unwrap(),
             VirtualAddress::new(0xbfffc000),
         );
@@ -371,7 +371,7 @@ mod tests {
             .map_memory(
                 Some(VirtualAddress::new(0x1000)),
                 0x1000,
-                MemoryBacking::Anonymous,
+                MemoryBacking::FreeMemory,
             )
             .unwrap();
         assert_eq!(
@@ -386,14 +386,14 @@ mod tests {
             .map_memory(
                 Some(VirtualAddress::new(0x1000)),
                 0x2000,
-                MemoryBacking::Anonymous,
+                MemoryBacking::FreeMemory,
             )
             .unwrap();
         regions
             .map_memory(
                 Some(VirtualAddress::new(0x4000)),
                 0x3000,
-                MemoryBacking::Anonymous,
+                MemoryBacking::FreeMemory,
             )
             .unwrap();
         assert_eq!(

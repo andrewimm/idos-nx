@@ -162,7 +162,7 @@ pub fn driver_open(
                 } else {
                     // create a new frame of memory
                     let page_start =
-                        map_memory(None, 0x1000, crate::task::memory::MemoryBacking::Anonymous)
+                        map_memory(None, 0x1000, crate::task::memory::MemoryBacking::FreeMemory)
                             .unwrap();
                     let path_slice = unsafe {
                         core::slice::from_raw_parts_mut(page_start.as_ptr_mut::<u8>(), path_len)

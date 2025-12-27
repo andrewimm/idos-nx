@@ -44,7 +44,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         let alloc_buffer = crate::task::actions::memory::map_memory(
             None,
             0x2000,
-            crate::task::memory::MemoryBacking::Anonymous,
+            crate::task::memory::MemoryBacking::FreeMemory,
         )
         .unwrap();
         let text_buffer = TextBuffer::new(alloc_buffer, 0x2000);
@@ -218,7 +218,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         let buffer_vaddr = crate::task::actions::memory::map_memory(
             None,
             pages_needed as u32 * 0x1000,
-            crate::task::memory::MemoryBacking::Anonymous,
+            crate::task::memory::MemoryBacking::FreeMemory,
         )
         .unwrap();
 

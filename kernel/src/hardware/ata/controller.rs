@@ -40,7 +40,7 @@ struct PRDEntry {
 
 impl PRDT {
     pub fn new() -> Self {
-        let table_vaddr = map_memory(None, 0x1000, MemoryBacking::Anonymous).unwrap();
+        let table_vaddr = map_memory(None, 0x1000, MemoryBacking::FreeMemory).unwrap();
         unsafe {
             // force a page fault to fill the page
             core::ptr::write_volatile(table_vaddr.as_ptr_mut::<u8>(), 0);

@@ -59,7 +59,7 @@ pub struct AddressTree {
 }
 
 impl AddressTree {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         AddressTree { root: None }
     }
 

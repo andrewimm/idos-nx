@@ -59,7 +59,7 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
     let flags = get_flags_for_region(mem_mapping);
 
     let frame_start = match mem_mapping.backed_by {
-        MemoryBacking::DMA => {
+        MemoryBacking::IsaDma => {
             // DMA regions must be allocated as a contiguous block, so we
             // allocate the entire region at once
             let page_count = mem_mapping.page_count();
@@ -74,7 +74,7 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             }
             range_start + page_offset
         }
-        MemoryBacking::Direct(_) | MemoryBacking::Anonymous => {
+        MemoryBacking::Direct(_) | MemoryBacking::FreeMemory => {
             // Direct or Anonymous memory regions can be allocated on demand
             // as needed, so we allocate a single page for the requested address
             let allocated_frame = get_frame_for_region(mem_mapping, page_offset)
@@ -222,9 +222,9 @@ pub fn maybe_get_current_physical_address(vaddr: VirtualAddress) -> Option<Physi
 
 pub fn get_frame_for_region(region: MemMappedRegion, offset: u32) -> Option<AllocatedFrame> {
     match region.backed_by {
-        MemoryBacking::Anonymous => allocate_frame().ok(),
+        MemoryBacking::FreeMemory => allocate_frame().ok(),
         // TODO: needs a way to guarantee <16MiB
-        MemoryBacking::DMA => allocate_frame().ok(),
+        MemoryBacking::IsaDma => allocate_frame().ok(),
         MemoryBacking::Direct(paddr) => Some(AllocatedFrame::new(paddr + offset)),
     }
 }

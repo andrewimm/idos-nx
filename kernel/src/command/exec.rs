@@ -21,7 +21,7 @@ use super::Environment;
 static IO_BUFFERS: AtomicU32 = AtomicU32::new(0);
 
 pub fn init_buffers() {
-    let addr = map_memory(None, 0x1000, MemoryBacking::Anonymous).unwrap();
+    let addr = map_memory(None, 0x1000, MemoryBacking::FreeMemory).unwrap();
     unsafe {
         core::ptr::write_volatile(addr.as_ptr_mut::<u8>(), 0);
     }

@@ -140,7 +140,7 @@ mod tests {
         }
 
         // create a 3-page mapping
-        let addr = map_memory(None, 0x1000 * 3, MemoryBacking::Anonymous).unwrap();
+        let addr = map_memory(None, 0x1000 * 3, MemoryBacking::FreeMemory).unwrap();
         // create a buffer that extends across all three pages
         //       [ buffer........ ]
         // [ PAGE 0 ][ PAGE 1 ][ PAGE 2 ]

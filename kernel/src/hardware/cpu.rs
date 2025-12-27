@@ -33,7 +33,7 @@ pub fn copy_trampoline() -> VirtualAddress {
     let start = trampoline_start as *const () as usize;
     let end = trampoline_end as *const () as usize;
     let size = end - start;
-    let mapped_to = map_memory(None, 0x1000, MemoryBacking::Anonymous).unwrap();
+    let mapped_to = map_memory(None, 0x1000, MemoryBacking::FreeMemory).unwrap();
     let dest_slice = unsafe { core::slice::from_raw_parts_mut(mapped_to.as_ptr_mut::<u8>(), size) };
     let src_slice = unsafe { core::slice::from_raw_parts(trampoline_start as *const u8, size) };
 

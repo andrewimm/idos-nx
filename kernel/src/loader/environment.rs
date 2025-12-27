@@ -272,7 +272,7 @@ impl ExecutionSegment {
             task_id,
             Some(self.start_address),
             self.size_in_bytes(),
-            MemoryBacking::Anonymous,
+            MemoryBacking::FreeMemory,
         )
         .unwrap();
 

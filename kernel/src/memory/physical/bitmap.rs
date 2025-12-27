@@ -10,6 +10,8 @@ pub enum BitmapError {
     /// Attempted to allocate or access a frame beyond the physical memory
     /// installed in the system
     OutOfBounds,
+    /// Attempted to free a frame that was already free. This is usually a bug
+    AlreadyFree,
 }
 
 impl core::fmt::Debug for BitmapError {
@@ -17,6 +19,7 @@ impl core::fmt::Debug for BitmapError {
         match self {
             &BitmapError::NoAvailableSpace => f.write_str("FrameBitmap: No available space"),
             &BitmapError::OutOfBounds => f.write_str("FrameBitmap: Out of bounds"),
+            &BitmapError::AlreadyFree => f.write_str("FrameBitmap: Frame already free"),
         }
     }
 }
@@ -106,6 +109,21 @@ impl FrameBitmap {
         Ok(())
     }
 
+    pub fn free_frame(&mut self, frame_address: PhysicalAddress) -> Result<(), BitmapError> {
+        let frame_index = (frame_address.as_u32() as usize) >> 12;
+        if frame_index >= self.total_frame_count() {
+            return Err(BitmapError::OutOfBounds);
+        }
+        let byte_index = frame_index >> 3;
+        let mask = 1 << (frame_index & 7);
+        if self.map[byte_index] & mask == 0 {
+            // Already free
+            return Err(BitmapError::AlreadyFree);
+        }
+        self.map[byte_index] &= !mask;
+        Ok(())
+    }
+
     /// How big is this table, in 4096-byte frames? Useful for allocating
     /// itself during initialization.
     pub fn size_in_frames(&self) -> usize {
@@ -177,6 +195,18 @@ impl FrameBitmap {
             }
         }
         true
+    }
+
+    /// Determine if a specific byte of physical memory has been allocated
+    pub fn is_address_allocated(&self, addr: PhysicalAddress) -> bool {
+        let frame_index = (addr.as_u32() as usize) >> 12;
+        if frame_index >= self.total_frame_count() {
+            return false;
+        }
+        let byte_index = frame_index >> 3;
+        let bitmap_byte = self.map[byte_index];
+        let byte_offset = frame_index & 7;
+        bitmap_byte & (1 << byte_offset) != 0
     }
 
     /// Finds the first free range containing the requested number of

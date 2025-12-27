@@ -366,7 +366,7 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             };
             let size = registers.ecx;
             let backing = match registers.edx {
-                0xffff_ffff => MemoryBacking::Anonymous,
+                0xffff_ffff => MemoryBacking::FreeMemory,
                 address => MemoryBacking::Direct(PhysicalAddress::new(address)),
             };
             match map_memory(address, size, backing) {
