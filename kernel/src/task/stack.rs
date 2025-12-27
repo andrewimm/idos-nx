@@ -112,6 +112,8 @@ pub fn free_stack(stack: Box<[u8]>) {
     let frame_address = page_table.get(table_index).get_address();
     page_table.get_mut(table_index).clear_present();
     invalidate_page(stack_start);
+    // Because a kernel stack is allocated directly, it is safe to release the
+    // frame without tracking. Kernel stacks should never be shared.
     release_frame(frame_address).unwrap();
 
     super::LOGGER.log(format_args!(

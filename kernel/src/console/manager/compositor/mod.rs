@@ -67,7 +67,7 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
         let scratch_buffer_vaddr = crate::task::actions::memory::map_memory(
             None,
             scratch_buffer_size as u32,
-            crate::task::memory::MemoryBacking::Anonymous,
+            crate::task::memory::MemoryBacking::FreeMemory,
         )
         .unwrap();
 

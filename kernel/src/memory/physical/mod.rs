@@ -37,6 +37,8 @@ pub mod bitmap;
 pub mod range;
 pub mod tracking;
 
+use core::ops::BitAnd;
+
 use crate::memory::physical::bios::BIOS_MEMORY_MAP_LOCATION;
 
 use super::address::PhysicalAddress;
@@ -51,6 +53,9 @@ use spin::Mutex;
 /// atomic, so we use a single lock instead of fancy atomic operations on the
 /// underlying bitmap.
 static ALLOCATOR: Mutex<FrameBitmap> = Mutex::new(FrameBitmap::empty());
+
+/// Global frame reference tracker, wrapped in a mutex for safe access.
+static FRAME_REF_TRACKER: Mutex<tracking::AddressTree> = Mutex::new(tracking::AddressTree::new());
 
 /// As much as possible, try to avoid magic numbers. This is the size in bytes
 /// of a single frame (4 KiB).
@@ -125,6 +130,9 @@ where
 
 /// Allocate a single frame of physical memory. Returns an `AllocatedFrame`,
 /// which must be consumed and used.
+/// You probably don't want to use this method, unless you are allocating kernel
+/// memory that will never be shared. To make sure memory is safely tracked and
+/// freed when no longer in use, use `allocate_frame_with_tracking` instead.
 pub fn allocate_frame() -> Result<AllocatedFrame, BitmapError> {
     let frame_address = with_allocator(|alloc| {
         alloc
@@ -132,6 +140,38 @@ pub fn allocate_frame() -> Result<AllocatedFrame, BitmapError> {
             .map(|range| range.get_starting_address())
     });
     frame_address.map(|addr| AllocatedFrame::new(addr))
+}
+
+/// Allocates memory for a single frame, and creates an entry in the refcount
+/// tracker. This should be used for any memory that will be shared between
+/// tasks, or mapped directly by tasks.
+pub fn allocate_frame_with_tracking() -> Result<AllocatedFrame, BitmapError> {
+    let allocated_frame = allocate_frame()?;
+    let phys_addr = allocated_frame.peek_address();
+    {
+        let mut tracker = FRAME_REF_TRACKER.lock();
+        tracker.add_reference(phys_addr);
+    }
+    Ok(allocated_frame)
+}
+
+/// Release a tracked frame of physical memory. This will decrement the refcount
+/// for the frame, and only actually free it back to the allocator if the
+/// refcount reaches zero.
+/// If the frame was not allocated with tracking, this will simply free it.
+pub fn release_tracked_frame(frame: AllocatedFrame) -> Result<(), BitmapError> {
+    let phys_addr = frame.to_physical_address();
+    {
+        let mut tracker = FRAME_REF_TRACKER.lock();
+        if let Some(ref_count) = tracker.remove_reference(phys_addr) {
+            if ref_count > 0 {
+                // if there are outstanding references, avoid freeing the frame
+                return Ok(());
+            }
+        }
+    }
+    // if we fall through, free the frame
+    with_allocator(|alloc| alloc.free_frame(phys_addr))
 }
 
 /// Allocates a contiguous range of frames of physical memory. Returns an
@@ -145,7 +185,9 @@ pub fn allocate_frames(count: usize) -> Result<AllocatedFrame, BitmapError> {
     first_frame_address.map(|addr| AllocatedFrame::new(addr))
 }
 
-/// Release a single frame of physical memory back to the allocator.
+/// DANGEROUSLY release a single frame of physical memory back to the allocator.
+/// You should almost never use this method directly. Instead, use
+/// `release_tracked_frame`, which will safely handle reference counting.
 pub fn release_frame(address: PhysicalAddress) -> Result<(), BitmapError> {
     let range = FrameRange::new(address, FRAME_SIZE);
     with_allocator(|alloc| alloc.free_range(range))
@@ -155,4 +197,57 @@ pub fn release_frame(address: PhysicalAddress) -> Result<(), BitmapError> {
 /// much physical memory is occupied by the bitmap itself.
 pub fn get_allocator_size() -> usize {
     with_allocator(|alloc| alloc.size_in_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test_case]
+    fn allocate_and_release_frame() {
+        let frame = allocate_frame().expect("Failed to allocate frame");
+        let addr = frame.to_physical_address();
+        release_frame(addr).expect("Failed to release frame");
+        with_allocator(|alloc| {
+            assert!(!alloc.is_address_allocated(addr));
+        });
+    }
+
+    #[test_case]
+    fn allocate_and_release_tracked_frame() {
+        let frame = allocate_frame_with_tracking().expect("Failed to allocate tracked frame");
+        let addr = frame.peek_address();
+        release_tracked_frame(frame).expect("Failed to release tracked frame");
+        with_allocator(|alloc| {
+            assert!(!alloc.is_address_allocated(addr));
+        });
+    }
+
+    #[test_case]
+    fn tracked_frame_reference_counting() {
+        let frame = allocate_frame_with_tracking().expect("Failed to allocate tracked frame");
+        let addr = frame.peek_address();
+        // Add another reference manually
+        {
+            let mut tracker = FRAME_REF_TRACKER.lock();
+            assert_eq!(tracker.add_reference_if_exists(addr), Some(2));
+            assert_eq!(tracker.add_reference_if_exists(addr), Some(3));
+        }
+        release_tracked_frame(frame).expect("Failed to release tracked frame");
+        with_allocator(|alloc| {
+            assert!(alloc.is_address_allocated(addr));
+        });
+        // if we were unmapping memory, it would construct the AllocatedFrame
+        // object for us
+        release_tracked_frame(AllocatedFrame::new(addr)).expect("Failed to release tracked frame");
+        with_allocator(|alloc| {
+            assert!(alloc.is_address_allocated(addr));
+        });
+        // on the third release, it'll no longer be tracked and should be freed
+        // by the allocator
+        release_tracked_frame(AllocatedFrame::new(addr)).expect("Failed to release tracked frame");
+        with_allocator(|alloc| {
+            assert!(!alloc.is_address_allocated(addr));
+        });
+    }
 }

@@ -152,7 +152,7 @@ pub fn create_text_buffer() -> TextBuffer<80, 25> {
     let alloc_buffer = crate::task::actions::memory::map_memory(
         None,
         0x2000,
-        crate::task::memory::MemoryBacking::Anonymous,
+        crate::task::memory::MemoryBacking::FreeMemory,
     )
     .unwrap();
     TextBuffer::new(alloc_buffer, 0x2000)

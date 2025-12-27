@@ -15,7 +15,7 @@ use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::task::actions::handle::{open_interrupt_handle, open_message_queue};
-use crate::task::actions::io::{send_io_op, close_sync, driver_io_complete, write_sync};
+use crate::task::actions::io::{close_sync, driver_io_complete, send_io_op, write_sync};
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::actions::yield_coop;
@@ -42,7 +42,7 @@ pub struct FloppyDeviceDriver {
 
 impl FloppyDeviceDriver {
     pub fn new(interrupt_flag: Arc<AtomicBool>) -> Self {
-        let dma_vaddr = map_memory(None, 0x1000, MemoryBacking::DMA).unwrap();
+        let dma_vaddr = map_memory(None, 0x1000, MemoryBacking::IsaDma).unwrap();
         let dma_paddr = page_on_demand(dma_vaddr).unwrap();
 
         Self {
