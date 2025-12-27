@@ -22,7 +22,6 @@ pub mod collections;
 pub mod command;
 pub mod conman;
 pub mod console;
-pub mod dos;
 pub mod executor;
 pub mod files;
 pub mod graphics;
