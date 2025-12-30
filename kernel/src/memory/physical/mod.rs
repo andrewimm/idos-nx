@@ -155,23 +155,33 @@ pub fn allocate_frame_with_tracking() -> Result<AllocatedFrame, BitmapError> {
     Ok(allocated_frame)
 }
 
+pub fn maybe_add_frame_reference(paddr: PhysicalAddress) {
+    let mut tracker = FRAME_REF_TRACKER.lock();
+    let _ = tracker.add_reference_if_exists(paddr);
+}
+
+/// Get the current reference count of a tracked physical frame of memory.
+/// Should probably only be used for debugging purposes!
+pub fn tracked_frame_reference_count(paddr: PhysicalAddress) -> Option<usize> {
+    let tracker = FRAME_REF_TRACKER.lock();
+    tracker.get_reference_count(paddr)
+}
+
 /// Release a tracked frame of physical memory. This will decrement the refcount
 /// for the frame, and only actually free it back to the allocator if the
 /// refcount reaches zero.
 /// If the frame was not allocated with tracking, this will simply free it.
 pub fn release_tracked_frame(frame: AllocatedFrame) -> Result<(), BitmapError> {
     let phys_addr = frame.to_physical_address();
-    {
-        let mut tracker = FRAME_REF_TRACKER.lock();
-        if let Some(ref_count) = tracker.remove_reference(phys_addr) {
-            if ref_count > 0 {
-                // if there are outstanding references, avoid freeing the frame
-                return Ok(());
-            }
+    let remaining_ref_count = FRAME_REF_TRACKER.lock().remove_reference(phys_addr);
+    if let Some(ref_count) = remaining_ref_count {
+        crate::kprintln!("Release tracked frame {:?}", phys_addr);
+        if ref_count == 0 {
+            crate::kprintln!("Freeing frame {:?}", phys_addr);
+            return with_allocator(|alloc| alloc.free_frame(phys_addr));
         }
     }
-    // if we fall through, free the frame
-    with_allocator(|alloc| alloc.free_frame(phys_addr))
+    Ok(())
 }
 
 /// Allocates a contiguous range of frames of physical memory. Returns an

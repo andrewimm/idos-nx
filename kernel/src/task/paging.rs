@@ -4,7 +4,9 @@ use super::memory::{MemMappedRegion, MemoryBacking};
 use super::switching::get_current_task;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::physical::allocated_frame::AllocatedFrame;
-use crate::memory::physical::{allocate_frame, allocate_frames};
+use crate::memory::physical::{
+    allocate_frame, allocate_frame_with_tracking, allocate_frames, maybe_add_frame_reference,
+};
 use crate::memory::virt::invalidate_page;
 use crate::memory::virt::page_entry::PageTableEntry;
 use crate::memory::virt::page_table::PageTable;
@@ -56,9 +58,9 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
     let page_offset = address.prev_page_barrier() - mem_mapping.address;
     // offset of the address within the page
     let local_offset = address.as_u32() & 0xfff;
-    let flags = get_flags_for_region(mem_mapping);
+    let flags = get_flags_for_region(&mem_mapping);
 
-    let frame_start = match mem_mapping.backed_by {
+    let frame_start = match &mem_mapping.backed_by {
         MemoryBacking::IsaDma => {
             // DMA regions must be allocated as a contiguous block, so we
             // allocate the entire region at once
@@ -74,11 +76,14 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             }
             range_start + page_offset
         }
-        MemoryBacking::Direct(_) | MemoryBacking::FreeMemory => {
-            // Direct or Anonymous memory regions can be allocated on demand
-            // as needed, so we allocate a single page for the requested address
-            let allocated_frame = get_frame_for_region(mem_mapping, page_offset)
-                .expect("Failed to allocate memory for page");
+        MemoryBacking::Direct(paddr) => {
+            panic!("Shoudn't need to page Direct on demand, it's paged at map time");
+        }
+        MemoryBacking::FreeMemory => {
+            // Free memory regions can be allocated on demand as needed, so we
+            // allocate a single page for the requested address
+            let allocated_frame =
+                allocate_frame_with_tracking().expect("Failed to allocate memory for page");
             current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags)
         }
     };
@@ -169,7 +174,7 @@ pub fn current_pagedir_map_explicit(
     }
 }
 
-pub fn current_pagedir_unmap(vaddr: VirtualAddress) -> Option<PhysicalAddress> {
+pub fn current_pagedir_unmap(vaddr: VirtualAddress) -> Option<AllocatedFrame> {
     super::LOGGER.log(format_args!("Unmapping {:?}", vaddr));
     let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
     let dir_index = vaddr.get_page_directory_index();
@@ -185,7 +190,8 @@ pub fn current_pagedir_unmap(vaddr: VirtualAddress) -> Option<PhysicalAddress> {
         return None;
     }
     table.get_mut(table_index).clear_present();
-    Some(table.get(table_index).get_address())
+    let paddr = table.get(table_index).get_address();
+    Some(AllocatedFrame::new(paddr))
 }
 
 /// Get the physical address backing a virtual address in the current page
@@ -220,16 +226,7 @@ pub fn maybe_get_current_physical_address(vaddr: VirtualAddress) -> Option<Physi
     Some(table_entry.get_address() + offset)
 }
 
-pub fn get_frame_for_region(region: MemMappedRegion, offset: u32) -> Option<AllocatedFrame> {
-    match region.backed_by {
-        MemoryBacking::FreeMemory => allocate_frame().ok(),
-        // TODO: needs a way to guarantee <16MiB
-        MemoryBacking::IsaDma => allocate_frame().ok(),
-        MemoryBacking::Direct(paddr) => Some(AllocatedFrame::new(paddr + offset)),
-    }
-}
-
-pub fn get_flags_for_region(region: MemMappedRegion) -> PermissionFlags {
+pub fn get_flags_for_region(region: &MemMappedRegion) -> PermissionFlags {
     let mut flags = PermissionFlags::USER_ACCESS | PermissionFlags::WRITE_ACCESS;
 
     // Physical memory explicitly backing a region should not be freed when a
@@ -303,7 +300,7 @@ impl ExternalPageDirectory {
         }
     }
 
-    pub fn unmap(&self, address: VirtualAddress) -> Option<PhysicalAddress> {
+    pub fn unmap(&self, address: VirtualAddress) -> Option<AllocatedFrame> {
         super::LOGGER.log(format_args!("Unmapping {:?} for {:?}", address, self.id));
         let dir_index = address.get_page_directory_index();
         let table_index = address.get_page_table_index();
@@ -321,7 +318,8 @@ impl ExternalPageDirectory {
             return None;
         }
         let backing = page_table.get(table_index).get_address();
+        let backing_frame = AllocatedFrame::new(backing);
         page_table.get_mut(table_index).clear_present();
-        Some(backing)
+        Some(backing_frame)
     }
 }

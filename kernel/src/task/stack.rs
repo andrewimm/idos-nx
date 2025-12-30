@@ -133,6 +133,7 @@ pub fn allocate_stack() -> Box<[u8]> {
     let table_location = 0xffc00000 + 0x1000 * stack_start.get_page_directory_index();
     let page_table = PageTable::at_address(VirtualAddress::new(table_location as u32));
     let table_index = stack_start.get_page_table_index();
+    // safe to directly allocate frame because kernel stacks are never shared
     let frame_address = allocate_frame().unwrap().to_physical_address();
     page_table.get_mut(table_index).set_address(frame_address);
     page_table.get_mut(table_index).set_present();

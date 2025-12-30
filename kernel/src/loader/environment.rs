@@ -2,7 +2,7 @@ use crate::{
     io::handle::Handle,
     memory::{
         address::{PhysicalAddress, VirtualAddress},
-        physical::allocate_frame,
+        physical::allocate_frame_with_tracking,
         virt::scratch::UnmappedPage,
     },
     task::{
@@ -278,7 +278,7 @@ impl ExecutionSegment {
 
         let external_dir = ExternalPageDirectory::for_task(task_id);
         for page in 0..self.size_in_pages {
-            let frame = allocate_frame().unwrap();
+            let frame = allocate_frame_with_tracking().unwrap();
             let frame_paddr = frame.to_physical_address();
             self.physical_frames.push(frame_paddr);
             let page_vaddr = self.start_address + (0x1000 * page);

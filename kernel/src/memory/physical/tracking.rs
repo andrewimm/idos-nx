@@ -158,6 +158,28 @@ impl AddressTree {
         true
     }
 
+    pub fn get_reference_count(&self, addr: PhysicalAddress) -> Option<AddressTreeInner> {
+        let mut current = match self.root.as_ref() {
+            Some(node) => node,
+            None => return None,
+        };
+
+        // Navigate through all levels
+        for level in 0..TREE_DEPTH {
+            let index = Self::extract_index(addr, level);
+            let children = match current.children.as_ref() {
+                Some(c) => c,
+                None => return None,
+            };
+            current = match children[index].as_ref() {
+                Some(child) => child,
+                None => return None,
+            };
+        }
+
+        current.value
+    }
+
     /// Remove a reference from the given address, returning the new reference
     /// count if present. If the reference count reaches zero, the entry is
     /// removed from the tree by setting the leaf to None.

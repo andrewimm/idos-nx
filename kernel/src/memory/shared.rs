@@ -21,6 +21,7 @@
 use spin::Mutex;
 
 use super::address::{PhysicalAddress, VirtualAddress};
+use super::physical::maybe_add_frame_reference;
 use super::virt::page_iter::PageIter;
 use crate::collections::RefCountMap;
 use crate::task::actions::memory::{map_memory_for_task, unmap_memory_for_task};

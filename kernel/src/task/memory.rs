@@ -4,7 +4,7 @@ use core::ops::Range;
 
 /// MemMappedRegion represents a section of memory that has been mapped to a
 /// Task.
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct MemMappedRegion {
     pub address: VirtualAddress,
     pub size: u32,
@@ -34,7 +34,7 @@ impl MemMappedRegion {
 /// The backing type of a mem-mapped region determines how it behaves when a
 /// page fault occurs. It tells the kernel how to find the memory or data that
 /// this page contains
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum MemoryBacking {
     /// This region should directly point to a same-sized region of physical
     /// memory. This is necessary for interfacing with devices on the memory
@@ -163,21 +163,26 @@ impl<const U: u32> MappedMemory<U> {
                 .regions
                 .remove(&modification_key)
                 .expect("Attempted to unmap region that is not mapped");
+            let MemMappedRegion {
+                address,
+                backed_by,
+                size,
+            } = region;
             if range_start > 0 {
                 let before = MemMappedRegion {
-                    address: region.address,
+                    address,
                     size: range_start,
-                    backed_by: region.backed_by,
+                    backed_by: backed_by.clone(),
                 };
-                self.regions.insert(region.address, before);
+                self.regions.insert(address, before);
             }
-            if range_end < region.size {
-                let new_size = region.size - range_end;
-                let new_address = region.address + (region.size - new_size);
+            if range_end < size {
+                let new_size = size - range_end;
+                let new_address = address + (size - new_size);
                 let after = MemMappedRegion {
                     address: new_address,
                     size: new_size,
-                    backed_by: region.backed_by,
+                    backed_by,
                 };
                 self.regions.insert(new_address, after);
             }
