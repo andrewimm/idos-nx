@@ -3,7 +3,10 @@ use super::super::map::get_task;
 use super::super::memory::{MemMapError, MemoryBacking};
 use super::super::switching::get_current_id;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
-use crate::task::paging::{current_pagedir_unmap, page_on_demand, ExternalPageDirectory};
+use crate::memory::physical::{maybe_add_frame_reference, release_tracked_frame};
+use crate::task::paging::{
+    current_pagedir_unmap, page_on_demand, ExternalPageDirectory, PermissionFlags,
+};
 
 pub fn map_memory(
     addr: Option<VirtualAddress>,
@@ -19,9 +22,35 @@ pub fn map_memory_for_task(
     size: u32,
     backing: MemoryBacking,
 ) -> Result<VirtualAddress, MemMapError> {
-    let task_lock = get_task(task_id).ok_or(MemMapError::NoTask)?;
-    let mut task = task_lock.write();
-    task.memory_mapping.map_memory(addr, size, backing)
+    let direct_mapping = match backing {
+        MemoryBacking::Direct(paddr) => Some(paddr),
+        _ => None,
+    };
+    let mapped_to = {
+        let task_lock = get_task(task_id).ok_or(MemMapError::NoTask)?;
+        let mut task = task_lock.write();
+        task.memory_mapping.map_memory(addr, size, backing)?
+    };
+
+    if let Some(paddr) = direct_mapping {
+        // Make sure the page reference is tracked. We can't rely on page
+        // faults to do this.
+        let pagedir = ExternalPageDirectory::for_task(task_id);
+        // We haven't implemented flags for the userspace api yet, so just
+        // give it all the permissions
+        let flags =
+            PermissionFlags::new(PermissionFlags::USER_ACCESS | PermissionFlags::WRITE_ACCESS);
+
+        let mut offset = 0;
+        while offset < size {
+            let mapped_addr = mapped_to + offset;
+            pagedir.map(mapped_addr, paddr + offset, flags);
+            maybe_add_frame_reference(paddr + offset);
+            offset += 0x1000;
+        }
+    }
+
+    Ok(mapped_to)
 }
 
 pub fn remap_memory_for_task(
@@ -38,6 +67,10 @@ pub fn remap_memory_for_task(
     Ok(core::mem::replace(&mut mapping.backed_by, backing))
 }
 
+pub fn unmap_memory(addr: VirtualAddress, size: u32) -> Result<(), MemMapError> {
+    unmap_memory_for_task(get_current_id(), addr, size)
+}
+
 pub fn unmap_memory_for_task(
     task_id: TaskID,
     addr: VirtualAddress,
@@ -52,7 +85,9 @@ pub fn unmap_memory_for_task(
         let mut offset = 0;
         while offset < size {
             let mapping = addr + offset;
-            current_pagedir_unmap(mapping);
+            if let Some(frame) = current_pagedir_unmap(mapping) {
+                release_tracked_frame(frame);
+            }
             offset += 4096;
         }
     } else {
@@ -60,7 +95,9 @@ pub fn unmap_memory_for_task(
         let mut offset = 0;
         while offset < size {
             let mapping = addr + offset;
-            pagedir.unmap(mapping);
+            if let Some(frame) = pagedir.unmap(mapping) {
+                release_tracked_frame(frame);
+            }
             offset += 4096;
         }
     }

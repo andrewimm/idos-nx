@@ -102,6 +102,9 @@ pub fn create_cpu_scheduler(
     idle_task: TaskID,
     has_lapic: bool,
 ) -> VirtualAddress {
+    // Create an area of memory for the CPU's scheduler struct
+    // This memory is only referenced by the scheduler itself, so it can be
+    // directly allocated and should never be freed.
     let mapped_to = VirtualAddress::new((KERNEL_STACKS_BOTTOM - 0x2000 * (cpu_index + 1)) as u32);
     let frame = allocate_frame().unwrap();
     current_pagedir_map(frame, mapped_to, PermissionFlags::empty());
