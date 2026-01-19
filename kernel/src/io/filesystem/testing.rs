@@ -163,7 +163,7 @@ pub mod async_fs {
             panic!("not implemented");
         }
 
-        fn share(&mut self, instance: u32, transfer_to_id: TaskID, is_move: bool) -> IoResult {
+        fn share(&mut self, instance: u32, transfer_to_id: u32, is_move: bool) -> IoResult {
             Ok(1)
         }
     }

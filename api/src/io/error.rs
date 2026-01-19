@@ -56,4 +56,4 @@ impl Into<u32> for IoError {
     }
 }
 
-pub type IoResult = Result<u32, IoError>;
+pub type IoResult<T = u32> = Result<T, IoError>;

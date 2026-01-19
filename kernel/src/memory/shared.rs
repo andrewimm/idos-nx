@@ -116,8 +116,8 @@ mod tests {
             send_message,
         },
         memory::MemoryBacking,
-        messaging::Message,
     };
+    use idos_api::ipc::Message;
 
     #[test_case]
     fn sharing_within_kernel() {}

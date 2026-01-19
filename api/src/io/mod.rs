@@ -1,5 +1,6 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
+pub mod driver;
 pub mod error;
 pub mod file;
 pub mod handle;
