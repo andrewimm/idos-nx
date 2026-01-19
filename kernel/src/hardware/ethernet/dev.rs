@@ -12,10 +12,9 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::hardware::pci::devices::PciDevice;
 use crate::hardware::pci::get_bus_devices;
-use crate::io::driver::comms::{DriverCommand, IOResult};
+use crate::io::driver::comms::DriverCommand;
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
-use crate::io::IOError;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::shared::release_buffer;
 use crate::net::resident::register_network_device;
@@ -27,9 +26,10 @@ use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::memory::MemoryBacking;
-use idos_api::ipc::Message;
 use alloc::vec::Vec;
+use idos_api::io::error::{IoError, IoResult};
 use idos_api::io::{AsyncOp, ASYNC_OP_READ};
+use idos_api::ipc::Message;
 
 use super::controller::E1000Controller;
 use super::driver::EthernetDriver;
@@ -51,7 +51,7 @@ impl EthernetDevice {
 
     // TODO: we need some async variant of the driver trait
 
-    pub fn handle_request(&mut self, message: Message) -> Option<IOResult> {
+    pub fn handle_request(&mut self, message: Message) -> Option<IoResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::OpenRaw => Some(self.open()),
             DriverCommand::Close => Some(self.close()),
@@ -73,20 +73,20 @@ impl EthernetDevice {
                 let buffer_len = message.args[2] as usize;
                 Some(self.write(buffer_ptr, buffer_len))
             }
-            _ => Some(Err(IOError::UnsupportedOperation)),
+            _ => Some(Err(IoError::UnsupportedOperation)),
         }
     }
 
-    pub fn open(&mut self) -> IOResult {
+    pub fn open(&mut self) -> IoResult {
         let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
         Ok(instance)
     }
 
-    pub fn close(&mut self) -> IOResult {
+    pub fn close(&mut self) -> IoResult {
         return Ok(1);
     }
 
-    pub fn read(&mut self, buffer_ptr: *mut u8, buffer_len: usize) -> Option<IOResult> {
+    pub fn read(&mut self, buffer_ptr: *mut u8, buffer_len: usize) -> Option<IoResult> {
         let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
         let rx_buffer = self.driver.get_next_rx_buffer()?;
         let read_len = rx_buffer.len().min(buffer.len());
@@ -96,7 +96,7 @@ impl EthernetDevice {
         Some(Ok(read_len as u32))
     }
 
-    pub fn write(&mut self, buffer_ptr: *const u8, buffer_len: usize) -> IOResult {
+    pub fn write(&mut self, buffer_ptr: *const u8, buffer_len: usize) -> IoResult {
         let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_len) };
         Ok(self.driver.tx(buffer) as u32)
     }
@@ -207,7 +207,7 @@ fn run_driver() -> ! {
     }
 }
 
-fn send_response(request_id: u32, result: IOResult) {
+fn send_response(request_id: u32, result: IoResult) {
     driver_io_complete(request_id, result);
 }
 

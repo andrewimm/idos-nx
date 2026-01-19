@@ -1,7 +1,7 @@
 use core::sync::atomic::Ordering;
 
 use alloc::collections::{BTreeMap, VecDeque};
-use idos_api::io::error::{IOError, IOResult};
+use idos_api::io::error::{IoError, IoResult};
 
 use crate::task::map::get_task;
 
@@ -30,8 +30,8 @@ impl UdpListener {
     /// immediately resolved. Otherwise, the method will return and the next
     /// incoming packet will use the async callback info to resolve the read
     /// operation.
-    pub fn read(&self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IOResult> {
-        Some(Err(IOError::Unknown))
+    pub fn read(&self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {
+        Some(Err(IoError::Unknown))
     }
 }
 
@@ -179,8 +179,8 @@ impl TcpListener {
     /// Incoming SYN packets are queued. An accept call will complete the
     /// handshake. Regardless of whether a connection has been initiated before
     /// this method is called, it will always be an async process and will
-    /// never immediately return an `IOResult>.
-    pub fn accept(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IOResult> {
+    /// never immediately return an `IoResult>.
+    pub fn accept(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {
         if self.pending_syn.is_empty() {
             self.pending_accept.push_back(callback);
             return None;
@@ -190,7 +190,7 @@ impl TcpListener {
     }
 }
 
-pub fn complete_op(callback: AsyncCallback, result: IOResult) {
+pub fn complete_op(callback: AsyncCallback, result: IoResult) {
     let (task_id, io_index, op_id) = callback;
     let task_lock = match get_task(task_id) {
         Some(lock) => lock,

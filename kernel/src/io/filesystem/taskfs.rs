@@ -4,13 +4,12 @@ use spin::RwLock;
 use crate::collections::SlotList;
 use crate::files::path::Path;
 use crate::files::stat::FileStatus;
-use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::filesystem::driver::AsyncIOCallback;
-use crate::io::IOError;
 use crate::task::id::TaskID;
 use crate::task::map::for_each_task_id;
 use crate::task::map::get_task;
+use idos_api::io::error::{IoError, IoResult};
 
 pub struct TaskFileSystem {
     open_files: RwLock<SlotList<OpenFile>>,
@@ -48,7 +47,7 @@ impl TaskFileSystem {
         Some(content)
     }
 
-    fn open_impl(&self, path: Path) -> IOResult {
+    fn open_impl(&self, path: Path) -> IoResult {
         let open_file = if path.is_empty() {
             // list tasks
             let content = Self::generate_root_listing();
@@ -61,9 +60,9 @@ impl TaskFileSystem {
             let id = TaskID::new(
                 path.as_str()
                     .parse::<u32>()
-                    .map_err(|_| IOError::NotFound)?,
+                    .map_err(|_| IoError::NotFound)?,
             );
-            let content = Self::generate_content_for_task(id).ok_or(IOError::NotFound)?;
+            let content = Self::generate_content_for_task(id).ok_or(IoError::NotFound)?;
             OpenFile {
                 task: id,
                 cursor: 0,
@@ -74,11 +73,11 @@ impl TaskFileSystem {
         Ok(index as u32)
     }
 
-    fn read_impl(&self, instance: u32, buffer: &mut [u8]) -> IOResult {
+    fn read_impl(&self, instance: u32, buffer: &mut [u8]) -> IoResult {
         let mut open_files = self.open_files.write();
         let open_file = open_files
             .get_mut(instance as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
         let content_bytes = open_file.content.as_bytes();
         let bytes_unread = content_bytes.len() - open_file.cursor;
         let to_write = bytes_unread.min(buffer.len());
@@ -89,12 +88,12 @@ impl TaskFileSystem {
         Ok(to_write as u32)
     }
 
-    fn stat_impl(&self, instance: u32, file_status: &mut FileStatus) -> IOResult {
+    fn stat_impl(&self, instance: u32, file_status: &mut FileStatus) -> IoResult {
         let open_files = self.open_files.read();
         let open_file = open_files
             .get(instance as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
-        let task_lock = get_task(open_file.task).ok_or(IOError::NotFound)?;
+            .ok_or(IoError::FileHandleInvalid)?;
+        let task_lock = get_task(open_file.task).ok_or(IoError::NotFound)?;
         let task = task_lock.read();
         file_status.byte_size = 0;
         file_status.file_type = 1;
@@ -110,10 +109,10 @@ pub struct OpenFile {
 }
 
 impl KernelDriver for TaskFileSystem {
-    fn open(&self, path: Option<Path>, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn open(&self, path: Option<Path>, _io_callback: AsyncIOCallback) -> Option<IoResult> {
         match path {
             Some(p) => Some(self.open_impl(p)),
-            None => Some(Err(IOError::NotFound)),
+            None => Some(Err(IoError::NotFound)),
         }
     }
 
@@ -123,7 +122,7 @@ impl KernelDriver for TaskFileSystem {
         buffer: &mut [u8],
         _offset: u32,
         _io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         Some(self.read_impl(instance, buffer))
     }
 
@@ -132,13 +131,13 @@ impl KernelDriver for TaskFileSystem {
         instance: u32,
         file_status: &mut FileStatus,
         _io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         Some(self.stat_impl(instance, file_status))
     }
 
-    fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IoResult> {
         if self.open_files.write().remove(instance as usize).is_none() {
-            Some(Err(IOError::FileHandleInvalid))
+            Some(Err(IoError::FileHandleInvalid))
         } else {
             Some(Ok(1))
         }

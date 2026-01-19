@@ -1,13 +1,13 @@
 use core::sync::atomic::Ordering;
 
-use super::error::{IOError, IOResult};
+use super::error::{IoError, IoResult};
 use super::handle::Handle;
 use super::{AsyncOp, Message};
 
 use crate::syscall::exec::futex_wait_u32;
 use crate::syscall::io::append_io_op;
 
-pub fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) -> IOResult {
+pub fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) -> IoResult {
     let async_op = AsyncOp::new(op_code, arg0, arg1, arg2);
     append_io_op(handle, &async_op, None);
 
@@ -18,14 +18,14 @@ pub fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) ->
     let return_value = async_op.return_value.load(Ordering::SeqCst);
 
     if return_value & 0x80000000 != 0 {
-        let io_error = IOError::try_from(return_value & 0x7fffffff).unwrap_or(IOError::Unknown);
+        let io_error = IoError::try_from(return_value & 0x7fffffff).unwrap_or(IoError::Unknown);
         Err(io_error)
     } else {
         Ok(return_value)
     }
 }
 
-pub fn open_sync(handle: Handle, path: &str) -> IOResult {
+pub fn open_sync(handle: Handle, path: &str) -> IoResult {
     use crate::io::ASYNC_OP_OPEN;
 
     let path_ptr = path.as_ptr() as u32;
@@ -33,7 +33,7 @@ pub fn open_sync(handle: Handle, path: &str) -> IOResult {
     io_sync(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0)
 }
 
-pub fn read_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IOResult {
+pub fn read_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IoResult {
     use crate::io::ASYNC_OP_READ;
 
     let buffer_ptr = buffer.as_ptr() as u32;
@@ -41,7 +41,7 @@ pub fn read_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IOResult {
     io_sync(handle, ASYNC_OP_READ, buffer_ptr, buffer_len, offset)
 }
 
-pub fn read_message_sync(handle: Handle, message: &mut Message) -> IOResult {
+pub fn read_message_sync(handle: Handle, message: &mut Message) -> IoResult {
     use crate::io::ASYNC_OP_READ;
 
     let message_ptr = message as *mut Message as u32;
@@ -49,7 +49,7 @@ pub fn read_message_sync(handle: Handle, message: &mut Message) -> IOResult {
     io_sync(handle, ASYNC_OP_READ, message_ptr, message_len, 0)
 }
 
-pub fn write_sync(handle: Handle, buffer: &[u8], offset: u32) -> IOResult {
+pub fn write_sync(handle: Handle, buffer: &[u8], offset: u32) -> IoResult {
     use crate::io::ASYNC_OP_WRITE;
 
     let buffer_ptr = buffer.as_ptr() as u32;
@@ -57,19 +57,19 @@ pub fn write_sync(handle: Handle, buffer: &[u8], offset: u32) -> IOResult {
     io_sync(handle, ASYNC_OP_WRITE, buffer_ptr, buffer_len, offset)
 }
 
-pub fn close_sync(handle: Handle) -> IOResult {
+pub fn close_sync(handle: Handle) -> IoResult {
     use crate::io::ASYNC_OP_CLOSE;
 
     io_sync(handle, ASYNC_OP_CLOSE, 0, 0, 0)
 }
 
-pub fn share_sync(handle: Handle, transfer_to: u32) -> IOResult {
+pub fn share_sync(handle: Handle, transfer_to: u32) -> IoResult {
     use crate::io::ASYNC_OP_SHARE;
 
     io_sync(handle, ASYNC_OP_SHARE, transfer_to, 0, 0)
 }
 
-pub fn ioctl_sync(handle: Handle, ioctl: u32, arg: u32, arg_len: u32) -> IOResult {
+pub fn ioctl_sync(handle: Handle, ioctl: u32, arg: u32, arg_len: u32) -> IoResult {
     use crate::io::FILE_OP_IOCTL;
 
     io_sync(handle, FILE_OP_IOCTL, ioctl, arg, arg_len)

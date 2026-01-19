@@ -5,7 +5,7 @@ use crate::{
     memory::physical::with_allocator,
 };
 use alloc::string::String;
-use idos_api::io::error::{IOError, IOResult};
+use idos_api::io::error::{IoError, IoResult};
 use spin::RwLock;
 
 use super::{driver::AsyncIOCallback, get_all_drive_names};
@@ -45,7 +45,7 @@ impl SysFS {
         }
     }
 
-    fn open_impl(&self, path: Path) -> IOResult {
+    fn open_impl(&self, path: Path) -> IoResult {
         let open_file = if path.is_empty() {
             OpenFile {
                 listing: ListingType::RootDir,
@@ -55,17 +55,17 @@ impl SysFS {
                 listing: listing_type,
             }
         } else {
-            return Err(IOError::NotFound);
+            return Err(IoError::NotFound);
         };
         let index = self.open_files.write().insert(open_file);
         Ok(index as u32)
     }
 
-    fn read_impl(&self, instance: u32, buffer: &mut [u8], offset: u32) -> IOResult {
+    fn read_impl(&self, instance: u32, buffer: &mut [u8], offset: u32) -> IoResult {
         let mut open_files = self.open_files.write();
         let open_file = open_files
             .get_mut(instance as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
         let content_string = match open_file.listing {
             ListingType::RootDir => String::from(ROOT_LISTING),
             ListingType::CPU => Self::generate_cpu_content(),
@@ -118,11 +118,11 @@ impl SysFS {
         )
     }
 
-    fn stat_impl(&self, instance: u32, file_status: &mut FileStatus) -> IOResult {
+    fn stat_impl(&self, instance: u32, file_status: &mut FileStatus) -> IoResult {
         let open_files = self.open_files.read();
         let _ = open_files
             .get(instance as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
         file_status.byte_size = 0;
         file_status.file_type = 1;
         file_status.modification_time = 0;
@@ -131,10 +131,10 @@ impl SysFS {
 }
 
 impl KernelDriver for SysFS {
-    fn open(&self, path: Option<Path>, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn open(&self, path: Option<Path>, _io_callback: AsyncIOCallback) -> Option<IoResult> {
         match path {
             Some(p) => Some(self.open_impl(p)),
-            None => Some(Err(IOError::NotFound)),
+            None => Some(Err(IoError::NotFound)),
         }
     }
 
@@ -144,7 +144,7 @@ impl KernelDriver for SysFS {
         buffer: &mut [u8],
         offset: u32,
         _io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         Some(self.read_impl(instance, buffer, offset))
     }
 
@@ -153,13 +153,13 @@ impl KernelDriver for SysFS {
         instance: u32,
         file_status: &mut FileStatus,
         _io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         Some(self.stat_impl(instance, file_status))
     }
 
-    fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IoResult> {
         if self.open_files.write().remove(instance as usize).is_none() {
-            Some(Err(IOError::FileHandleInvalid))
+            Some(Err(IoError::FileHandleInvalid))
         } else {
             Some(Ok(1))
         }

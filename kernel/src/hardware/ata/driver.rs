@@ -1,9 +1,7 @@
 use super::controller::{AtaChannel, DriveSelect, SECTOR_SIZE};
 use crate::io::driver::async_driver::AsyncDriver;
-use crate::io::driver::comms::IOResult;
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
-use crate::io::IOError;
 use crate::task::actions::handle::open_interrupt_handle;
 use crate::task::actions::handle::open_message_queue;
 use crate::task::actions::io::close_sync;
@@ -11,10 +9,11 @@ use crate::task::actions::io::driver_io_complete;
 use crate::task::actions::io::read_struct_sync;
 use crate::task::actions::io::read_sync;
 use crate::task::actions::io::write_sync;
-use idos_api::ipc::Message;
 use crate::task::switching::get_current_id;
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};
+use idos_api::io::error::{IoError, IoResult};
+use idos_api::ipc::Message;
 
 pub struct AtaDeviceDriver {
     channel: AtaChannel,
@@ -40,39 +39,39 @@ impl AtaDeviceDriver {
 }
 
 impl AsyncDriver for AtaDeviceDriver {
-    fn open(&mut self, path: &str) -> IOResult {
+    fn open(&mut self, path: &str) -> IoResult {
         // The `path` should be a stringified version of the driver index.
         // The driver number is 1-indexed, while the internal array is
         // 0-indexed.
         super::LOGGER.log(format_args!("Open path \"{}\"", path));
         let attached_index = match path.parse::<usize>() {
             Ok(i) => i - 1,
-            Err(_) => return Err(IOError::NotFound),
+            Err(_) => return Err(IoError::NotFound),
         };
         if attached_index >= self.attached.len() {
-            return Err(IOError::NotFound);
+            return Err(IoError::NotFound);
         }
         if let Some(select) = self.attached[attached_index] {
             let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
             self.open_instances.insert(instance, select);
             return Ok(instance);
         }
-        Err(IOError::NotFound)
+        Err(IoError::NotFound)
     }
 
-    fn close(&mut self, instance: u32) -> IOResult {
+    fn close(&mut self, instance: u32) -> IoResult {
         self.open_instances
             .remove(&instance)
             .map(|_| 1)
-            .ok_or(IOError::FileHandleInvalid)
+            .ok_or(IoError::FileHandleInvalid)
     }
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IOResult {
+    fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IoResult {
         let select = self
             .open_instances
             .get(&instance)
             .cloned()
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
 
         // If the read is sector-aligned, we can DMA transfer directly into
         // the destination buffer.
@@ -81,7 +80,7 @@ impl AsyncDriver for AtaDeviceDriver {
             let sectors_read = self
                 .channel
                 .read(select, first_sector, buffer)
-                .map_err(|_| IOError::FileSystemError)?;
+                .map_err(|_| IoError::FileSystemError)?;
             let bytes_read = sectors_read * SECTOR_SIZE as u32;
             return Ok(bytes_read);
         }
@@ -99,7 +98,7 @@ impl AsyncDriver for AtaDeviceDriver {
 
             self.channel
                 .read(select, sector_index, &mut pio_buffer)
-                .map_err(|_| IOError::FileSystemError)?;
+                .map_err(|_| IoError::FileSystemError)?;
 
             let bytes_to_copy = bytes_remaining_in_sector.min(bytes_remaining_in_buffer);
 
@@ -116,8 +115,8 @@ impl AsyncDriver for AtaDeviceDriver {
         Ok(bytes_read)
     }
 
-    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IOResult {
-        Err(IOError::UnsupportedOperation)
+    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
+        Err(IoError::UnsupportedOperation)
     }
 }
 

@@ -1,8 +1,8 @@
 use alloc::vec::Vec;
+use idos_api::io::error::IoError;
 use spin::RwLock;
 
 use crate::collections::SlotList;
-use crate::io::IOError;
 use crate::task::id::TaskID;
 use crate::task::switching::get_current_id;
 
@@ -17,30 +17,30 @@ impl KeyboardDriver {
         Self {}
     }
 
-    pub fn begin_reading(&self, index: u32) -> Result<(), IOError> {
+    pub fn begin_reading(&self, index: u32) -> Result<(), IoError> {
         let mut handles = OPEN_KEYBOARD_HANDLES.write();
         let handle = handles
             .get_mut(index as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
         handle.is_reading = true;
         handle.unread.clear();
         Ok(())
     }
 
-    pub fn end_reading(&self, index: u32) -> Result<(), IOError> {
+    pub fn end_reading(&self, index: u32) -> Result<(), IoError> {
         let mut handles = OPEN_KEYBOARD_HANDLES.write();
         let handle = handles
             .get_mut(index as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
         handle.is_reading = false;
         Ok(())
     }
 
-    pub fn get_unread_bytes(&self, index: u32, buffer: &mut [u8]) -> Result<usize, IOError> {
+    pub fn get_unread_bytes(&self, index: u32, buffer: &mut [u8]) -> Result<usize, IoError> {
         let mut handles = OPEN_KEYBOARD_HANDLES.write();
         let handle = handles
             .get_mut(index as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
         let to_write = handle.unread.len().min(buffer.len());
         for i in 0..to_write {
             buffer[i] = *handle.unread.get(i).unwrap();
@@ -49,7 +49,7 @@ impl KeyboardDriver {
         Ok(to_write)
     }
 
-    pub fn open(&self) -> Result<u32, IOError> {
+    pub fn open(&self) -> Result<u32, IoError> {
         let handle = OpenHandle {
             reader_id: get_current_id(),
             is_reading: false,
@@ -59,7 +59,7 @@ impl KeyboardDriver {
         Ok(index as u32)
     }
 
-    pub fn read(&self, index: u32, buffer: &mut [u8]) -> Result<u32, IOError> {
+    pub fn read(&self, index: u32, buffer: &mut [u8]) -> Result<u32, IoError> {
         self.begin_reading(index)?;
 
         let mut bytes_written = 0;
@@ -74,17 +74,17 @@ impl KeyboardDriver {
         Ok(bytes_written as u32)
     }
 
-    pub fn write(&self, _index: u32, _buffer: &[u8]) -> Result<u32, IOError> {
-        Err(IOError::UnsupportedOperation)
+    pub fn write(&self, _index: u32, _buffer: &[u8]) -> Result<u32, IoError> {
+        Err(IoError::UnsupportedOperation)
     }
 
-    pub fn close(&self, index: u32) -> Result<(), IOError> {
+    pub fn close(&self, index: u32) -> Result<(), IoError> {
         if OPEN_KEYBOARD_HANDLES
             .write()
             .remove(index as usize)
             .is_none()
         {
-            Err(IOError::FileHandleInvalid)
+            Err(IoError::FileHandleInvalid)
         } else {
             Ok(())
         }

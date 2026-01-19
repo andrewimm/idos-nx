@@ -41,7 +41,7 @@ use alloc::{
     collections::BTreeMap,
     string::{String, ToString},
 };
-use idos_api::io::error::IOError;
+use idos_api::io::error::{IoError, IoResult};
 use spin::RwLock;
 
 use crate::{io::async_io::AsyncOpID, task::id::TaskID};
@@ -121,24 +121,24 @@ pub fn socket_io_bind(
     addr_string: &[u8],
     port: u16,
     callback: AsyncCallback,
-) -> Option<Result<u32, IOError>> {
+) -> Option<Result<u32, IoError>> {
     match protocol {
         SocketProtocol::Udp => {
             let addr = match Ipv4Address::parse_bytes(addr_string) {
                 Some(addr) => addr,
-                None => return Some(Err(IOError::InvalidArgument)),
+                None => return Some(Err(IoError::InvalidArgument)),
             };
             if addr != Ipv4Address([0, 0, 0, 0]) && addr != Ipv4Address([127, 0, 0, 1]) {
                 // We don't currently support declaring which local IP to use,
                 // so this is just an error case
-                return Some(Err(IOError::InvalidArgument));
+                return Some(Err(IoError::InvalidArgument));
             }
 
             let mut active_connections = ACTIVE_CONNECTIONS.write();
             let port = SocketPort::new(port);
             if let Some(_) = active_connections.get(&port) {
                 // Port is already in use
-                return Some(Err(IOError::ResourceInUse));
+                return Some(Err(IoError::ResourceInUse));
             }
 
             let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
@@ -158,7 +158,7 @@ pub fn socket_io_bind(
                     let mut active_connections = ACTIVE_CONNECTIONS.write();
                     let port = SocketPort::new(port);
                     if let Some(_) = active_connections.get(&port) {
-                        return Some(Err(IOError::ResourceInUse));
+                        return Some(Err(IoError::ResourceInUse));
                     }
 
                     let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
@@ -181,7 +181,7 @@ pub fn socket_io_bind(
             let remote_port = SocketPort::new(port);
             let local_port = match get_ephemeral_port() {
                 Some(p) => p,
-                None => return Some(Err(IOError::ResourceLimitExceeded)),
+                None => return Some(Err(IoError::ResourceLimitExceeded)),
             };
             let socket_id = SocketId::new(NEXT_SOCKET_ID.fetch_add(1, Ordering::SeqCst));
             ACTIVE_CONNECTIONS.write().insert(local_port, socket_id);
@@ -237,11 +237,11 @@ pub fn socket_io_read(
     socket_id: SocketId,
     buffer: &mut [u8],
     callback: AsyncCallback,
-) -> Option<Result<u32, IOError>> {
+) -> Option<Result<u32, IoError>> {
     let mut socket_map = SOCKET_MAP.write();
     let socket_type = match socket_map.get_mut(&socket_id) {
         Some(socket_type) => socket_type,
-        None => return Some(Err(IOError::FileHandleInvalid)),
+        None => return Some(Err(IoError::FileHandleInvalid)),
     };
     match socket_type {
         SocketType::Udp(listener) => listener.read(buffer, callback),
@@ -258,8 +258,8 @@ pub fn socket_io_write(
     socket_id: SocketId,
     buffer: &[u8],
     callback: AsyncCallback,
-) -> Option<Result<u32, IOError>> {
-    Some(Err(IOError::Unknown))
+) -> Option<Result<u32, IoError>> {
+    Some(Err(IoError::Unknown))
 }
 
 pub fn handle_udp_packet(local_port: u16, remote_addr: Ipv4Address, remote_port: u16, data: &[u8]) {

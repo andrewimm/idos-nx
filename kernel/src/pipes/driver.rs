@@ -2,12 +2,11 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use idos_api::io::error::IOError;
+use idos_api::io::error::{IoError, IoResult};
 use spin::{Once, RwLock};
 
 use crate::collections::SlotList;
 use crate::files::path::Path;
-use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::filesystem::driver::AsyncIOCallback;
 use crate::io::filesystem::driver::DriverID;
@@ -275,11 +274,11 @@ impl PipeDriver {
         pipe_index: usize,
         buffer: &mut [u8],
         io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         let pipes = PIPES.read();
         let pipe = match pipes.get(pipe_index) {
             Some(pipe) => pipe,
-            None => return Some(Err(IOError::NotFound)),
+            None => return Some(Err(IoError::NotFound)),
         };
         if !pipe.is_write_open() {
             // if the write end is not open, flush any remaining contents
@@ -290,14 +289,14 @@ impl PipeDriver {
             .map(|bytes_read| Ok(bytes_read as u32))
     }
 
-    fn write(pipe_index: usize, buffer: &[u8]) -> Option<IOResult> {
+    fn write(pipe_index: usize, buffer: &[u8]) -> Option<IoResult> {
         let pipes = PIPES.read();
         let pipe = match pipes.get(pipe_index) {
             Some(pipe) => pipe,
-            None => return Some(Err(IOError::NotFound)),
+            None => return Some(Err(IoError::NotFound)),
         };
         if !pipe.is_read_open() {
-            return Some(Err(IOError::WriteToClosedIO));
+            return Some(Err(IoError::WriteToClosedIO));
         }
         let (written, callback_opt) = pipe.write(buffer);
         if let Some((read, callback)) = callback_opt {
@@ -350,8 +349,8 @@ impl PipeDriver {
 }
 
 impl KernelDriver for PipeDriver {
-    fn open(&self, _path: Option<Path>, _io_callback: AsyncIOCallback) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    fn open(&self, _path: Option<Path>, _io_callback: AsyncIOCallback) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 
     fn read(
@@ -360,12 +359,12 @@ impl KernelDriver for PipeDriver {
         buffer: &mut [u8],
         _offset: u32,
         io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         let pipe_index: usize = {
             match OPEN_PIPES.read().get(instance as usize) {
                 Some(PipeEnd::Reader(index)) => *index,
-                None => return Some(Err(IOError::FileHandleInvalid)),
-                _ => return Some(Err(IOError::FileHandleWrongType)),
+                None => return Some(Err(IoError::FileHandleInvalid)),
+                _ => return Some(Err(IoError::FileHandleWrongType)),
             }
         };
         Self::begin_read(pipe_index, buffer, io_callback)
@@ -377,18 +376,18 @@ impl KernelDriver for PipeDriver {
         buffer: &[u8],
         _offset: u32,
         _io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         let pipe_index: usize = {
             match OPEN_PIPES.read().get(instance as usize) {
                 Some(PipeEnd::Writer(index)) => *index,
-                None => return Some(Err(IOError::FileHandleInvalid)),
-                _ => return Some(Err(IOError::FileHandleWrongType)),
+                None => return Some(Err(IoError::FileHandleInvalid)),
+                _ => return Some(Err(IoError::FileHandleWrongType)),
             }
         };
         Self::write(pipe_index, buffer)
     }
 
-    fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+    fn close(&self, instance: u32, _io_callback: AsyncIOCallback) -> Option<IoResult> {
         match OPEN_PIPES.read().get(instance as usize) {
             Some(PipeEnd::Reader(index)) => {
                 Self::close_reader(*index);
@@ -396,7 +395,7 @@ impl KernelDriver for PipeDriver {
             Some(PipeEnd::Writer(index)) => {
                 Self::close_writer(*index);
             }
-            None => return Some(Err(IOError::FileHandleInvalid)),
+            None => return Some(Err(IoError::FileHandleInvalid)),
         }
 
         OPEN_PIPES.write().remove(instance as usize);
@@ -427,7 +426,7 @@ mod tests {
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::yield_coop;
     use crate::task::id::TaskID;
-    use idos_api::io::error::IOError;
+    use idos_api::io::error::IoError;
 
     // pipe tests
 
@@ -611,7 +610,7 @@ mod tests {
         write_op.submit_io();
         assert_eq!(
             write_op.wait_for_completion(),
-            0x80000000 | IOError::WriteToClosedIO as u32
+            0x80000000 | IoError::WriteToClosedIO as u32
         );
     }
 }

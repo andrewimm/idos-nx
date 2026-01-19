@@ -12,7 +12,9 @@ use crate::{
     task::{actions::send_message, id::TaskID, map::get_task, switching::get_current_id},
 };
 
-use super::comms::{DriverIOAction, IOResult};
+use super::comms::DriverIOAction;
+
+use idos_api::io::error::{IoError, IoResult};
 
 struct IncomingRequest {
     // information on the handle/op performing the async action:
@@ -47,7 +49,7 @@ pub fn send_async_request(driver_id: TaskID, io_callback: AsyncIOCallback, actio
     send_message(driver_id, message, 0xffffffff);
 }
 
-pub fn request_complete(request_id: u32, return_value: IOResult) {
+pub fn request_complete(request_id: u32, return_value: IoResult) {
     let current_id = get_current_id();
     let pending_request = PENDING_REQUESTS.lock().remove(&request_id);
     if let Some(request) = pending_request {

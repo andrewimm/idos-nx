@@ -6,11 +6,11 @@ use core::{future::Future, pin::Pin};
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::sync::Arc;
 use alloc::{boxed::Box, task::Wake};
-use idos_api::io::error::IOError;
+use idos_api::io::error::{IoError, IoResult};
 use idos_api::io::{AsyncOp, ASYNC_OP_READ};
 
 use crate::hardware::dma::DmaChannelRegisters;
-use crate::io::driver::comms::{DriverCommand, IOResult};
+use crate::io::driver::comms::DriverCommand;
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
@@ -21,9 +21,9 @@ use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::actions::yield_coop;
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
-use idos_api::ipc::Message;
 use crate::task::paging::page_on_demand;
 use crate::task::switching::get_current_id;
+use idos_api::ipc::Message;
 
 use super::controller::{Command, ControllerError, DriveSelect, DriveType, FloppyController};
 use super::geometry::ChsGeometry;
@@ -231,9 +231,9 @@ impl FloppyDeviceDriver {
 
     // Async IO methods:
 
-    pub fn open(&mut self, sub_driver: u32) -> IOResult {
+    pub fn open(&mut self, sub_driver: u32) -> IoResult {
         match self.attached.get(sub_driver as usize) {
-            None => return Err(IOError::NotFound),
+            None => return Err(IoError::NotFound),
             _ => (),
         }
         let drive = match sub_driver {
@@ -246,12 +246,12 @@ impl FloppyDeviceDriver {
         Ok(instance)
     }
 
-    pub async fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IOResult {
+    pub async fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IoResult {
         // TODO: constrain the offset to reasonable bounds
         let position = offset as usize;
         let drive_select = match self.open_instances.get(&instance) {
             Some(file) => file.drive,
-            None => return Err(IOError::FileHandleInvalid),
+            None => return Err(IoError::FileHandleInvalid),
         };
 
         let first_sector = position / super::geometry::SECTOR_SIZE;
@@ -263,7 +263,7 @@ impl FloppyDeviceDriver {
         let chs = ChsGeometry::from_lba(first_sector);
         self.dma_read(drive_select, chs)
             .await
-            .map_err(|_| IOError::FileSystemError)?;
+            .map_err(|_| IoError::FileSystemError)?;
 
         let dma_buffer = self.get_dma_buffer();
 
@@ -276,11 +276,11 @@ impl FloppyDeviceDriver {
         Ok(bytes_read)
     }
 
-    pub fn close(&mut self, instance: u32) -> IOResult {
+    pub fn close(&mut self, instance: u32) -> IoResult {
         self.open_instances
             .remove(&instance)
             .map(|_| 1)
-            .ok_or(IOError::FileHandleInvalid)
+            .ok_or(IoError::FileHandleInvalid)
     }
 }
 
@@ -458,6 +458,6 @@ async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, mes
             let result = driver_ref.borrow_mut().read(instance, buffer, offset).await;
             driver_io_complete(message.unique_id, result);
         }
-        _ => driver_io_complete(message.unique_id, Err(IOError::UnsupportedOperation)),
+        _ => driver_io_complete(message.unique_id, Err(IoError::UnsupportedOperation)),
     }
 }

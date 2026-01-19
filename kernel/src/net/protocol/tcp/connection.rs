@@ -1,6 +1,6 @@
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use idos_api::io::error::{IOError, IOResult};
+use idos_api::io::error::{IoError, IoResult};
 
 use crate::io::async_io::IOType;
 use crate::io::provider::socket::SocketIOProvider;
@@ -236,7 +236,7 @@ impl TcpConnection {
         }
     }
 
-    pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IOResult> {
+    pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {
         if self.available_data.is_empty() {
             let buffer_vaddr = VirtualAddress::new(buffer.as_ptr() as u32);
             let buffer_paddr = get_current_physical_address(buffer_vaddr).unwrap();
@@ -247,6 +247,6 @@ impl TcpConnection {
             });
             return None;
         }
-        Some(Err(IOError::Unknown))
+        Some(Err(IoError::Unknown))
     }
 }

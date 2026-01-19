@@ -8,7 +8,10 @@
 use core::sync::atomic::Ordering;
 
 use alloc::collections::BTreeMap;
-use idos_api::io::{error::IOError, AsyncOp};
+use idos_api::io::{
+    error::{IoError, IoResult},
+    AsyncOp,
+};
 use spin::RwLock;
 
 use crate::{
@@ -20,7 +23,7 @@ use crate::{
     task::switching::get_current_id,
 };
 
-use super::{IOProvider, IOResult, OpIdGenerator, UnmappedAsyncOp};
+use super::{IOProvider, OpIdGenerator, UnmappedAsyncOp};
 
 pub struct SocketIOProvider {
     protocol: SocketProtocol,
@@ -92,9 +95,9 @@ impl IOProvider for SocketIOProvider {
     /// Opening a socket binds it to a local or remote port
     /// The format of the IP addresses in the struct attached to the Op will
     /// determine what kind of port is opened.
-    fn open(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
+    fn open(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
         if self.socket_id.read().is_some() {
-            return Some(Err(IOError::AlreadyOpen));
+            return Some(Err(IoError::AlreadyOpen));
         }
         let binding_ptr = op.args[0] as *const u8;
         let binding_len = op.args[1] as usize;
@@ -105,7 +108,7 @@ impl IOProvider for SocketIOProvider {
         socket_io_bind(self.protocol, binding_slice, binding_port, callback)
     }
 
-    fn read(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
+    fn read(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
         let socket_id = *self.socket_id.read();
         if let Some(socket_id) = socket_id {
             let buffer_start = op.args[0] as usize;
@@ -115,7 +118,7 @@ impl IOProvider for SocketIOProvider {
             let callback = (get_current_id(), provider_index, id);
             socket_io_read(SocketId::new(socket_id), buffer, callback)
         } else {
-            Some(Err(IOError::FileHandleInvalid))
+            Some(Err(IoError::FileHandleInvalid))
         }
     }
 
@@ -124,7 +127,7 @@ impl IOProvider for SocketIOProvider {
         _provider_index: u32,
         _id: AsyncOpID,
         _op: UnmappedAsyncOp,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         panic!("Not implemented");
     }
 
@@ -133,7 +136,7 @@ impl IOProvider for SocketIOProvider {
         _provider_index: u32,
         _id: AsyncOpID,
         _op: UnmappedAsyncOp,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         panic!("Not implemented");
     }
 }

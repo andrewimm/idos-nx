@@ -1,13 +1,12 @@
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};
-use idos_api::io::error::IOError;
+use idos_api::io::error::{IoError, IoResult};
 use spin::RwLock;
 
 use crate::files::path::Path;
 
 use crate::io::async_io::{ASYNC_OP_READ, OPERATION_FLAG_MESSAGE};
 use crate::io::driver::async_driver::AsyncDriver;
-use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::handle::PendingHandleOp;
 use crate::task::actions::handle::open_message_queue;
@@ -45,7 +44,7 @@ pub mod sync_fs {
     }
 
     impl KernelDriver for TestSyncFS {
-        fn open(&self, path: Option<Path>, _: AsyncIOCallback) -> Option<IOResult> {
+        fn open(&self, path: Option<Path>, _: AsyncIOCallback) -> Option<IoResult> {
             let result = match path {
                 Some(path) => {
                     if path.as_str() == "MYFILE.TXT" {
@@ -53,10 +52,10 @@ pub mod sync_fs {
                         self.open_files.write().insert(instance, OpenFile::new());
                         Ok(instance)
                     } else {
-                        Err(IOError::NotFound)
+                        Err(IoError::NotFound)
                     }
                 }
-                None => Err(IOError::NotFound),
+                None => Err(IoError::NotFound),
             };
             Some(result)
         }
@@ -67,11 +66,11 @@ pub mod sync_fs {
             buffer: &mut [u8],
             _offset: u32,
             _: AsyncIOCallback,
-        ) -> Option<IOResult> {
+        ) -> Option<IoResult> {
             let mut open_files = self.open_files.write();
             let found = match open_files.get_mut(&instance) {
                 Some(file) => file,
-                None => return Some(Err(IOError::FileHandleInvalid)),
+                None => return Some(Err(IoError::FileHandleInvalid)),
             };
             for i in 0..buffer.len() {
                 let value = ((found.written + i) % 26) + 0x41;
@@ -81,7 +80,7 @@ pub mod sync_fs {
             Some(Ok(buffer.len() as u32))
         }
 
-        fn close(&self, _instance: u32, _io_callback: AsyncIOCallback) -> Option<IOResult> {
+        fn close(&self, _instance: u32, _io_callback: AsyncIOCallback) -> Option<IoResult> {
             panic!("not implemented");
         }
 
@@ -91,7 +90,7 @@ pub mod sync_fs {
             target_task_id: TaskID,
             is_move: bool,
             io_callback: AsyncIOCallback,
-        ) -> Option<IOResult> {
+        ) -> Option<IoResult> {
             Some(Ok(1))
         }
     }
@@ -132,22 +131,22 @@ pub mod async_fs {
     }
 
     impl AsyncDriver for AsyncTestFS {
-        fn open(&mut self, path: &str) -> IOResult {
+        fn open(&mut self, path: &str) -> IoResult {
             crate::kprintln!("Async open \"{}\"", path);
             if path == "MYFILE.TXT" {
                 let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
                 self.open_files.write().insert(instance, OpenFile::new());
                 Ok(instance)
             } else {
-                Err(IOError::NotFound)
+                Err(IoError::NotFound)
             }
         }
 
-        fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IOResult {
+        fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IoResult {
             let mut open_files = self.open_files.write();
             let found = open_files
                 .get_mut(&instance)
-                .ok_or(IOError::FileHandleInvalid)?;
+                .ok_or(IoError::FileHandleInvalid)?;
             for i in 0..buffer.len() {
                 let value = ((found.written + i) % 26) + 0x41;
                 buffer[i] = value as u8;
@@ -156,15 +155,15 @@ pub mod async_fs {
             Ok(buffer.len() as u32)
         }
 
-        fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IOResult {
+        fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
             unimplemented!()
         }
 
-        fn close(&mut self, _instance: u32) -> IOResult {
+        fn close(&mut self, _instance: u32) -> IoResult {
             panic!("not implemented");
         }
 
-        fn share(&mut self, instance: u32, transfer_to_id: TaskID, is_move: bool) -> IOResult {
+        fn share(&mut self, instance: u32, transfer_to_id: TaskID, is_move: bool) -> IoResult {
             Ok(1)
         }
     }
@@ -244,17 +243,17 @@ pub mod async_dev {
     }
 
     impl AsyncDriver for AsyncTestDev {
-        fn open(&mut self, _path: &str) -> IOResult {
+        fn open(&mut self, _path: &str) -> IoResult {
             let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
             self.open_files.write().insert(instance, OpenFile::new());
             Ok(instance)
         }
 
-        fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IOResult {
+        fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IoResult {
             let mut open_files = self.open_files.write();
             let found = open_files
                 .get_mut(&instance)
-                .ok_or(IOError::FileHandleInvalid)?;
+                .ok_or(IoError::FileHandleInvalid)?;
             let sample = [b't', b'e', b's', b't'];
             let mut written = 0;
             while written < buffer.len() {
@@ -266,11 +265,11 @@ pub mod async_dev {
             Ok(written as u32)
         }
 
-        fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IOResult {
+        fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
             unimplemented!()
         }
 
-        fn close(&mut self, _instance: u32) -> IOResult {
+        fn close(&mut self, _instance: u32) -> IoResult {
             panic!("not implemented");
         }
     }
