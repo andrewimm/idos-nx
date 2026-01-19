@@ -1,9 +1,9 @@
 use crate::task::{
     actions::{handle::open_message_queue, io::read_struct_sync, send_message},
     id::TaskID,
-    messaging::Message,
 };
 use alloc::vec::Vec;
+use idos_api::ipc::Message;
 use spin::RwLock;
 
 static CLEANUP_ID: RwLock<TaskID> = RwLock::new(TaskID::new(0));

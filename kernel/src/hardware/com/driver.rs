@@ -7,17 +7,15 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::collections::{BTreeMap, VecDeque};
 use idos_api::io::{error::IOError, AsyncOp, ASYNC_OP_READ};
+use idos_api::ipc::Message;
 
 use crate::{
     io::driver::comms::{DriverCommand, IOResult},
-    task::{
-        actions::{
-            handle::{open_interrupt_handle, open_message_queue},
-            io::{send_io_op, driver_io_complete, write_sync},
-            lifecycle::create_kernel_task,
-            sync::{block_on_wake_set, create_wake_set},
-        },
-        messaging::Message,
+    task::actions::{
+        handle::{open_interrupt_handle, open_message_queue},
+        io::{driver_io_complete, send_io_op, write_sync},
+        lifecycle::create_kernel_task,
+        sync::{block_on_wake_set, create_wake_set},
     },
 };
 

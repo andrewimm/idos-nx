@@ -305,7 +305,7 @@ mod tests {
     #[test_case]
     fn message_queue() {
         use crate::task::actions::lifecycle::terminate;
-        use crate::task::actions::messaging::Message;
+        use idos_api::ipc::Message;
         use crate::task::actions::send_message;
 
         fn child_task_body() -> ! {
@@ -339,7 +339,7 @@ mod tests {
     #[test_case]
     fn multiple_messages() {
         use crate::task::actions::lifecycle::terminate;
-        use crate::task::actions::messaging::Message;
+        use idos_api::ipc::Message;
         use crate::task::actions::send_message;
 
         fn child_task_body() -> ! {

@@ -112,7 +112,7 @@ mod tests {
     use crate::task::actions::io::read_struct_sync;
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::send_message;
-    use crate::task::messaging::Message;
+    use idos_api::ipc::Message;
     use alloc::boxed::Box;
     use core::sync::atomic::AtomicU32;
 

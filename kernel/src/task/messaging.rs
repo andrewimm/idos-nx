@@ -1,34 +1,6 @@
-use alloc::collections::VecDeque;
 use super::id::TaskID;
-
-/// Interprocess Messages are implemented by passing these structures from one
-/// task to another.
-/// The message is composed of eight 32-bit fields. Canonically, the first two
-/// fields are used to share the message type, as well as uniquely identify it
-/// among other messages, making it easier to pair a responding message.
-/// However all eight of the u32 fields can be used for any application-
-/// specific purpose.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub struct Message {
-    pub message_type: u32,
-    pub unique_id: u32,
-    pub args: [u32; 6],
-}
-
-impl Message {
-    pub fn empty() -> Self {
-        Message {
-            message_type: 0,
-            unique_id: 0,
-            args: [0; 6],
-        }
-    }
-
-    pub fn set_args(mut self, args: [u32; 6]) -> Self {
-        self.args = args;
-        self
-    }
-}
+use alloc::collections::VecDeque;
+use idos_api::ipc::Message;
 
 /// A Message Packet associates a message with its sender
 #[derive(Debug, Eq, PartialEq)]
@@ -78,13 +50,16 @@ impl MessageQueue {
     }
 
     /// Add an incoming message from another task
-    pub fn add(&mut self, from: TaskID, message: Message, current_ticks: u32, expiration_ticks: u32) {
+    pub fn add(
+        &mut self,
+        from: TaskID,
+        message: Message,
+        current_ticks: u32,
+        expiration_ticks: u32,
+    ) {
         self.remove_expired_items(current_ticks);
         let for_queue = EnqueuedMessage {
-            packet: MessagePacket {
-                from,
-                message,
-            },
+            packet: MessagePacket { from, message },
             expiration_ticks,
         };
         self.queue.push_back(for_queue);
@@ -110,8 +85,8 @@ impl MessageQueue {
 
 #[cfg(test)]
 mod tests {
-    use crate::task::id::TaskID;
     use super::{Message, MessagePacket, MessageQueue};
+    use crate::task::id::TaskID;
 
     #[test_case]
     fn add_and_read() {
@@ -135,26 +110,32 @@ mod tests {
         );
         {
             let (front, remaining) = queue.read(0);
-            assert_eq!(front.unwrap(), MessagePacket {
-                from: TaskID::new(10),
-                message: Message {
-                    message_type: 0,
-                    unique_id: 0,
-                    args: [1, 2, 3, 4, 0, 0],
-                },
-            });
+            assert_eq!(
+                front.unwrap(),
+                MessagePacket {
+                    from: TaskID::new(10),
+                    message: Message {
+                        message_type: 0,
+                        unique_id: 0,
+                        args: [1, 2, 3, 4, 0, 0],
+                    },
+                }
+            );
             assert!(remaining);
         }
         {
             let (front, remaining) = queue.read(0);
-            assert_eq!(front.unwrap(), MessagePacket {
-                from: TaskID::new(14),
-                message: Message {
-                    message_type: 0,
-                    unique_id: 0,
-                    args: [5, 6, 7, 8, 0, 0],
-                },
-            });
+            assert_eq!(
+                front.unwrap(),
+                MessagePacket {
+                    from: TaskID::new(14),
+                    message: Message {
+                        message_type: 0,
+                        unique_id: 0,
+                        args: [5, 6, 7, 8, 0, 0],
+                    },
+                }
+            );
             assert!(!remaining);
         }
     }
@@ -176,14 +157,17 @@ mod tests {
         );
         {
             let (front, remaining) = queue.read(4000);
-            assert_eq!(front.unwrap(), MessagePacket {
-                from: TaskID::new(12),
-                message: Message {
-                    message_type: 0,
-                    unique_id: 0,
-                    args: [5, 6, 7, 8, 0, 0],
-                },
-            });
+            assert_eq!(
+                front.unwrap(),
+                MessagePacket {
+                    from: TaskID::new(12),
+                    message: Message {
+                        message_type: 0,
+                        unique_id: 0,
+                        args: [5, 6, 7, 8, 0, 0],
+                    },
+                }
+            );
             assert!(!remaining);
         }
     }

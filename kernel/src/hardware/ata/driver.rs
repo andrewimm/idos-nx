@@ -11,7 +11,7 @@ use crate::task::actions::io::driver_io_complete;
 use crate::task::actions::io::read_struct_sync;
 use crate::task::actions::io::read_sync;
 use crate::task::actions::io::write_sync;
-use crate::task::messaging::Message;
+use idos_api::ipc::Message;
 use crate::task::switching::get_current_id;
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};

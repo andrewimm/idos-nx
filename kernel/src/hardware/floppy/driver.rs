@@ -21,7 +21,7 @@ use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::actions::yield_coop;
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
-use crate::task::messaging::Message;
+use idos_api::ipc::Message;
 use crate::task::paging::page_on_demand;
 use crate::task::switching::get_current_id;
 

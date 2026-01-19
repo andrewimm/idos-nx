@@ -48,7 +48,7 @@ mod tests {
         use super::actions::memory::{map_memory, unmap_memory};
         use super::actions::{send_message, yield_coop};
         use super::memory::MemoryBacking;
-        use super::messaging::Message;
+        use idos_api::ipc::Message;
         use super::paging::get_current_physical_address;
         use crate::memory::address::{PhysicalAddress, VirtualAddress};
         use crate::memory::physical::tracked_frame_reference_count;
