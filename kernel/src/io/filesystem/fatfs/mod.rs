@@ -7,7 +7,6 @@ pub mod table;
 
 use self::driver::FatDriver;
 use super::install_task_fs;
-use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::handle::Handle;
 use crate::log::TaggedLogger;
 use crate::task::actions::handle::{create_pipe_handles, open_message_queue, transfer_handle};
@@ -15,6 +14,7 @@ use crate::task::actions::io::{
     close_sync, driver_io_complete, read_struct_sync, read_sync, write_sync,
 };
 use crate::task::actions::lifecycle::create_kernel_task;
+use idos_api::io::driver::AsyncDriver;
 use idos_api::ipc::Message;
 
 const LOGGER: TaggedLogger = TaggedLogger::new("FATFS", 34);
