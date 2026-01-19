@@ -1,6 +1,7 @@
 use core::sync::atomic::Ordering;
 
 use alloc::boxed::Box;
+use idos_api::ipc::Message;
 
 use crate::{
     loader::load_executable,
@@ -9,7 +10,6 @@ use crate::{
     task::{
         actions::{handle::create_task, send_message},
         id::AtomicTaskID,
-        messaging::Message,
         paging::get_current_physical_address,
     },
 };

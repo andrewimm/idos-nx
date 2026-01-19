@@ -2,10 +2,11 @@ use super::comms::{DriverCommand, IOResult};
 use crate::{
     files::stat::FileStatus,
     memory::{address::VirtualAddress, shared::release_buffer},
-    task::{id::TaskID, messaging::Message},
+    task::id::TaskID,
 };
 use alloc::string::ToString;
 use idos_api::io::error::IOError;
+use idos_api::ipc::Message;
 
 /// Trait implemented by all async drivers. It provides a helper method to
 /// translate incoming messages from the DriverIO system into file IO method

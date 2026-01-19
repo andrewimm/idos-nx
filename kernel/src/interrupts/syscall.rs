@@ -1,6 +1,6 @@
 use core::arch::global_asm;
 
-use idos_api::{compat::VMRegisters, io::AsyncOp};
+use idos_api::{compat::VMRegisters, io::AsyncOp, ipc::Message};
 
 use crate::{
     io::handle::Handle,
@@ -11,7 +11,6 @@ use crate::{
         id::TaskID,
         map::get_task,
         memory::MemoryBacking,
-        messaging::Message,
     },
 };
 

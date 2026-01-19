@@ -15,7 +15,7 @@ use crate::task::actions::io::{
     close_sync, driver_io_complete, read_struct_sync, read_sync, write_sync,
 };
 use crate::task::actions::lifecycle::create_kernel_task;
-use crate::task::messaging::Message;
+use idos_api::ipc::Message;
 
 const LOGGER: TaggedLogger = TaggedLogger::new("FATFS", 34);
 

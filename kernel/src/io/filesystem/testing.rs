@@ -13,7 +13,7 @@ use crate::io::handle::PendingHandleOp;
 use crate::task::actions::handle::open_message_queue;
 use crate::task::actions::send_message;
 use crate::task::id::TaskID;
-use crate::task::messaging::Message;
+use idos_api::ipc::Message;
 
 pub mod sync_fs {
     use crate::io::filesystem::driver::AsyncIOCallback;

@@ -7,11 +7,12 @@ use crate::time::system::{get_system_time, Timestamp};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
+use idos_api::ipc::Message;
 
 use super::args::ExecArgs;
 use super::id::TaskID;
 use super::memory::MappedMemory;
-use super::messaging::{Message, MessagePacket, MessageQueue};
+use super::messaging::{MessagePacket, MessageQueue};
 use super::stack::free_stack;
 
 pub struct Task {

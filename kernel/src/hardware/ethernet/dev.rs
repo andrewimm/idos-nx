@@ -27,7 +27,7 @@ use crate::task::actions::lifecycle::create_kernel_task;
 use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::memory::MemoryBacking;
-use crate::task::messaging::Message;
+use idos_api::ipc::Message;
 use alloc::vec::Vec;
 use idos_api::io::{AsyncOp, ASYNC_OP_READ};
 

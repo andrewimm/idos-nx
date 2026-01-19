@@ -1,9 +1,7 @@
 use idos_api::io::error::IOError;
+use idos_api::ipc::Message;
 
-use crate::{
-    memory::address::VirtualAddress,
-    task::{id::TaskID, messaging::Message},
-};
+use crate::{memory::address::VirtualAddress, task::id::TaskID};
 
 pub type IOResult = Result<u32, IOError>;
 

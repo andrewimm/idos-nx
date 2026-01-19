@@ -2,13 +2,14 @@ use super::manager::ConsoleManager;
 use crate::{
     io::driver::comms::DriverCommand,
     memory::{address::VirtualAddress, shared::release_buffer},
-    task::{id::TaskID, messaging::Message},
+    task::id::TaskID,
 };
 use alloc::collections::VecDeque;
 use idos_api::io::{
     error::{IOError, IOResult},
     termios,
 };
+use idos_api::ipc::Message;
 
 mod read;
 

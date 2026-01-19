@@ -20,7 +20,7 @@ use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
-use crate::task::messaging::Message;
+use idos_api::ipc::Message;
 use crate::time::system::get_system_ticks;
 
 use self::graphics::framebuffer::Framebuffer;

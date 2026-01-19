@@ -8,15 +8,13 @@ use crate::{
         virt::scratch::UnmappedPage,
     },
     task::{
-        id::TaskID,
-        map::get_task,
-        messaging::{Message, MessagePacket},
-        paging::get_current_physical_address,
+        id::TaskID, map::get_task, messaging::MessagePacket, paging::get_current_physical_address,
         switching::get_current_id,
     },
 };
 use alloc::collections::BTreeMap;
 use idos_api::io::AsyncOp;
+use idos_api::ipc::Message;
 use spin::RwLock;
 
 /// Inner contents of the handle used to read IPC messages.
