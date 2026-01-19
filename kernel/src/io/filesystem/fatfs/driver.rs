@@ -2,8 +2,8 @@ use super::dir::{Directory, Entity};
 use super::fs::FatFS;
 use super::table::AllocationTable;
 use crate::collections::SlotList;
-use crate::io::driver::async_driver::AsyncDriver;
 use core::cell::RefCell;
+use idos_api::io::driver::AsyncDriver;
 use idos_api::io::error::IoError;
 use idos_api::io::file::{FileStatus, FileType};
 
@@ -31,6 +31,11 @@ pub struct OpenHandle {
 }
 
 impl AsyncDriver for FatDriver {
+    fn release_buffer(&mut self, buffer_ptr: *mut u8, buffer_len: usize) {
+        use crate::memory::{address::VirtualAddress, shared::release_buffer};
+        release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
+    }
+
     fn open(&mut self, path: &str) -> Result<u32, IoError> {
         super::LOGGER.log(format_args!("Open \"{}\"", path));
 

@@ -4,7 +4,6 @@
 #![feature(strict_provenance_atomic_ptr)]
 
 pub mod allocator;
-//pub mod driver;
 pub mod env;
 pub mod panic;
 

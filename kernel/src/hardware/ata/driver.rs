@@ -1,5 +1,4 @@
 use super::controller::{AtaChannel, DriveSelect, SECTOR_SIZE};
-use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::task::actions::handle::open_interrupt_handle;
@@ -12,6 +11,7 @@ use crate::task::actions::io::write_sync;
 use crate::task::switching::get_current_id;
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};
+use idos_api::io::driver::AsyncDriver;
 use idos_api::io::error::{IoError, IoResult};
 use idos_api::ipc::Message;
 
@@ -39,6 +39,11 @@ impl AtaDeviceDriver {
 }
 
 impl AsyncDriver for AtaDeviceDriver {
+    fn release_buffer(&mut self, buffer_ptr: *mut u8, buffer_len: usize) {
+        use crate::memory::{address::VirtualAddress, shared::release_buffer};
+        release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
+    }
+
     fn open(&mut self, path: &str) -> IoResult {
         // The `path` should be a stringified version of the driver index.
         // The driver number is 1-indexed, while the internal array is
@@ -113,10 +118,6 @@ impl AsyncDriver for AtaDeviceDriver {
         }
 
         Ok(bytes_read)
-    }
-
-    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
-        Err(IoError::UnsupportedOperation)
     }
 }
 
