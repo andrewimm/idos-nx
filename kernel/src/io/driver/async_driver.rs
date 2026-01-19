@@ -1,11 +1,11 @@
 use super::comms::DriverCommand;
 use crate::{
-    files::stat::FileStatus,
     memory::{address::VirtualAddress, shared::release_buffer},
     task::id::TaskID,
 };
 use alloc::string::ToString;
 use idos_api::io::error::{IoError, IoResult};
+use idos_api::io::file::FileStatus;
 use idos_api::ipc::Message;
 
 /// Trait implemented by all async drivers. It provides a helper method to

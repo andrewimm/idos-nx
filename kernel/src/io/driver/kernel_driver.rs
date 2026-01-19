@@ -1,10 +1,7 @@
 use idos_api::io::error::{IoError, IoResult};
+use idos_api::io::file::FileStatus;
 
-use crate::{
-    files::{path::Path, stat::FileStatus},
-    io::filesystem::driver::AsyncIOCallback,
-    task::id::TaskID,
-};
+use crate::{files::path::Path, io::filesystem::driver::AsyncIOCallback, task::id::TaskID};
 
 /// Kernel Driver methods execute immediately, but may not complete
 /// synchronously. If the data is available by the time the method finishes, it

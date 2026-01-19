@@ -13,10 +13,10 @@ use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use idos_api::io::error::{IoError, IoResult};
+use idos_api::io::file::FileStatus;
 use spin::{Once, RwLock};
 
 use crate::files::path::Path;
-use crate::files::stat::FileStatus;
 use crate::memory::address::VirtualAddress;
 use crate::memory::shared::{release_buffer, share_buffer};
 use crate::task::actions::memory::map_memory;

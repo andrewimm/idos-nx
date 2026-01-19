@@ -1,11 +1,10 @@
 use crate::{
-    collections::SlotList,
-    files::{path::Path, stat::FileStatus},
-    io::driver::kernel_driver::KernelDriver,
+    collections::SlotList, files::path::Path, io::driver::kernel_driver::KernelDriver,
     memory::physical::with_allocator,
 };
 use alloc::string::String;
 use idos_api::io::error::{IoError, IoResult};
+use idos_api::io::file::FileStatus;
 use spin::RwLock;
 
 use super::{driver::AsyncIOCallback, get_all_drive_names};
