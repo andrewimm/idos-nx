@@ -12,7 +12,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::hardware::pci::devices::PciDevice;
 use crate::hardware::pci::get_bus_devices;
-use crate::io::driver::comms::DriverCommand;
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
@@ -27,6 +26,7 @@ use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::memory::MemoryBacking;
 use alloc::vec::Vec;
+use idos_api::io::driver::DriverCommand;
 use idos_api::io::error::{IoError, IoResult};
 use idos_api::io::{AsyncOp, ASYNC_OP_READ};
 use idos_api::ipc::Message;

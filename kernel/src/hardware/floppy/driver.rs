@@ -10,7 +10,6 @@ use idos_api::io::error::{IoError, IoResult};
 use idos_api::io::{AsyncOp, ASYNC_OP_READ};
 
 use crate::hardware::dma::DmaChannelRegisters;
-use crate::io::driver::comms::DriverCommand;
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
@@ -23,6 +22,7 @@ use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
 use crate::task::paging::page_on_demand;
 use crate::task::switching::get_current_id;
+use idos_api::io::driver::DriverCommand;
 use idos_api::ipc::Message;
 
 use super::controller::{Command, ControllerError, DriveSelect, DriveType, FloppyController};

@@ -1,9 +1,5 @@
-use super::comms::DriverCommand;
-use crate::{
-    memory::{address::VirtualAddress, shared::release_buffer},
-    task::id::TaskID,
-};
 use alloc::string::ToString;
+use idos_api::io::driver::DriverCommand;
 use idos_api::io::error::{IoError, IoResult};
 use idos_api::io::file::FileStatus;
 use idos_api::ipc::Message;
@@ -15,10 +11,16 @@ use idos_api::ipc::Message;
 /// TODO: This should eventually get moved out into the SDK.
 #[allow(unused_variables)]
 pub trait AsyncDriver {
+    // Overridable helper method to release buffers after use.
+    fn release_buffer(&mut self, buffer_ptr: *mut u8, buffer_len: usize) {
+        use crate::memory::{address::VirtualAddress, shared::release_buffer};
+        release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
+    }
+
     fn handle_request(&mut self, message: Message) -> Option<IoResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::Open => {
-                let path_ptr = message.args[0] as *const u8;
+                let path_ptr = message.args[0] as *mut u8;
                 let path_len = message.args[1] as usize;
                 let path = if path_len == 0 {
                     ""
@@ -43,22 +45,22 @@ pub trait AsyncDriver {
                 let offset = message.args[3];
                 let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
                 let result = self.read(instance, buffer, offset);
-                release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
+                self.release_buffer(buffer_ptr, buffer_len);
                 Some(result)
             }
             DriverCommand::Write => {
                 let instance = message.args[0];
-                let buffer_ptr = message.args[1] as *const u8;
+                let buffer_ptr = message.args[1] as *mut u8;
                 let buffer_len = message.args[2] as usize;
                 let offset = message.args[3];
                 let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_len) };
                 let result = self.write(instance, buffer, offset);
-                release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
+                self.release_buffer(buffer_ptr, buffer_len);
                 Some(result)
             }
             DriverCommand::Share => {
                 let instance = message.args[0];
-                let transfer_to_id = TaskID::new(message.args[1]);
+                let transfer_to_id = message.args[1];
                 let result = self.share(instance, transfer_to_id, message.args[2] != 0);
                 Some(result)
             }
@@ -68,13 +70,13 @@ pub trait AsyncDriver {
                 let struct_len = message.args[2] as usize;
                 if struct_len != core::mem::size_of::<FileStatus>() {
                     // invalid size?
-                    release_buffer(VirtualAddress::new(struct_ptr as u32), struct_len);
+                    self.release_buffer(struct_ptr as *mut u8, struct_len);
                     return None;
                 }
                 let status_struct = unsafe { &mut *struct_ptr };
 
                 let result = self.stat(instance, status_struct);
-                release_buffer(VirtualAddress::new(struct_ptr as u32), struct_len);
+                self.release_buffer(struct_ptr as *mut u8, struct_len);
                 Some(result)
             }
             DriverCommand::Ioctl => {
@@ -85,7 +87,7 @@ pub trait AsyncDriver {
                 if arg_len != 0 {
                     // attempt to interpret arg as pointer to struct
                     let result = self.ioctl_struct(instance, ioctl, arg as *mut u8, arg_len);
-                    release_buffer(VirtualAddress::new(arg), arg_len);
+                    self.release_buffer(arg as *mut u8, arg_len);
                     Some(result)
                 } else {
                     // assume arg is just a u32 value
@@ -108,7 +110,7 @@ pub trait AsyncDriver {
 
     fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult;
 
-    fn share(&mut self, instance: u32, transfer_to_id: TaskID, is_move: bool) -> IoResult {
+    fn share(&mut self, instance: u32, transfer_to_id: u32, is_move: bool) -> IoResult {
         Ok(1)
     }
 
