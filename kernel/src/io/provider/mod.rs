@@ -1,7 +1,10 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::{collections::VecDeque, sync::Arc};
-use idos_api::io::{error::IOError, AsyncOp};
+use idos_api::io::{
+    error::{IoError, IoResult},
+    AsyncOp,
+};
 use spin::RwLock;
 
 use crate::{
@@ -26,8 +29,6 @@ pub mod irq;
 pub mod message;
 pub mod socket;
 pub mod task;
-
-pub type IOResult = Result<u32, IOError>;
 
 #[allow(unused_variables)]
 pub trait IOProvider {
@@ -54,9 +55,9 @@ pub trait IOProvider {
 
     fn remove_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp>;
 
-    /// Convert an internal IOResult into a value that can be transferred
+    /// Convert an internal IoResult into a value that can be transferred
     /// through an atomic signal.
-    fn transform_result(&self, op_code: u32, result: IOResult) -> u32 {
+    fn transform_result(&self, op_code: u32, result: IoResult) -> u32 {
         let mapped_result = if op_code & 0xffff == ASYNC_OP_OPEN {
             // Opening a handle has some funky special behavior, since we
             // extract the driver lookup instance from the result, bind it
@@ -79,14 +80,14 @@ pub trait IOProvider {
     }
 
     /// Finish an op that could not complete immediately.
-    fn async_complete(&self, id: AsyncOpID, result: IOResult) -> Option<UnmappedAsyncOp> {
+    fn async_complete(&self, id: AsyncOpID, result: IoResult) -> Option<UnmappedAsyncOp> {
         let found_op = self.remove_op(id)?;
         found_op.complete(self.transform_result(found_op.op_code, result));
         Some(found_op)
     }
 
     /// Look up the active op, and run a specific io method based on its op code
-    fn run_op(&self, provider_index: u32, id: AsyncOpID) -> Option<IOResult> {
+    fn run_op(&self, provider_index: u32, id: AsyncOpID) -> Option<IoResult> {
         let op = self.get_op(id)?;
         match op.op_code & 0xffff {
             ASYNC_OP_OPEN => self.open(provider_index, id, op),
@@ -103,36 +104,36 @@ pub trait IOProvider {
     }
 
     /// `open` attaches a new IO provider to an actual data source, like a file or a socket.
-    fn open(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    fn open(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 
     /// `read` transfers data from the IO provider to a buffer. Typically this
     /// is byte data, but it is also used for other pull-type actions like
     /// waiting for an interrupt or accepting a listening socket.
-    fn read(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    fn read(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 
     /// `write` transfers data from a buffer to the IO provider. This is usually
     /// a stream of bytes, but it can also be used for push-type actions like
     /// acknowledging an interrupt.
-    fn write(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    fn write(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 
     /// `close` detaches the IO provider from the data source, and cleans up
     /// any associated resources. Once a provider is closed, it cannot
     /// be used again, and any further operations on it will return an error.
-    fn close(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    fn close(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 
     /// `share` takes an IO provider and attaches it to a different Task.
     /// This may require special handling at the provider or driver level, which
     /// may allocate per-Task resources.
-    fn share(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    fn share(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 
     /// All other provider-specific operations are handled by `extended_op`.
@@ -141,8 +142,8 @@ pub trait IOProvider {
         provider_index: u32,
         id: AsyncOpID,
         op: UnmappedAsyncOp,
-    ) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    ) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 }
 

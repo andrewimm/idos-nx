@@ -2,6 +2,7 @@ use core::sync::atomic::Ordering;
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use idos_api::io::error::IoResult;
 use idos_api::io::AsyncOp;
 use spin::RwLock;
 
@@ -79,12 +80,7 @@ impl IOProvider for TaskIOProvider {
         self.pending_ops.write().remove(&id)
     }
 
-    fn read(
-        &self,
-        _provider_index: u32,
-        _id: AsyncOpID,
-        _op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: UnmappedAsyncOp) -> Option<IoResult> {
         if let Some(code) = *self.exit_code.read() {
             return Some(Ok(code));
         }

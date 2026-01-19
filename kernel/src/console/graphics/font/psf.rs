@@ -9,7 +9,7 @@ use crate::task::actions::{
 
 use super::{Font, Glyph};
 use alloc::vec::Vec;
-use idos_api::io::error::IOError;
+use idos_api::io::error::IoError;
 
 pub struct PsfFont {
     height: u8,
@@ -17,14 +17,14 @@ pub struct PsfFont {
 }
 
 impl PsfFont {
-    pub fn from_file(path: &str) -> Result<Self, IOError> {
+    pub fn from_file(path: &str) -> Result<Self, IoError> {
         let handle = create_file_handle();
         let _ = open_sync(handle, path)?;
 
         let mut header = [0u8; 4];
         let _ = read_sync(handle, &mut header, 0)?;
         if header[0..2] != [0x36, 0x04] {
-            return Err(IOError::NotFound);
+            return Err(IoError::NotFound);
         }
 
         let mode = header[2];

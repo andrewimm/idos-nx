@@ -4,7 +4,7 @@
 //! which task to modify and which program to load. Most of the details of this
 //! will be handled by the stdlib.
 
-use idos_api::io::error::IOError;
+use idos_api::io::error::IoError;
 use spin::Once;
 
 use crate::io::handle::Handle;
@@ -81,7 +81,7 @@ fn loader_resident() -> ! {
 fn load_file(path: &str) -> Result<(Handle, ExecutionEnvironment), LoaderError> {
     let exec_handle = create_file_handle();
     let _ = open_sync(exec_handle, path).map_err(|e| match e {
-        IOError::NotFound => LoaderError::FileNotFound,
+        IoError::NotFound => LoaderError::FileNotFound,
         _ => LoaderError::InternalError,
     })?;
 

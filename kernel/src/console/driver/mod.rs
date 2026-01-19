@@ -6,7 +6,7 @@ use crate::{
 };
 use alloc::collections::VecDeque;
 use idos_api::io::{
-    error::{IOError, IOResult},
+    error::{IoError, IoResult},
     termios,
 };
 use idos_api::ipc::Message;
@@ -16,13 +16,13 @@ mod read;
 pub use self::read::PendingRead;
 
 impl ConsoleManager {
-    pub fn handle_request(&mut self, sender: TaskID, message: &Message) -> Option<IOResult> {
+    pub fn handle_request(&mut self, sender: TaskID, message: &Message) -> Option<IoResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::OpenRaw => {
                 let console_id = message.args[0] as usize;
                 let console = match self.consoles.get_mut(console_id) {
                     Some(console) => console,
-                    None => return Some(Err(IOError::NotFound)),
+                    None => return Some(Err(IoError::NotFound)),
                 };
                 console.add_reader_task(sender);
                 let handle = self.open_io.insert(console_id);
@@ -33,7 +33,7 @@ impl ConsoleManager {
                 let instance = message.args[0];
                 match self.open_io.remove(instance as usize) {
                     Some(_) => Some(Ok(1)),
-                    None => Some(Err(IOError::FileHandleInvalid)),
+                    None => Some(Err(IoError::FileHandleInvalid)),
                 }
             }
 
@@ -67,7 +67,7 @@ impl ConsoleManager {
                 } else {
                     let console_id = match self.open_io.get(instance as usize) {
                         Some(id) => id,
-                        None => return Some(Err(IOError::FileHandleInvalid)),
+                        None => return Some(Err(IoError::FileHandleInvalid)),
                     };
 
                     let console = self.consoles.get_mut(*console_id).unwrap();
@@ -94,7 +94,7 @@ impl ConsoleManager {
                 }
             }
 
-            _ => Some(Err(IOError::UnsupportedOperation)),
+            _ => Some(Err(IoError::UnsupportedOperation)),
         }
     }
 
@@ -103,10 +103,10 @@ impl ConsoleManager {
     /// request can be immediately resolved. Otherwise it pushes the request
     /// onto a pending read queue where it will be resolved the next time
     /// input is flushed.
-    pub fn read(&mut self, request_id: u32, instance: u32, buffer: &mut [u8]) -> Option<IOResult> {
+    pub fn read(&mut self, request_id: u32, instance: u32, buffer: &mut [u8]) -> Option<IoResult> {
         let console_id = match self.open_io.get(instance as usize) {
             Some(id) => id,
-            None => return Some(Err(IOError::FileHandleInvalid)),
+            None => return Some(Err(IoError::FileHandleInvalid)),
         };
 
         if let Some(queue) = self.pending_reads.get_mut(*console_id) {
@@ -156,11 +156,11 @@ impl ConsoleManager {
     }
 
     /// Write text to the console window.
-    pub fn write(&mut self, instance: u32, buffer: &[u8]) -> IOResult {
+    pub fn write(&mut self, instance: u32, buffer: &[u8]) -> IoResult {
         let console_id = self
             .open_io
             .get(instance as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
 
         let console = self.consoles.get_mut(*console_id).unwrap();
         for ch in buffer.iter() {
@@ -169,11 +169,11 @@ impl ConsoleManager {
         Ok(buffer.len() as u32)
     }
 
-    pub fn ioctl(&mut self, instance: u32, ioctl: u32, arg: u32) -> IOResult {
+    pub fn ioctl(&mut self, instance: u32, ioctl: u32, arg: u32) -> IoResult {
         let console_id = self
             .open_io
             .get(instance as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
 
         let console = self.consoles.get_mut(*console_id).unwrap();
         match ioctl {
@@ -181,7 +181,7 @@ impl ConsoleManager {
                 console.terminal.exit_graphics_mode();
                 Ok(1)
             }
-            _ => Err(IOError::UnsupportedOperation),
+            _ => Err(IoError::UnsupportedOperation),
         }
     }
 
@@ -191,17 +191,17 @@ impl ConsoleManager {
         ioctl: u32,
         arg_ptr: *mut u8,
         arg_len: usize,
-    ) -> IOResult {
+    ) -> IoResult {
         let console_id = self
             .open_io
             .get(instance as usize)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
 
         let console = self.consoles.get_mut(*console_id).unwrap();
         match ioctl {
             termios::TCSETS => {
                 if arg_len != core::mem::size_of::<termios::Termios>() {
-                    return Err(IOError::InvalidArgument);
+                    return Err(IoError::InvalidArgument);
                 }
                 let termios_struct = unsafe { &*(arg_ptr as *const termios::Termios) };
                 console.terminal.set_termios(termios_struct);
@@ -209,7 +209,7 @@ impl ConsoleManager {
             }
             termios::TCGETS => {
                 if arg_len != core::mem::size_of::<termios::Termios>() {
-                    return Err(IOError::InvalidArgument);
+                    return Err(IoError::InvalidArgument);
                 }
                 let termios_struct = unsafe { &mut *(arg_ptr as *mut termios::Termios) };
                 console.terminal.get_termios(termios_struct);
@@ -217,13 +217,13 @@ impl ConsoleManager {
             }
             termios::TSETGFX => {
                 if arg_len != core::mem::size_of::<termios::GraphicsMode>() {
-                    return Err(IOError::InvalidArgument);
+                    return Err(IoError::InvalidArgument);
                 }
                 let gfx_struct = unsafe { &mut *(arg_ptr as *mut termios::GraphicsMode) };
                 console.terminal.set_graphics_mode(gfx_struct);
                 Ok(1)
             }
-            _ => Err(IOError::UnsupportedOperation),
+            _ => Err(IoError::UnsupportedOperation),
         }
     }
 }

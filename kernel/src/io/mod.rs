@@ -7,8 +7,6 @@ pub mod filesystem;
 pub mod handle;
 pub mod provider;
 
-pub use idos_api::io::error::IOError;
-
 use alloc::boxed::Box;
 
 pub fn init_async_io_system() {

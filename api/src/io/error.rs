@@ -1,6 +1,6 @@
 #[derive(Clone, Debug, PartialEq)]
 #[repr(u32)]
-pub enum IOError {
+pub enum IoError {
     // No enum value should be backed by a value of 0
     /// An error occurred within the file system
     FileSystemError = 1,
@@ -30,7 +30,7 @@ pub enum IOError {
     Unknown = 0xffffffff,
 }
 
-impl TryFrom<u32> for IOError {
+impl TryFrom<u32> for IoError {
     type Error = ();
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
@@ -50,10 +50,10 @@ impl TryFrom<u32> for IOError {
     }
 }
 
-impl Into<u32> for IOError {
+impl Into<u32> for IoError {
     fn into(self) -> u32 {
         self as u32
     }
 }
 
-pub type IOResult = Result<u32, IOError>;
+pub type IoResult = Result<u32, IoError>;

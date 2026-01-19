@@ -4,6 +4,7 @@ use core::sync::atomic::Ordering;
 
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use idos_api::io::error::IoResult;
 use idos_api::io::AsyncOp;
 use spin::RwLock;
 
@@ -74,12 +75,7 @@ impl IOProvider for InterruptIOProvider {
     }
 
     /// `read`ing an irq listens for the interrupt
-    fn read(
-        &self,
-        _provider_index: u32,
-        _id: AsyncOpID,
-        _op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    fn read(&self, _provider_index: u32, _id: AsyncOpID, _op: UnmappedAsyncOp) -> Option<IoResult> {
         if is_interrupt_active(self.irq) {
             return Some(Ok(1));
         }
@@ -92,7 +88,7 @@ impl IOProvider for InterruptIOProvider {
         _provider_index: u32,
         _id: AsyncOpID,
         _op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    ) -> Option<IoResult> {
         acknowledge_interrupt(self.irq);
         Some(Ok(1))
     }

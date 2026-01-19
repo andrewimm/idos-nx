@@ -1,10 +1,9 @@
 use crate::files::path::Path;
-use crate::io::driver::comms::IOResult;
 use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::filesystem::driver::AsyncIOCallback;
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};
-use idos_api::io::error::IOError;
+use idos_api::io::error::{IoError, IoResult};
 use spin::RwLock;
 
 pub struct NullDev {
@@ -28,31 +27,31 @@ impl NullDev {
         }
     }
 
-    fn open_impl(&self) -> IOResult {
+    fn open_impl(&self) -> IoResult {
         let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
         self.open_files.write().insert(instance, OpenFile::new());
         Ok(instance)
     }
 
-    fn read_impl(&self, instance: u32, _buffer: &mut [u8]) -> IOResult {
+    fn read_impl(&self, instance: u32, _buffer: &mut [u8]) -> IoResult {
         let mut open_files = self.open_files.write();
         let _found = open_files
             .get_mut(&instance)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
         Ok(0)
     }
 
-    fn close_impl(&self, instance: u32) -> IOResult {
+    fn close_impl(&self, instance: u32) -> IoResult {
         let mut open_files = self.open_files.write();
         open_files
             .remove(&instance)
-            .ok_or(IOError::FileHandleInvalid)?;
+            .ok_or(IoError::FileHandleInvalid)?;
         Ok(0)
     }
 }
 
 impl KernelDriver for NullDev {
-    fn open(&self, _path: Option<Path>, _: AsyncIOCallback) -> Option<IOResult> {
+    fn open(&self, _path: Option<Path>, _: AsyncIOCallback) -> Option<IoResult> {
         Some(self.open_impl())
     }
 
@@ -62,11 +61,11 @@ impl KernelDriver for NullDev {
         buffer: &mut [u8],
         _: u32,
         _: AsyncIOCallback,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         Some(self.read_impl(instance, buffer))
     }
 
-    fn close(&self, instance: u32, _: AsyncIOCallback) -> Option<IOResult> {
+    fn close(&self, instance: u32, _: AsyncIOCallback) -> Option<IoResult> {
         Some(self.close_impl(instance))
     }
 }

@@ -1,6 +1,6 @@
 use core::sync::atomic::Ordering;
 
-use idos_api::io::{error::IOError, AsyncOp};
+use idos_api::io::{error::IoError, AsyncOp};
 
 use crate::collections::SlotList;
 
@@ -113,10 +113,10 @@ impl PendingHandleOp {
         }
     }
 
-    pub fn wait_for_result(&self) -> Result<u32, IOError> {
+    pub fn wait_for_result(&self) -> Result<u32, IoError> {
         let code = self.wait_for_completion();
         if code & 0x80000000 != 0 {
-            let io_error = IOError::try_from(code & 0x7fffffff).unwrap_or(IOError::Unknown);
+            let io_error = IoError::try_from(code & 0x7fffffff).unwrap_or(IoError::Unknown);
             Err(io_error)
         } else {
             Ok(code)

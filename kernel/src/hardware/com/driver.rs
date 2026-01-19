@@ -6,11 +6,14 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::collections::{BTreeMap, VecDeque};
-use idos_api::io::{error::IOError, AsyncOp, ASYNC_OP_READ};
+use idos_api::io::{
+    error::{IoError, IoResult},
+    AsyncOp, ASYNC_OP_READ,
+};
 use idos_api::ipc::Message;
 
 use crate::{
-    io::driver::comms::{DriverCommand, IOResult},
+    io::driver::comms::DriverCommand,
     task::actions::{
         handle::{open_interrupt_handle, open_message_queue},
         io::{driver_io_complete, send_io_op, write_sync},
@@ -109,7 +112,7 @@ impl ComDeviceDriver {
         }
     }
 
-    pub fn handle_request(&mut self, message: Message) -> Option<IOResult> {
+    pub fn handle_request(&mut self, message: Message) -> Option<IoResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::OpenRaw => {
                 let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
@@ -141,7 +144,7 @@ impl ComDeviceDriver {
                 }
                 Some(Ok(buffer_len as u32))
             }
-            _ => Some(Err(IOError::UnsupportedOperation)),
+            _ => Some(Err(IoError::UnsupportedOperation)),
         }
     }
 

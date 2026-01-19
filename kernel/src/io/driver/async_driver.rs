@@ -1,11 +1,11 @@
-use super::comms::{DriverCommand, IOResult};
+use super::comms::DriverCommand;
 use crate::{
     files::stat::FileStatus,
     memory::{address::VirtualAddress, shared::release_buffer},
     task::id::TaskID,
 };
 use alloc::string::ToString;
-use idos_api::io::error::IOError;
+use idos_api::io::error::{IoError, IoResult};
 use idos_api::ipc::Message;
 
 /// Trait implemented by all async drivers. It provides a helper method to
@@ -15,7 +15,7 @@ use idos_api::ipc::Message;
 /// TODO: This should eventually get moved out into the SDK.
 #[allow(unused_variables)]
 pub trait AsyncDriver {
-    fn handle_request(&mut self, message: Message) -> Option<IOResult> {
+    fn handle_request(&mut self, message: Message) -> Option<IoResult> {
         match DriverCommand::from_u32(message.message_type) {
             DriverCommand::Open => {
                 let path_ptr = message.args[0] as *const u8;
@@ -100,24 +100,24 @@ pub trait AsyncDriver {
         }
     }
 
-    fn open(&mut self, path: &str) -> IOResult;
+    fn open(&mut self, path: &str) -> IoResult;
 
-    fn close(&mut self, instance: u32) -> IOResult;
+    fn close(&mut self, instance: u32) -> IoResult;
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IOResult;
+    fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IoResult;
 
-    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IOResult;
+    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult;
 
-    fn share(&mut self, instance: u32, transfer_to_id: TaskID, is_move: bool) -> IOResult {
+    fn share(&mut self, instance: u32, transfer_to_id: TaskID, is_move: bool) -> IoResult {
         Ok(1)
     }
 
-    fn stat(&mut self, instance: u32, status_struct: &mut FileStatus) -> IOResult {
-        Err(IOError::UnsupportedOperation)
+    fn stat(&mut self, instance: u32, status_struct: &mut FileStatus) -> IoResult {
+        Err(IoError::UnsupportedOperation)
     }
 
-    fn ioctl(&mut self, instance: u32, ioctl: u32, arg: u32) -> IOResult {
-        Err(IOError::UnsupportedOperation)
+    fn ioctl(&mut self, instance: u32, ioctl: u32, arg: u32) -> IoResult {
+        Err(IoError::UnsupportedOperation)
     }
 
     fn ioctl_struct(
@@ -126,7 +126,7 @@ pub trait AsyncDriver {
         ioctl: u32,
         arg_ptr: *mut u8,
         arg_len: usize,
-    ) -> IOResult {
-        Err(IOError::UnsupportedOperation)
+    ) -> IoResult {
+        Err(IoError::UnsupportedOperation)
     }
 }

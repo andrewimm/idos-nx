@@ -13,6 +13,7 @@ use crate::{
     },
 };
 use alloc::collections::BTreeMap;
+use idos_api::io::error::IoResult;
 use idos_api::io::AsyncOp;
 use idos_api::ipc::Message;
 use spin::RwLock;
@@ -125,12 +126,7 @@ impl IOProvider for MessageIOProvider {
         self.pending_ops.write().remove(&id)
     }
 
-    fn read(
-        &self,
-        _provider_index: u32,
-        _id: AsyncOpID,
-        op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    fn read(&self, _provider_index: u32, _id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
         let packet = self.pop_message()?;
         let (sender, message) = packet.open();
         Self::copy_message(op.args[0], message);

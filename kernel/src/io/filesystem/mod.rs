@@ -12,7 +12,7 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use idos_api::io::error::IOError;
+use idos_api::io::error::{IoError, IoResult};
 use spin::{Once, RwLock};
 
 use crate::files::path::Path;
@@ -25,7 +25,7 @@ use crate::task::id::TaskID;
 use self::devfs::DevFileSystem;
 use self::driver::{AsyncIOCallback, DriverID, DriverType, InstalledDriver};
 
-use super::driver::comms::{DriverIOAction, IOResult};
+use super::driver::comms::DriverIOAction;
 use super::driver::pending::send_async_request;
 
 static INSTALLED_DRIVERS: RwLock<BTreeMap<u32, (String, DriverType)>> =
@@ -102,9 +102,9 @@ pub fn install_task_dev(name: &str, task: TaskID, sub_driver: u32) -> DriverID {
     DriverID::new(id)
 }
 
-pub fn with_driver<F>(driver_id: DriverID, f: F) -> Option<IOResult>
+pub fn with_driver<F>(driver_id: DriverID, f: F) -> Option<IoResult>
 where
-    F: FnOnce(&DriverType) -> Option<IOResult>,
+    F: FnOnce(&DriverType) -> Option<IoResult>,
 {
     if driver_id.is_dev() {
         return f(get_dev_fs());
@@ -113,7 +113,7 @@ where
     let drivers = INSTALLED_DRIVERS.read();
     let (_, driver) = match drivers.get(&driver_id) {
         Some(d) => d,
-        None => return Some(Err(IOError::NotFound)),
+        None => return Some(Err(IoError::NotFound)),
     };
     f(driver)
 }
@@ -123,7 +123,7 @@ pub fn driver_open(
     driver_id: DriverID,
     path: Path,
     io_callback: AsyncIOCallback,
-) -> Option<IOResult> {
+) -> Option<IoResult> {
     with_driver(driver_id, |driver| {
         match driver {
             DriverType::KernelFilesystem(fs) => {
@@ -183,7 +183,7 @@ pub fn driver_open(
     })
 }
 
-pub fn driver_close(id: DriverID, instance: u32, io_callback: AsyncIOCallback) -> Option<IOResult> {
+pub fn driver_close(id: DriverID, instance: u32, io_callback: AsyncIOCallback) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
         DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
             d.close(instance, io_callback)
@@ -203,7 +203,7 @@ pub fn driver_read(
     buffer: &mut [u8],
     offset: u32,
     io_callback: AsyncIOCallback,
-) -> Option<IOResult> {
+) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
         DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
             d.read(instance, buffer, offset, io_callback)
@@ -232,7 +232,7 @@ pub fn driver_write(
     buffer: &[u8],
     offset: u32,
     io_callback: AsyncIOCallback,
-) -> Option<IOResult> {
+) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
         DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
             d.write(instance, buffer, offset, io_callback)
@@ -260,7 +260,7 @@ pub fn driver_stat(
     instance: u32,
     file_status: &mut FileStatus,
     io_callback: AsyncIOCallback,
-) -> Option<IOResult> {
+) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
         DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
             d.stat(instance, file_status, io_callback)
@@ -289,7 +289,7 @@ pub fn driver_share(
     transfer_to: TaskID,
     is_move: bool,
     io_callback: AsyncIOCallback,
-) -> Option<IOResult> {
+) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
         DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
             d.share(instance, transfer_to, is_move, io_callback)
@@ -314,7 +314,7 @@ pub fn driver_ioctl(
     arg: u32,
     arg_len: usize,
     io_callback: AsyncIOCallback,
-) -> Option<IOResult> {
+) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
         DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
             d.ioctl(instance, ioctl, arg, arg_len, io_callback)

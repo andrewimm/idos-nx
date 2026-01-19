@@ -18,7 +18,10 @@ use crate::{
     },
 };
 use alloc::collections::BTreeMap;
-use idos_api::io::{error::IOError, AsyncOp};
+use idos_api::io::{
+    error::{IoError, IoResult},
+    AsyncOp,
+};
 use spin::{Mutex, RwLock};
 
 /// Inner contents of a handle that is bound to a file for reading/writing
@@ -118,26 +121,21 @@ impl IOProvider for FileIOProvider {
         *self.bound_instance.lock() = Some(instance);
     }
 
-    fn open(
-        &self,
-        provider_index: u32,
-        id: AsyncOpID,
-        op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    fn open(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
         if self.bound_instance.lock().is_some() {
-            return Some(Err(IOError::AlreadyOpen));
+            return Some(Err(IoError::AlreadyOpen));
         }
         let path_ptr = op.args[0] as *const u8;
         let path_len = op.args[1] as usize;
         let path_str = unsafe {
             match core::str::from_utf8(core::slice::from_raw_parts(path_ptr, path_len)) {
                 Ok(str) => str,
-                Err(_) => return Some(Err(IOError::NotFound)),
+                Err(_) => return Some(Err(IoError::NotFound)),
             }
         };
         let (driver_id, path) = match prepare_file_path(path_str) {
             Ok(pair) => pair,
-            Err(_) => return Some(Err(IOError::NotFound)),
+            Err(_) => return Some(Err(IoError::NotFound)),
         };
         *self.driver_id.lock() = Some(driver_id);
         driver_open(
@@ -147,12 +145,7 @@ impl IOProvider for FileIOProvider {
         )
     }
 
-    fn read(
-        &self,
-        provider_index: u32,
-        id: AsyncOpID,
-        op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    fn read(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let buffer_ptr = op.args[0] as *mut u8;
             let buffer_len = op.args[1] as usize;
@@ -167,15 +160,10 @@ impl IOProvider for FileIOProvider {
                 (self.source_id.load(Ordering::SeqCst), provider_index, id),
             );
         }
-        Some(Err(IOError::FileHandleInvalid))
+        Some(Err(IoError::FileHandleInvalid))
     }
 
-    fn write(
-        &self,
-        provider_index: u32,
-        id: AsyncOpID,
-        op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    fn write(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let buffer_ptr = op.args[0] as *const u8;
             let buffer_len = op.args[1] as usize;
@@ -190,15 +178,10 @@ impl IOProvider for FileIOProvider {
                 (self.source_id.load(Ordering::SeqCst), provider_index, id),
             );
         }
-        Some(Err(IOError::FileHandleInvalid))
+        Some(Err(IoError::FileHandleInvalid))
     }
 
-    fn close(
-        &self,
-        provider_index: u32,
-        id: AsyncOpID,
-        _op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    fn close(&self, provider_index: u32, id: AsyncOpID, _op: UnmappedAsyncOp) -> Option<IoResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let driver_id: DriverID = self.driver_id.lock().unwrap();
             return driver_close(
@@ -207,7 +190,7 @@ impl IOProvider for FileIOProvider {
                 (self.source_id.load(Ordering::SeqCst), provider_index, id),
             );
         }
-        Some(Err(IOError::FileHandleInvalid))
+        Some(Err(IoError::FileHandleInvalid))
     }
 
     /// Shares the provider with another task.
@@ -216,18 +199,13 @@ impl IOProvider for FileIOProvider {
     /// the provider should be fully transferred or duplicated.
     /// This flag is passed onto the driver, which may need to handle resources
     /// differently based on how many Tasks are referencing the same provider.
-    fn share(
-        &self,
-        provider_index: u32,
-        id: AsyncOpID,
-        op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    fn share(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             let driver_id: DriverID = self.driver_id.lock().unwrap();
             let transfer_to = TaskID::new(op.args[0] as u32);
             let is_move = op.args[1] != 0;
             if get_task(transfer_to).is_none() {
-                return Some(Err(IOError::InvalidArgument));
+                return Some(Err(IoError::InvalidArgument));
             }
             return driver_share(
                 driver_id,
@@ -237,7 +215,7 @@ impl IOProvider for FileIOProvider {
                 (self.source_id.load(Ordering::SeqCst), provider_index, id),
             );
         }
-        Some(Err(IOError::FileHandleInvalid))
+        Some(Err(IoError::FileHandleInvalid))
     }
 
     fn extended_op(
@@ -245,14 +223,14 @@ impl IOProvider for FileIOProvider {
         provider_index: u32,
         id: AsyncOpID,
         op: UnmappedAsyncOp,
-    ) -> Option<super::IOResult> {
+    ) -> Option<IoResult> {
         if let Some(instance) = self.bound_instance.lock().clone() {
             match op.op_code & 0xffff {
                 FILE_OP_STAT => {
                     let status_ptr = op.args[0] as *mut FileStatus;
                     let status_len = op.args[1] as usize;
                     if status_len < core::mem::size_of::<FileStatus>() {
-                        return Some(Err(IOError::InvalidArgument));
+                        return Some(Err(IoError::InvalidArgument));
                     }
                     let driver_id: DriverID = self.driver_id.lock().unwrap();
                     let file_status: &mut FileStatus = unsafe { &mut *status_ptr };
@@ -278,29 +256,29 @@ impl IOProvider for FileIOProvider {
                         (self.source_id.load(Ordering::SeqCst), provider_index, id),
                     );
                 }
-                _ => return Some(Err(IOError::UnsupportedOperation)),
+                _ => return Some(Err(IoError::UnsupportedOperation)),
             }
         }
-        Some(Err(IOError::FileHandleInvalid))
+        Some(Err(IoError::FileHandleInvalid))
     }
 }
 
-fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), IOError> {
+fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), IoError> {
     if Path::is_absolute(raw_path) {
         let (drive_name, path_portion) =
-            Path::split_absolute_path(raw_path).ok_or(IOError::NotFound)?;
+            Path::split_absolute_path(raw_path).ok_or(IoError::NotFound)?;
         let driver_id = if drive_name == "DEV" {
             if path_portion.len() > 1 {
-                get_driver_id_by_name(&path_portion[1..]).ok_or(IOError::NotFound)?
+                get_driver_id_by_name(&path_portion[1..]).ok_or(IoError::NotFound)?
             } else {
                 DriverID::new(0)
             }
         } else {
-            get_driver_id_by_name(drive_name).ok_or(IOError::NotFound)?
+            get_driver_id_by_name(drive_name).ok_or(IoError::NotFound)?
         };
 
         Ok((driver_id, Path::from_str(path_portion)))
     } else {
-        Err(IOError::NotFound)
+        Err(IoError::NotFound)
     }
 }

@@ -1,4 +1,4 @@
-use idos_api::io::error::IOError;
+use idos_api::io::error::{IoError, IoResult};
 
 use crate::{
     files::{path::Path, stat::FileStatus},
@@ -6,19 +6,17 @@ use crate::{
     task::id::TaskID,
 };
 
-use super::comms::IOResult;
-
 /// Kernel Driver methods execute immediately, but may not complete
 /// synchronously. If the data is available by the time the method finishes, it
-/// will return `Some(IOResult)`, and the kernel will immediately complete the
+/// will return `Some(IoResult)`, and the kernel will immediately complete the
 /// Op that started this request. If the data will be available later, the
 /// method returns None, and uses the IOCallback info
 pub trait KernelDriver {
     #![allow(unused_variables)]
 
-    fn open(&self, path: Option<Path>, io_callback: AsyncIOCallback) -> Option<IOResult>;
+    fn open(&self, path: Option<Path>, io_callback: AsyncIOCallback) -> Option<IoResult>;
 
-    fn close(&self, instance: u32, io_callback: AsyncIOCallback) -> Option<IOResult>;
+    fn close(&self, instance: u32, io_callback: AsyncIOCallback) -> Option<IoResult>;
 
     fn read(
         &self,
@@ -26,7 +24,7 @@ pub trait KernelDriver {
         buffer: &mut [u8],
         offset: u32,
         io_callback: AsyncIOCallback,
-    ) -> Option<IOResult>;
+    ) -> Option<IoResult>;
 
     fn write(
         &self,
@@ -34,8 +32,8 @@ pub trait KernelDriver {
         buffer: &[u8],
         offset: u32,
         io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    ) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 
     fn stat(
@@ -43,8 +41,8 @@ pub trait KernelDriver {
         instance: u32,
         file_status: &mut FileStatus,
         io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    ) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 
     fn share(
@@ -53,7 +51,7 @@ pub trait KernelDriver {
         target_task_id: TaskID,
         is_move: bool,
         io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
+    ) -> Option<IoResult> {
         // default behavior is to return Ok, since it is assumed sharing is
         // safe unless drivers have special internal behavior
         Some(Ok(1))
@@ -66,7 +64,7 @@ pub trait KernelDriver {
         arg: u32,
         arg_len: usize,
         io_callback: AsyncIOCallback,
-    ) -> Option<IOResult> {
-        Some(Err(IOError::UnsupportedOperation))
+    ) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
     }
 }
