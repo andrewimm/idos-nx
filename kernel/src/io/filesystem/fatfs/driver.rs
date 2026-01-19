@@ -2,10 +2,10 @@ use super::dir::{Directory, Entity};
 use super::fs::FatFS;
 use super::table::AllocationTable;
 use crate::collections::SlotList;
-use crate::files::stat::{FileStatus, FileType};
 use crate::io::driver::async_driver::AsyncDriver;
 use core::cell::RefCell;
 use idos_api::io::error::IoError;
+use idos_api::io::file::{FileStatus, FileType};
 
 pub struct FatDriver {
     fs: RefCell<FatFS>,

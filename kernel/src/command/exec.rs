@@ -2,9 +2,9 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use idos_api::io::file::FileStatus;
 
 use crate::files::path::Path;
-use crate::files::stat::FileStatus;
 use crate::io::async_io::FILE_OP_STAT;
 use crate::io::filesystem::get_all_drive_names;
 use crate::io::handle::{Handle, PendingHandleOp};

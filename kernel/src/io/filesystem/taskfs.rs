@@ -1,9 +1,9 @@
 use alloc::string::{String, ToString};
+use idos_api::io::file::FileStatus;
 use spin::RwLock;
 
 use crate::collections::SlotList;
 use crate::files::path::Path;
-use crate::files::stat::FileStatus;
 use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::filesystem::driver::AsyncIOCallback;
 use crate::task::id::TaskID;

@@ -2,7 +2,7 @@ use core::sync::atomic::Ordering;
 
 use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
 use crate::{
-    files::{path::Path, stat::FileStatus},
+    files::path::Path,
     io::{
         async_io::{AsyncOpID, FILE_OP_IOCTL, FILE_OP_STAT},
         filesystem::{
@@ -20,6 +20,7 @@ use crate::{
 use alloc::collections::BTreeMap;
 use idos_api::io::{
     error::{IoError, IoResult},
+    file::FileStatus,
     AsyncOp,
 };
 use spin::{Mutex, RwLock};
