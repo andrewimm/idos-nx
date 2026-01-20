@@ -6,12 +6,12 @@ use spin::RwLock;
 use crate::files::path::Path;
 
 use crate::io::async_io::{ASYNC_OP_READ, OPERATION_FLAG_MESSAGE};
-use crate::io::driver::async_driver::AsyncDriver;
 use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::handle::PendingHandleOp;
 use crate::task::actions::handle::open_message_queue;
 use crate::task::actions::send_message;
 use crate::task::id::TaskID;
+use idos_api::io::driver::AsyncDriver;
 use idos_api::ipc::Message;
 
 pub mod sync_fs {
@@ -97,7 +97,7 @@ pub mod sync_fs {
 }
 
 pub mod async_fs {
-    use idos_api::io::AsyncOp;
+    use idos_api::io::{driver::DriverFileReference, AsyncOp};
 
     use crate::task::actions::{
         io::{driver_io_complete, send_io_op},
@@ -131,21 +131,31 @@ pub mod async_fs {
     }
 
     impl AsyncDriver for AsyncTestFS {
-        fn open(&mut self, path: &str) -> IoResult {
+        fn release_buffer(&mut self, buffer_ptr: *mut u8, buffer_len: usize) {
+            use crate::memory::{address::VirtualAddress, shared::release_buffer};
+            release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
+        }
+
+        fn open(&mut self, path: &str) -> IoResult<DriverFileReference> {
             crate::kprintln!("Async open \"{}\"", path);
             if path == "MYFILE.TXT" {
                 let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
                 self.open_files.write().insert(instance, OpenFile::new());
-                Ok(instance)
+                Ok(DriverFileReference::new(instance))
             } else {
                 Err(IoError::NotFound)
             }
         }
 
-        fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IoResult {
+        fn read(
+            &mut self,
+            file_ref: DriverFileReference,
+            buffer: &mut [u8],
+            _offset: u32,
+        ) -> IoResult {
             let mut open_files = self.open_files.write();
             let found = open_files
-                .get_mut(&instance)
+                .get_mut(&*file_ref)
                 .ok_or(IoError::FileHandleInvalid)?;
             for i in 0..buffer.len() {
                 let value = ((found.written + i) % 26) + 0x41;
@@ -153,18 +163,6 @@ pub mod async_fs {
             }
             found.written += buffer.len();
             Ok(buffer.len() as u32)
-        }
-
-        fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
-            unimplemented!()
-        }
-
-        fn close(&mut self, _instance: u32) -> IoResult {
-            panic!("not implemented");
-        }
-
-        fn share(&mut self, instance: u32, transfer_to_id: u32, is_move: bool) -> IoResult {
-            Ok(1)
         }
     }
 
@@ -209,7 +207,7 @@ pub mod async_fs {
 }
 
 pub mod async_dev {
-    use idos_api::io::AsyncOp;
+    use idos_api::io::{driver::DriverFileReference, AsyncOp};
 
     use crate::task::actions::{
         io::{driver_io_complete, send_io_op},
@@ -243,16 +241,26 @@ pub mod async_dev {
     }
 
     impl AsyncDriver for AsyncTestDev {
-        fn open(&mut self, _path: &str) -> IoResult {
-            let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
-            self.open_files.write().insert(instance, OpenFile::new());
-            Ok(instance)
+        fn release_buffer(&mut self, buffer_ptr: *mut u8, buffer_len: usize) {
+            use crate::memory::{address::VirtualAddress, shared::release_buffer};
+            release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
         }
 
-        fn read(&mut self, instance: u32, buffer: &mut [u8], _offset: u32) -> IoResult {
+        fn open(&mut self, _path: &str) -> IoResult<DriverFileReference> {
+            let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
+            self.open_files.write().insert(instance, OpenFile::new());
+            Ok(DriverFileReference::new(instance))
+        }
+
+        fn read(
+            &mut self,
+            file_ref: DriverFileReference,
+            buffer: &mut [u8],
+            _offset: u32,
+        ) -> IoResult {
             let mut open_files = self.open_files.write();
             let found = open_files
-                .get_mut(&instance)
+                .get_mut(&*file_ref)
                 .ok_or(IoError::FileHandleInvalid)?;
             let sample = [b't', b'e', b's', b't'];
             let mut written = 0;
@@ -263,14 +271,6 @@ pub mod async_dev {
                 found.written += 1;
             }
             Ok(written as u32)
-        }
-
-        fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
-            unimplemented!()
-        }
-
-        fn close(&mut self, _instance: u32) -> IoResult {
-            panic!("not implemented");
         }
     }
 

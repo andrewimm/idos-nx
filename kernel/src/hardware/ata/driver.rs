@@ -12,6 +12,7 @@ use crate::task::switching::get_current_id;
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};
 use idos_api::io::driver::AsyncDriver;
+use idos_api::io::driver::DriverFileReference;
 use idos_api::io::error::{IoError, IoResult};
 use idos_api::ipc::Message;
 
@@ -44,7 +45,7 @@ impl AsyncDriver for AtaDeviceDriver {
         release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
     }
 
-    fn open(&mut self, path: &str) -> IoResult {
+    fn open(&mut self, path: &str) -> IoResult<DriverFileReference> {
         // The `path` should be a stringified version of the driver index.
         // The driver number is 1-indexed, while the internal array is
         // 0-indexed.
@@ -59,22 +60,22 @@ impl AsyncDriver for AtaDeviceDriver {
         if let Some(select) = self.attached[attached_index] {
             let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
             self.open_instances.insert(instance, select);
-            return Ok(instance);
+            return Ok(DriverFileReference::new(instance));
         }
         Err(IoError::NotFound)
     }
 
-    fn close(&mut self, instance: u32) -> IoResult {
+    fn close(&mut self, file_ref: DriverFileReference) -> IoResult {
         self.open_instances
-            .remove(&instance)
+            .remove(&*file_ref)
             .map(|_| 1)
             .ok_or(IoError::FileHandleInvalid)
     }
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IoResult {
+    fn read(&mut self, file_ref: DriverFileReference, buffer: &mut [u8], offset: u32) -> IoResult {
         let select = self
             .open_instances
-            .get(&instance)
+            .get(&*file_ref)
             .cloned()
             .ok_or(IoError::FileHandleInvalid)?;
 

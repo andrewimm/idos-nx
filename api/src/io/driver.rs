@@ -34,11 +34,53 @@ impl DriverCommand {
     }
 }
 
+/// Newtype wrapper for a driver's unique internal identifier for an open file.
+/// Opening a file returns one of these, and it is used to re-reference that
+/// file up until closing.
+#[repr(transparent)]
+pub struct DriverFileReference(u32);
+
+impl DriverFileReference {
+    pub fn new(id: u32) -> Self {
+        DriverFileReference(id)
+    }
+}
+
+impl core::ops::Deref for DriverFileReference {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+/// Newtype wrapper for a token returned by the kernel when mapping a file into
+/// memory. When the kernel needs to stablish a file mapping, it sends a request
+/// to the driver, similar to opening a file. On success, the driver returns a
+/// token. Future page faults use this token for requests to fill a frame.
+/// Because the token handling is driver-specific, it allows the driver to
+/// maintain a single token for each file, so that different tasks can map to
+/// the same file without needing to re-open it each time.
+#[repr(transparent)]
+pub struct DriverMappingToken(u32);
+
+impl DriverMappingToken {
+    pub fn new(id: u32) -> Self {
+        DriverMappingToken(id)
+    }
+}
+
+impl core::ops::Deref for DriverMappingToken {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 /// Trait implemented by all async drivers. It provides a helper method to
 /// translate incoming messages from the DriverIO system into file IO method
 /// calls.
-///
-/// TODO: This should eventually get moved out into the SDK.
 #[allow(unused_variables)]
 pub trait AsyncDriver {
     // Overridable helper method to release buffers after use.
@@ -55,7 +97,7 @@ pub trait AsyncDriver {
                     let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
                     core::str::from_utf8(path_slice).ok()?
                 };
-                Some(self.open(path))
+                Some(self.open(path).map(|file_ref| *file_ref))
             }
             DriverCommand::OpenRaw => {
                 // Convert to str without allocation:
@@ -75,40 +117,40 @@ pub trait AsyncDriver {
                 }
 
                 let id_as_path = core::str::from_utf8(&digits[digit_index..]).ok()?;
-                Some(self.open(id_as_path))
+                Some(self.open(id_as_path).map(|file_ref| *file_ref))
             }
             DriverCommand::Close => {
-                let instance = message.args[0];
-                Some(self.close(instance))
+                let file_ref = DriverFileReference(message.args[0]);
+                Some(self.close(file_ref))
             }
             DriverCommand::Read => {
-                let instance = message.args[0];
+                let file_ref = DriverFileReference(message.args[0]);
                 let buffer_ptr = message.args[1] as *mut u8;
                 let buffer_len = message.args[2] as usize;
                 let offset = message.args[3];
                 let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
-                let result = self.read(instance, buffer, offset);
+                let result = self.read(file_ref, buffer, offset);
                 self.release_buffer(buffer_ptr, buffer_len);
                 Some(result)
             }
             DriverCommand::Write => {
-                let instance = message.args[0];
+                let file_ref = DriverFileReference(message.args[0]);
                 let buffer_ptr = message.args[1] as *mut u8;
                 let buffer_len = message.args[2] as usize;
                 let offset = message.args[3];
                 let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_len) };
-                let result = self.write(instance, buffer, offset);
+                let result = self.write(file_ref, buffer, offset);
                 self.release_buffer(buffer_ptr, buffer_len);
                 Some(result)
             }
             DriverCommand::Share => {
-                let instance = message.args[0];
+                let file_ref = DriverFileReference(message.args[0]);
                 let transfer_to_id = message.args[1];
-                let result = self.share(instance, transfer_to_id, message.args[2] != 0);
+                let result = self.share(file_ref, transfer_to_id, message.args[2] != 0);
                 Some(result)
             }
             DriverCommand::Stat => {
-                let instance = message.args[0];
+                let file_ref = DriverFileReference(message.args[0]);
                 let struct_ptr = message.args[1] as *mut FileStatus;
                 let struct_len = message.args[2] as usize;
                 if struct_len != core::mem::size_of::<FileStatus>() {
@@ -118,23 +160,23 @@ pub trait AsyncDriver {
                 }
                 let status_struct = unsafe { &mut *struct_ptr };
 
-                let result = self.stat(instance, status_struct);
+                let result = self.stat(file_ref, status_struct);
                 self.release_buffer(struct_ptr as *mut u8, struct_len);
                 Some(result)
             }
             DriverCommand::Ioctl => {
-                let instance = message.args[0];
+                let file_ref = DriverFileReference(message.args[0]);
                 let ioctl = message.args[1];
                 let arg = message.args[2];
                 let arg_len = message.args[3] as usize;
                 if arg_len != 0 {
                     // attempt to interpret arg as pointer to struct
-                    let result = self.ioctl_struct(instance, ioctl, arg as *mut u8, arg_len);
+                    let result = self.ioctl_struct(file_ref, ioctl, arg as *mut u8, arg_len);
                     self.release_buffer(arg as *mut u8, arg_len);
                     Some(result)
                 } else {
                     // assume arg is just a u32 value
-                    let result = self.ioctl(instance, ioctl, arg);
+                    let result = self.ioctl(file_ref, ioctl, arg);
                     Some(result)
                 }
             }
@@ -142,37 +184,134 @@ pub trait AsyncDriver {
         }
     }
 
-    fn open(&mut self, path: &str) -> IoResult {
+    /// Open a file by path. The path is an opaque string interpreted by the
+    /// driver, and can be used to specify sub-resources within the driver. For
+    /// example, a driver for a disk might interpret paths as file paths within
+    /// the disk, while a driver for a USB controller might interpret paths as
+    /// USB device identifiers.
+    /// On success, the driver returns a DriverFileReference, which is used for
+    /// all IO operations on that file until it is closed.
+    /// On failure, the driver returns an IoError.
+    fn open(&mut self, path: &str) -> IoResult<DriverFileReference> {
         Err(IoError::UnsupportedOperation)
     }
 
-    fn close(&mut self, instance: u32) -> IoResult {
+    /// Create a memory mapping for a file. When a task requests to map a file
+    /// into memory, the kernel sends this request to the driver, which can
+    /// allow or deny the mapping and perform any initialization.
+    /// On success, the driver returns a DriverMapToken, which is used by the
+    /// kernel to fill frames on page faults.
+    /// On failure, the driver returns an IoError.
+    fn create_mapping(&mut self, path: &str) -> IoResult<DriverMappingToken> {
         Err(IoError::UnsupportedOperation)
     }
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IoResult {
+    /// Close a file reference, indicating that it is no longer needed. The
+    /// driver can use this as a hint to release resources associated with that
+    /// file. After closing, the file reference is no longer valid, but nothing
+    /// prevents the driver from reusing the same reference for a future open.
+    /// On failure, the driver returns an IoError.
+    fn close(&mut self, file_ref: DriverFileReference) -> IoResult {
         Err(IoError::UnsupportedOperation)
     }
 
-    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
+    /// Remove a memory mapping, indicating that it is no longer needed. The
+    /// driver can use this as a hint to release resources associated with that
+    /// mapping. After removing, the map token is no longer valid, but nothing
+    /// prevents the driver from reusing the same token for a future mapping.
+    /// On failure, the driver returns an IoError.
+    fn remove_mapping(&mut self, map_token: DriverMappingToken) -> IoResult {
         Err(IoError::UnsupportedOperation)
     }
 
-    fn share(&mut self, instance: u32, transfer_to_id: u32, is_move: bool) -> IoResult {
+    /// Read from a file reference into a buffer. The driver fills the buffer
+    /// with data from the file, starting at the given offset.
+    /// On success, the driver returns the number of bytes read, which may be
+    /// less than the buffer size if the end of the file is reached.
+    /// On failure, the driver returns an IoError.
+    fn read(&mut self, file_ref: DriverFileReference, buffer: &mut [u8], offset: u32) -> IoResult {
         Err(IoError::UnsupportedOperation)
     }
 
-    fn stat(&mut self, instance: u32, status_struct: &mut FileStatus) -> IoResult {
+    /// Write to a file reference from a buffer. The driver writes data from the
+    /// buffer to the file, starting at the given offset.
+    /// On success, the driver returns the number of bytes written, which may be
+    /// less than the buffer size if there is no more available space or the
+    /// file is not writable.
+    /// On failure, the driver returns an IoError.
+    fn write(&mut self, file_ref: DriverFileReference, buffer: &[u8], offset: u32) -> IoResult {
         Err(IoError::UnsupportedOperation)
     }
 
-    fn ioctl(&mut self, instance: u32, ioctl: u32, arg: u32) -> IoResult {
+    /// Share a file reference with another task. This is used for inter-process
+    /// communication, allowing a file reference to be transferred from one task
+    /// to another. The driver can use this as a hint to allow multiple tasks to
+    /// access the same file reference, or to deny sharing if it is not
+    /// supported. If is_move is true, the file reference is transferred and
+    /// should no longer be used by the sender after sharing. If is_move is
+    /// false, the file reference is shared and can still be used by the sender
+    /// after sharing.
+    /// The default behavior is just to return success, because not all drivers
+    /// need to do anything special to support sharing.
+    fn share(
+        &mut self,
+        file_ref: DriverFileReference,
+        transfer_to_id: u32,
+        is_move: bool,
+    ) -> IoResult {
+        Ok(1)
+    }
+
+    /// Get the status of a file reference. The driver fills the provided
+    /// `FileStatus` struct with information about the file, such as its size
+    /// and timestamps.
+    fn stat(&mut self, file_ref: DriverFileReference, status_struct: &mut FileStatus) -> IoResult {
         Err(IoError::UnsupportedOperation)
     }
 
+    /// Fill a page frame for a memory mapping. When a page fault occurs on a
+    /// memory mapping, the kernel sends this request to the driver, with the
+    /// map token provided when the mapping was created, the offset within the
+    /// mapping, and a pointer to the page frame that needs to be filled. The
+    /// driver is responsible for filling a 4096-byte page frame with the
+    /// appropriate data for that offset within the mapping. The kernel does
+    /// not map the page frame into the driver's address space, so the driver
+    /// must perform any direct memory-mapping necessary to access the
+    /// underlying frame.
+    /// On success, the driver returns the number of bytes filled in the page
+    /// frame. If the offset is beyond the end of the file or there is no more
+    /// data to fill, the driver can return a value less than 4096, and the
+    /// kernel will zero-fill the rest of the page.
+    /// On failure, the driver returns an IoError, and the kernel will handle
+    /// the page fault appropriately.
+    fn page_in_mapping(
+        &mut self,
+        map_token: DriverMappingToken,
+        offset: u32,
+        frame_ptr: *mut u8,
+    ) -> IoResult {
+        Err(IoError::UnsupportedOperation)
+    }
+
+    /// Perform a driver-specific control operation on a file reference. The
+    /// ioctl code and argument are interpreted by the driver, allowing for
+    /// arbitrary operations that don't fit into the standard read/write/close
+    /// model. This method handles IOCTLs where the argument is a simple u32
+    /// value.
+    fn ioctl(&mut self, file_ref: DriverFileReference, ioctl: u32, arg: u32) -> IoResult {
+        Err(IoError::UnsupportedOperation)
+    }
+
+    /// Perform a driver-specific control operation on a file reference, where
+    /// the argument is a pointer to a struct. The driver can read and write to
+    /// the struct as needed for the operation. This method allows for more
+    /// complex IOCTL operations that require more data than can fit in a simple
+    /// u32 argument. The driver is responsible for validating the struct size
+    /// using the `arg_len` parameter, and should return an error if the size is
+    /// incorrect.
     fn ioctl_struct(
         &mut self,
-        instance: u32,
+        file_ref: DriverFileReference,
         ioctl: u32,
         arg_ptr: *mut u8,
         arg_len: usize,
