@@ -3,7 +3,7 @@ use super::fs::FatFS;
 use super::table::AllocationTable;
 use crate::collections::SlotList;
 use core::cell::RefCell;
-use idos_api::io::driver::AsyncDriver;
+use idos_api::io::driver::{AsyncDriver, DriverFileReference};
 use idos_api::io::error::IoError;
 use idos_api::io::file::{FileStatus, FileType};
 
@@ -36,7 +36,7 @@ impl AsyncDriver for FatDriver {
         release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
     }
 
-    fn open(&mut self, path: &str) -> Result<u32, IoError> {
+    fn open(&mut self, path: &str) -> Result<DriverFileReference, IoError> {
         super::LOGGER.log(format_args!("Open \"{}\"", path));
 
         let root = self.fs.borrow().get_root_directory();
@@ -51,14 +51,19 @@ impl AsyncDriver for FatDriver {
             cursor: 0,
         };
         let index = self.open_handle_map.insert(open_handle);
-        Ok(index as u32)
+        Ok(DriverFileReference::new(index as u32))
     }
 
-    fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> Result<u32, IoError> {
+    fn read(
+        &mut self,
+        file_ref: DriverFileReference,
+        buffer: &mut [u8],
+        offset: u32,
+    ) -> Result<u32, IoError> {
         let table = self.get_table();
         let handle = self
             .open_handle_map
-            .get_mut(instance as usize)
+            .get_mut(*file_ref as usize)
             .ok_or(IoError::FileHandleInvalid)?;
         let mut fs = self.fs.borrow_mut();
         let written = match &mut handle.handle_entity {
@@ -71,22 +76,22 @@ impl AsyncDriver for FatDriver {
         Ok(written)
     }
 
-    fn close(&mut self, handle: u32) -> Result<u32, IoError> {
-        if self.open_handle_map.remove(handle as usize).is_some() {
+    fn close(&mut self, file_ref: DriverFileReference) -> Result<u32, IoError> {
+        if self.open_handle_map.remove(*file_ref as usize).is_some() {
             Ok(0)
         } else {
             Err(IoError::FileHandleInvalid)
         }
     }
 
-    fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> Result<u32, IoError> {
-        Err(IoError::UnsupportedOperation)
-    }
-
-    fn stat(&mut self, instance: u32, status: &mut FileStatus) -> Result<u32, IoError> {
+    fn stat(
+        &mut self,
+        file_ref: DriverFileReference,
+        status: &mut FileStatus,
+    ) -> Result<u32, IoError> {
         let handle = self
             .open_handle_map
-            .get_mut(instance as usize)
+            .get_mut(*file_ref as usize)
             .ok_or(IoError::FileHandleInvalid)?;
         match &handle.handle_entity {
             Entity::File(f) => {
