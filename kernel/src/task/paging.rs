@@ -1,11 +1,15 @@
+use idos_api::io::error::IoError;
+
 use super::id::TaskID;
 use super::map::get_task;
 use super::memory::{MemMappedRegion, MemoryBacking};
 use super::switching::get_current_task;
+use crate::io::filesystem::driver_page_in_file;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::physical::allocated_frame::AllocatedFrame;
 use crate::memory::physical::{
     allocate_frame, allocate_frame_with_tracking, allocate_frames, maybe_add_frame_reference,
+    release_tracked_frame,
 };
 use crate::memory::virt::invalidate_page;
 use crate::memory::virt::page_entry::PageTableEntry;
@@ -76,7 +80,7 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             }
             range_start + page_offset
         }
-        MemoryBacking::Direct(paddr) => {
+        MemoryBacking::Direct(_paddr) => {
             panic!("Shoudn't need to page Direct on demand, it's paged at map time");
         }
         MemoryBacking::FreeMemory => {
@@ -85,6 +89,38 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             let allocated_frame =
                 allocate_frame_with_tracking().expect("Failed to allocate memory for page");
             current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags)
+        }
+        MemoryBacking::FileBacked {
+            driver_id,
+            mapping_token,
+            offset_in_file,
+        } => {
+            let allocated_frame =
+                allocate_frame_with_tracking().expect("Failed to allocate memory");
+            let frame_paddr = allocated_frame.peek_address();
+            let total_offset = offset_in_file + page_offset;
+            let result =
+                match driver_page_in_file(*driver_id, *mapping_token, total_offset, frame_paddr) {
+                    Some(immediate) => immediate,
+                    None => {
+                        task_lock.write().begin_file_mapping_request();
+                        crate::task::actions::yield_coop();
+                        let last_result = task_lock.write().last_map_result.take();
+                        if let Some(result) = last_result {
+                            result
+                        } else {
+                            Err(IoError::OperationFailed)
+                        }
+                    }
+                };
+
+            match result {
+                Ok(_) => current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags),
+                Err(_) => {
+                    let _ = release_tracked_frame(allocated_frame);
+                    return None;
+                }
+            }
         }
     };
 

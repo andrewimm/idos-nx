@@ -1,13 +1,23 @@
-use crate::memory::address::{PhysicalAddress, VirtualAddress};
+use crate::{
+    io::filesystem::driver::DriverID,
+    memory::address::{PhysicalAddress, VirtualAddress},
+};
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::Range;
+use idos_api::io::driver::DriverMappingToken;
 
 /// MemMappedRegion represents a section of memory that has been mapped to a
 /// Task.
 #[derive(Clone)]
 pub struct MemMappedRegion {
+    /// The starting virtual address of the mapped region
     pub address: VirtualAddress,
+    /// The size of the mapped region, in bytes. This is not guaranteed to be a
+    /// multiple of page size. Any bytes beyond this length in the final page
+    /// are unpredictable (but really, they'll probably just be zero)
     pub size: u32,
+    /// The backing type of this memory region, used to determine how to handle
+    /// page faults.
     pub backed_by: MemoryBacking,
 }
 
@@ -18,16 +28,16 @@ impl MemMappedRegion {
         start..end
     }
 
+    /// Checks if the given virtual address is contained within this memory
+    /// region. If an address is in the final page, but beyond the size of the
+    /// region, this will return false, which probably triggers a page fault
+    /// later on.
     pub fn contains_address(&self, addr: &VirtualAddress) -> bool {
         self.get_address_range().contains(addr)
     }
 
     pub fn page_count(&self) -> usize {
-        let mut count = self.size as usize / 0x1000;
-        if self.size & 0xfff != 0 {
-            count += 1;
-        }
-        count
+        (self.size as usize + 0xfff) / 0x1000
     }
 }
 
@@ -46,6 +56,16 @@ pub enum MemoryBacking {
     /// Similar to FreeMemory, but guarantees the memory will be a contiguous
     /// region within the first 16 MiB of physical address space.
     IsaDma,
+    /// This region is backed by a file on disk. The kernel will read data from
+    /// the file as needed when page faults occur.
+    FileBacked {
+        /// The driver providing the file data
+        driver_id: DriverID,
+        /// A token provided by the driver mapping
+        mapping_token: DriverMappingToken,
+        /// The offset within the file where this mapping starts
+        offset_in_file: u32,
+    },
 }
 
 /// MappedMemory is a collection of memory mappings. The const parameter
@@ -82,28 +102,28 @@ impl<const U: u32> MappedMemory<U> {
         if requested_size == 0 {
             return Err(MemMapError::InvalidSize);
         }
-        let size = (requested_size + 0xfff) & 0xfffff000;
+        let rounded_size = (requested_size + 0xfff) & 0xfffff000;
 
         let location: Option<VirtualAddress> = match addr {
             Some(request_start) => {
                 if !request_start.is_page_aligned() {
                     return Err(MemMapError::MappingWrongAlignment);
                 }
-                let request_end = request_start + size;
+                let request_end = request_start + rounded_size;
                 if self.can_fit_range(request_start..request_end) {
                     Some(request_start)
                 } else {
-                    self.find_free_mapping_space(size)
+                    self.find_free_mapping_space(rounded_size)
                 }
             }
-            None => self.find_free_mapping_space(size),
+            None => self.find_free_mapping_space(rounded_size),
         };
 
         let free_space = location.ok_or(MemMapError::NotEnoughMemory)?;
 
         let mapping = MemMappedRegion {
             address: free_space,
-            size,
+            size: requested_size,
             backed_by: backing,
         };
         self.regions.insert(free_space, mapping);
@@ -283,6 +303,10 @@ pub enum MemMapError {
     NotMapped,
     /// Some error occurred while mapping memory for a task
     MappingFailed,
+    /// File-backed memory mapping failed because the driver or file could not be found
+    FileUnavailable,
+    /// An error occurred in the backing driver while mapping memory
+    DriverError,
 }
 
 #[cfg(test)]

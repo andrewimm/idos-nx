@@ -196,7 +196,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
     }
 
     pub fn set_graphics_mode(&mut self, graphics_struct: &mut termios::GraphicsMode) {
-        if let Some(existing_buffer) = &self.graphics_buffer {
+        if let Some(_existing_buffer) = &self.graphics_buffer {
             // resize the graphics buffer if necessary, otherwise do nothing
             unimplemented!()
         }

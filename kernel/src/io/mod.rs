@@ -8,6 +8,11 @@ pub mod handle;
 pub mod provider;
 
 use alloc::boxed::Box;
+use idos_api::io::error::IoError;
+
+use crate::files::path::Path;
+
+use self::filesystem::{driver::DriverID, get_driver_id_by_name};
 
 pub fn init_async_io_system() {
     #[cfg(test)]
@@ -43,4 +48,64 @@ pub fn init_async_io_system() {
     self::filesystem::install_kernel_fs("SYS", Box::new(sys_fs));
 
     crate::pipes::driver::install();
+}
+
+/// Split an absolute file string into a driver ID and path
+pub fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), IoError> {
+    if Path::is_absolute(raw_path) {
+        let (drive_name, path_portion) =
+            Path::split_absolute_path(raw_path).ok_or(IoError::NotFound)?;
+        let driver_id = if drive_name == "DEV" {
+            if path_portion.len() > 1 {
+                get_driver_id_by_name(&path_portion[1..]).ok_or(IoError::NotFound)?
+            } else {
+                DriverID::new(0)
+            }
+        } else {
+            get_driver_id_by_name(drive_name).ok_or(IoError::NotFound)?
+        };
+
+        Ok((driver_id, Path::from_str(path_portion)))
+    } else {
+        Err(IoError::NotFound)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::prepare_file_path;
+
+    #[test_case]
+    fn test_prepare_empty_path() {
+        use super::prepare_file_path;
+        let result = prepare_file_path("");
+        assert!(result.is_err());
+    }
+
+    #[test_case]
+    fn test_prepare_relative_path() {
+        use super::prepare_file_path;
+        let result = prepare_file_path("relative\\path.txt");
+        assert!(result.is_err());
+    }
+
+    #[test_case]
+    fn test_prepare_drive_name_only() {
+        use super::prepare_file_path;
+        let result = prepare_file_path("DEV:\\");
+        assert!(result.is_ok());
+        let (driver_id, path) = result.unwrap();
+        assert_eq!(*driver_id, 0);
+        assert_eq!(path.as_str(), "");
+    }
+
+    #[test_case]
+    fn test_prepare_valid_path() {
+        let result = prepare_file_path("TEST:\\config\\settings.cfg");
+        assert!(result.is_ok());
+        let (driver_id, path) = result.unwrap();
+        // in test mode, TEST: fs should be driver 2
+        assert_eq!(*driver_id, 2);
+        assert_eq!(path.as_str(), "config\\settings.cfg");
+    }
 }

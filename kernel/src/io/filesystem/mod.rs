@@ -12,20 +12,23 @@ use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
+use idos_api::io::driver::DriverMappingToken;
 use idos_api::io::error::{IoError, IoResult};
 use idos_api::io::file::FileStatus;
 use spin::{Once, RwLock};
 
 use crate::files::path::Path;
-use crate::memory::address::VirtualAddress;
+use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::shared::{release_buffer, share_buffer};
-use crate::task::actions::memory::map_memory;
+use crate::task::actions::memory::{map_memory, unmap_memory};
 use crate::task::id::TaskID;
+use crate::task::switching::get_current_id;
 
 use self::devfs::DevFileSystem;
 use self::driver::{AsyncIOCallback, DriverID, DriverType, InstalledDriver};
 
-use super::driver::comms::DriverIOAction;
+use super::async_io::AsyncOpID;
+use super::driver::comms::DriverIoAction;
 use super::driver::pending::send_async_request;
 
 static INSTALLED_DRIVERS: RwLock<BTreeMap<u32, (String, DriverType)>> =
@@ -133,7 +136,7 @@ pub fn driver_open(
                 return dev.open(None, io_callback);
             }
             DriverType::TaskDevice(dev, sub) => {
-                let action = DriverIOAction::OpenRaw { driver_id: *sub };
+                let action = DriverIoAction::OpenRaw { driver_id: *sub };
                 send_async_request(*dev, io_callback, action);
                 return None;
             }
@@ -155,7 +158,7 @@ pub fn driver_open(
                 let path_len = path.as_str().len();
                 let action = if path_len == 0 {
                     // can't share memory for an empty slice, just hardcode it
-                    DriverIOAction::Open {
+                    DriverIoAction::Open {
                         path_str_vaddr: VirtualAddress::new(0),
                         path_str_len: 0,
                     }
@@ -170,7 +173,7 @@ pub fn driver_open(
                     path_slice.copy_from_slice(path.as_str().as_bytes());
                     let shared_vaddr = share_buffer(*task, page_start, path_len);
                     release_buffer(page_start, path_len);
-                    DriverIOAction::Open {
+                    DriverIoAction::Open {
                         path_str_vaddr: shared_vaddr,
                         path_str_len: path_len,
                     }
@@ -190,7 +193,7 @@ pub fn driver_close(id: DriverID, instance: u32, io_callback: AsyncIOCallback) -
         }
 
         DriverType::TaskFilesystem(task_id) | DriverType::TaskDevice(task_id, _) => {
-            let action = DriverIOAction::Close { instance };
+            let action = DriverIoAction::Close { instance };
             send_async_request(*task_id, io_callback, action);
             None
         }
@@ -213,7 +216,7 @@ pub fn driver_read(
             let range_start = VirtualAddress::new(buffer.as_ptr() as u32);
             let shared_vaddr = share_buffer(*task_id, range_start, buffer.len());
 
-            let action = DriverIOAction::Read {
+            let action = DriverIoAction::Read {
                 instance,
                 buffer_ptr_vaddr: shared_vaddr,
                 buffer_len: buffer.len(),
@@ -242,7 +245,7 @@ pub fn driver_write(
             let range_start = VirtualAddress::new(buffer.as_ptr() as u32);
             let shared_vaddr = share_buffer(*task_id, range_start, buffer.len());
 
-            let action = DriverIOAction::Write {
+            let action = DriverIoAction::Write {
                 instance,
                 buffer_ptr_vaddr: shared_vaddr,
                 buffer_len: buffer.len(),
@@ -271,7 +274,7 @@ pub fn driver_stat(
             let shared_vaddr =
                 share_buffer(*task_id, range_start, core::mem::size_of::<FileStatus>());
 
-            let action = DriverIOAction::Stat {
+            let action = DriverIoAction::Stat {
                 instance,
                 stat_ptr_vaddr: shared_vaddr,
                 stat_len: core::mem::size_of::<FileStatus>(),
@@ -296,7 +299,7 @@ pub fn driver_share(
         }
 
         DriverType::TaskFilesystem(task_id) | DriverType::TaskDevice(task_id, _) => {
-            let action = DriverIOAction::Share {
+            let action = DriverIoAction::Share {
                 instance,
                 dest_task_id: transfer_to,
                 is_move,
@@ -327,19 +330,78 @@ pub fn driver_ioctl(
 
                 let struct_start = VirtualAddress::new(arg);
                 let shared_vaddr = share_buffer(*task_id, struct_start, arg_len);
-                DriverIOAction::IoctlStruct {
+                DriverIoAction::IoctlStruct {
                     instance,
                     ioctl,
                     arg_ptr_vaddr: shared_vaddr,
                     arg_len,
                 }
             } else {
-                DriverIOAction::Ioctl {
+                DriverIoAction::Ioctl {
                     instance,
                     ioctl,
                     arg,
                 }
             };
+            send_async_request(*task_id, io_callback, action);
+            None
+        }
+    })
+}
+
+pub fn driver_create_mapping(id: DriverID, path: Path) -> Option<IoResult> {
+    with_driver(id, |driver| match driver {
+        DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => unimplemented!(),
+        DriverType::TaskDevice(task_id, sub_id) => unimplemented!(),
+        DriverType::TaskFilesystem(task_id) => {
+            // like driver_open, we need to copy the string to a new frame for
+            // security reasons
+            let path_len = path.as_str().len();
+            let action = if path_len == 0 {
+                // can't share memory for an empty slice, just hardcode it
+                DriverIoAction::CreateFileMapping {
+                    path_str_vaddr: VirtualAddress::new(0),
+                    path_str_len: 0,
+                }
+            } else {
+                // create a new frame of memory
+                let page_start =
+                    map_memory(None, 0x1000, crate::task::memory::MemoryBacking::FreeMemory)
+                        .unwrap();
+                let path_slice = unsafe {
+                    core::slice::from_raw_parts_mut(page_start.as_ptr_mut::<u8>(), path_len)
+                };
+                path_slice.copy_from_slice(path.as_str().as_bytes());
+                let shared_vaddr = share_buffer(*task_id, page_start, path_len);
+                unmap_memory(page_start, 0x1000).unwrap();
+                DriverIoAction::CreateFileMapping {
+                    path_str_vaddr: shared_vaddr,
+                    path_str_len: path_len,
+                }
+            };
+            let io_callback: AsyncIOCallback = (get_current_id(), 0, AsyncOpID::new(0));
+            send_async_request(*task_id, io_callback, action);
+            None
+        }
+    })
+}
+
+pub fn driver_page_in_file(
+    id: DriverID,
+    token: DriverMappingToken,
+    offset_in_file: u32,
+    frame_paddr: PhysicalAddress,
+) -> Option<IoResult> {
+    with_driver(id, |driver| match driver {
+        DriverType::KernelFilesystem(_) | DriverType::KernelDevice(_) => unimplemented!(),
+        DriverType::TaskDevice(_, _) => unimplemented!(),
+        DriverType::TaskFilesystem(task_id) => {
+            let action = DriverIoAction::PageInFileMapping {
+                mapping_token: *token,
+                offset_in_file,
+                frame_paddr,
+            };
+            let io_callback: AsyncIOCallback = (get_current_id(), 0, AsyncOpID::new(0));
             send_async_request(*task_id, io_callback, action);
             None
         }

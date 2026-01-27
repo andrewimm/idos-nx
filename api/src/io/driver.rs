@@ -14,6 +14,9 @@ pub enum DriverCommand {
     Stat,
     Share,
     Ioctl,
+    CreateMapping,
+    RemoveMapping,
+    PageInMapping,
     // Every time a new command is added, modify the method below that decodes the command
     Invalid = 0xffffffff,
 }
@@ -29,6 +32,9 @@ impl DriverCommand {
             6 => DriverCommand::Stat,
             7 => DriverCommand::Share,
             8 => DriverCommand::Ioctl,
+            9 => DriverCommand::CreateMapping,
+            10 => DriverCommand::RemoveMapping,
+            11 => DriverCommand::PageInMapping,
             _ => DriverCommand::Invalid,
         }
     }
@@ -55,12 +61,13 @@ impl core::ops::Deref for DriverFileReference {
 }
 
 /// Newtype wrapper for a token returned by the kernel when mapping a file into
-/// memory. When the kernel needs to stablish a file mapping, it sends a request
+/// memory. When the kernel needs to establish a file mapping, it sends a request
 /// to the driver, similar to opening a file. On success, the driver returns a
 /// token. Future page faults use this token for requests to fill a frame.
 /// Because the token handling is driver-specific, it allows the driver to
 /// maintain a single token for each file, so that different tasks can map to
 /// the same file without needing to re-open it each time.
+#[derive(Clone, Copy)]
 #[repr(transparent)]
 pub struct DriverMappingToken(u32);
 
@@ -180,6 +187,27 @@ pub trait AsyncDriver {
                     Some(result)
                 }
             }
+            DriverCommand::CreateMapping => {
+                let path_ptr = message.args[0] as *mut u8;
+                let path_len = message.args[1] as usize;
+                let path = if path_len == 0 {
+                    ""
+                } else {
+                    let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
+                    core::str::from_utf8(path_slice).ok()?
+                };
+                Some(self.create_mapping(path).map(|map_token| *map_token))
+            }
+            DriverCommand::RemoveMapping => {
+                let map_token = DriverMappingToken(message.args[0]);
+                Some(self.remove_mapping(map_token))
+            }
+            DriverCommand::PageInMapping => {
+                let map_token = DriverMappingToken(message.args[0]);
+                let offset = message.args[1];
+                let frame_paddr = message.args[2];
+                Some(self.page_in_mapping(map_token, offset, frame_paddr))
+            }
             DriverCommand::Invalid => Some(Err(IoError::UnsupportedCommand)),
         }
     }
@@ -272,7 +300,7 @@ pub trait AsyncDriver {
     /// Fill a page frame for a memory mapping. When a page fault occurs on a
     /// memory mapping, the kernel sends this request to the driver, with the
     /// map token provided when the mapping was created, the offset within the
-    /// mapping, and a pointer to the page frame that needs to be filled. The
+    /// file, and a pointer to the page frame that needs to be filled. The
     /// driver is responsible for filling a 4096-byte page frame with the
     /// appropriate data for that offset within the mapping. The kernel does
     /// not map the page frame into the driver's address space, so the driver
@@ -287,8 +315,8 @@ pub trait AsyncDriver {
     fn page_in_mapping(
         &mut self,
         map_token: DriverMappingToken,
-        offset: u32,
-        frame_ptr: *mut u8,
+        offset_in_file: u32,
+        frame_paddr: u32,
     ) -> IoResult {
         Err(IoError::UnsupportedOperation)
     }

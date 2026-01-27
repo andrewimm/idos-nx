@@ -169,7 +169,7 @@ impl ConsoleManager {
         Ok(buffer.len() as u32)
     }
 
-    pub fn ioctl(&mut self, instance: u32, ioctl: u32, arg: u32) -> IoResult {
+    pub fn ioctl(&mut self, instance: u32, ioctl: u32, _arg: u32) -> IoResult {
         let console_id = self
             .open_io
             .get(instance as usize)

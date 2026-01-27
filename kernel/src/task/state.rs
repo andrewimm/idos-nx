@@ -7,6 +7,7 @@ use crate::time::system::{get_system_time, Timestamp};
 use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
+use idos_api::io::error::IoResult;
 use idos_api::ipc::Message;
 
 use super::args::ExecArgs;
@@ -57,6 +58,9 @@ pub struct Task {
     /// Stores the actual active async IO objects
     pub async_io_table: AsyncIOTable,
 
+    /// Stores the last received result from a file mapping request
+    pub last_map_result: Option<IoResult>,
+
     /// Storage for the task's registers when it enters VM86 mode
     pub vm86_registers: Option<FullSavedRegisters>,
 }
@@ -79,6 +83,7 @@ impl Task {
             args: ExecArgs::new(),
             open_handles: HandleTable::new(),
             async_io_table: AsyncIOTable::new(),
+            last_map_result: None,
             vm86_registers: None,
         }
     }
@@ -253,6 +258,23 @@ impl Task {
         }
     }
 
+    pub fn begin_file_mapping_request(&mut self) {
+        if let RunState::Running = self.state {
+            self.state = RunState::Blocked(None, BlockType::FileMapping);
+            self.last_map_result = None;
+        }
+    }
+
+    pub fn resolve_file_mapping_request(&mut self, result: IoResult) -> bool {
+        if let RunState::Blocked(_, BlockType::FileMapping) = self.state {
+            self.state = RunState::Running;
+            self.last_map_result = Some(result);
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn push_arg(&mut self, arg: &[u8]) {
         self.args.add(arg);
     }
@@ -342,6 +364,7 @@ impl core::fmt::Display for RunState {
             Self::Terminated => f.write_str("Term"),
             Self::Blocked(_, BlockType::Sleep) => f.write_str("Sleep"),
             Self::Blocked(_, BlockType::Futex) => f.write_str("FutexWait"),
+            Self::Blocked(_, BlockType::FileMapping) => f.write_str("FileMapWait"),
         }
     }
 }
@@ -355,4 +378,7 @@ pub enum BlockType {
 
     /// The task is blocked on a futex
     Futex,
+
+    /// The task is blocked on an async file-mapping operation
+    FileMapping,
 }

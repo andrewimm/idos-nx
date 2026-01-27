@@ -6,7 +6,6 @@ use spin::RwLock;
 
 use super::stack::{SavedState, StackFrame};
 use crate::io::async_io::IOType;
-use crate::io::provider::IOProvider;
 use crate::task::scheduling::{get_cpu_scheduler, get_lapic};
 use crate::{
     hardware::pic::PIC,

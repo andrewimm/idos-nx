@@ -1,10 +1,13 @@
 use idos_api::io::driver::DriverCommand;
 use idos_api::ipc::Message;
 
-use crate::{memory::address::VirtualAddress, task::id::TaskID};
+use crate::{
+    memory::address::{PhysicalAddress, VirtualAddress},
+    task::id::TaskID,
+};
 
 #[derive(Copy, Clone, Debug)]
-pub enum DriverIOAction {
+pub enum DriverIoAction {
     /// Open an absolute path string
     Open {
         path_str_vaddr: VirtualAddress,
@@ -55,9 +58,22 @@ pub enum DriverIOAction {
         arg_ptr_vaddr: VirtualAddress,
         arg_len: usize,
     },
+    /// Map a file into memory
+    CreateFileMapping {
+        path_str_vaddr: VirtualAddress,
+        path_str_len: usize,
+    },
+    /// Unmap a file mapping
+    RemoveFileMapping { mapping_token: u32 },
+    /// Copy file contents into memory frame
+    PageInFileMapping {
+        mapping_token: u32,
+        offset_in_file: u32,
+        frame_paddr: PhysicalAddress,
+    },
 }
 
-impl DriverIOAction {
+impl DriverIoAction {
     pub fn encode_to_message(&self, request_id: u32) -> Message {
         match self {
             Self::Open {
@@ -166,6 +182,35 @@ impl DriverIOAction {
                     *ioctl,
                     arg_ptr_vaddr.as_u32(),
                     *arg_len as u32,
+                    0,
+                    0,
+                ],
+            },
+            Self::CreateFileMapping {
+                path_str_vaddr,
+                path_str_len,
+            } => Message {
+                message_type: DriverCommand::CreateMapping as u32,
+                unique_id: request_id,
+                args: [path_str_vaddr.as_u32(), *path_str_len as u32, 0, 0, 0, 0],
+            },
+            Self::RemoveFileMapping { mapping_token } => Message {
+                message_type: DriverCommand::RemoveMapping as u32,
+                unique_id: request_id,
+                args: [*mapping_token, 0, 0, 0, 0, 0],
+            },
+            Self::PageInFileMapping {
+                mapping_token,
+                offset_in_file,
+                frame_paddr,
+            } => Message {
+                message_type: DriverCommand::PageInMapping as u32,
+                unique_id: request_id,
+                args: [
+                    *mapping_token,
+                    *offset_in_file,
+                    frame_paddr.as_u32(),
+                    0,
                     0,
                     0,
                 ],

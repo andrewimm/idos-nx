@@ -7,7 +7,12 @@ use crate::{
     log::TaggedLogger,
     memory::address::{PhysicalAddress, VirtualAddress},
     task::{
-        actions::{self, lifecycle::InMemoryArgsIterator, memory::map_memory, send_message},
+        actions::{
+            self,
+            lifecycle::InMemoryArgsIterator,
+            memory::{map_file, map_memory},
+            send_message,
+        },
         id::TaskID,
         map::get_task,
         memory::MemoryBacking,
@@ -135,6 +140,7 @@ fn log_syscall(registers: &FullSavedRegisters) {
         0x26 => "create tcp socket handle",
         0x2b => "dup handle",
         0x30 => "map memory",
+        0x31 => "map file",
         0xffff => "internal debug",
         _ => "unknown",
     };
@@ -374,6 +380,40 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
                 }
                 Err(_e) => {
                     // TODO: we need error codes
+                    registers.eax = 0xffff_ffff;
+                }
+            }
+        }
+        0x31 => {
+            // map file
+            use idos_api::syscall::memory::FileMapping;
+            let mapping_ptr = registers.ebx as *const FileMapping;
+            let mapping = unsafe { &*mapping_ptr };
+
+            let address = match mapping.virtual_address {
+                0xffff_ffff => None,
+                vaddr => Some(VirtualAddress::new(vaddr)),
+            };
+            let size = mapping.size;
+            let path_slice = unsafe {
+                core::slice::from_raw_parts(
+                    mapping.path_ptr as *const u8,
+                    mapping.path_len as usize,
+                )
+            };
+            let path = match core::str::from_utf8(path_slice) {
+                Ok(s) => s,
+                Err(_e) => {
+                    registers.eax = 0xffff_ffff;
+                    return;
+                }
+            };
+            let file_offset = mapping.file_offset;
+            match map_file(address, size, path, file_offset) {
+                Ok(vaddr) => {
+                    registers.eax = vaddr.into();
+                }
+                Err(_e) => {
                     registers.eax = 0xffff_ffff;
                 }
             }

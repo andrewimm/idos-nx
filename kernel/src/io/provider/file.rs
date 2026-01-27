@@ -10,6 +10,7 @@ use crate::{
             driver_stat, driver_write, get_driver_id_by_name,
         },
         handle::Handle,
+        prepare_file_path,
     },
     task::{
         id::{AtomicTaskID, TaskID},
@@ -261,25 +262,5 @@ impl IOProvider for FileIOProvider {
             }
         }
         Some(Err(IoError::FileHandleInvalid))
-    }
-}
-
-fn prepare_file_path(raw_path: &str) -> Result<(DriverID, Path), IoError> {
-    if Path::is_absolute(raw_path) {
-        let (drive_name, path_portion) =
-            Path::split_absolute_path(raw_path).ok_or(IoError::NotFound)?;
-        let driver_id = if drive_name == "DEV" {
-            if path_portion.len() > 1 {
-                get_driver_id_by_name(&path_portion[1..]).ok_or(IoError::NotFound)?
-            } else {
-                DriverID::new(0)
-            }
-        } else {
-            get_driver_id_by_name(drive_name).ok_or(IoError::NotFound)?
-        };
-
-        Ok((driver_id, Path::from_str(path_portion)))
-    } else {
-        Err(IoError::NotFound)
     }
 }
