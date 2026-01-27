@@ -59,7 +59,7 @@ pub fn send_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> Res
         // be a duplicate (0). If this is the only reference, it can be a move (1).
         // op.args[2] should be set to the original user-facing handle, so that
         // it can be removed on success
-        let mut task = task_lock.read();
+        let task = task_lock.read();
         let io_index = task.open_handles.get(handle).ok_or(())?.clone();
         let ref_count = task
             .async_io_table

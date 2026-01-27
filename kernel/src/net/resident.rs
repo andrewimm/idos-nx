@@ -129,8 +129,6 @@ pub fn net_stack_resident() -> ! {
     let dns_port = get_dns_port();
     create_dns_socket(dns_port);
 
-    let message_queue = open_message_queue();
-
     loop {
         // check the task queue for external requests
         // External async requests include:

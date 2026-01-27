@@ -9,10 +9,13 @@ use crate::{
         filesystem::driver::AsyncIOCallback,
         handle::Handle,
     },
-    task::{actions::send_message, id::TaskID, map::get_task, switching::get_current_id},
+    task::{
+        actions::send_message, id::TaskID, map::get_task, scheduling::reenqueue_task,
+        switching::get_current_id,
+    },
 };
 
-use super::comms::DriverIOAction;
+use super::comms::DriverIoAction;
 
 use idos_api::io::error::{IoError, IoResult};
 
@@ -29,13 +32,13 @@ struct IncomingRequest {
 
     // the actual action data:
     /// The action to encode and send to the driver
-    pub action: DriverIOAction,
+    pub action: DriverIoAction,
 }
 
 static PENDING_REQUESTS: Mutex<BTreeMap<u32, IncomingRequest>> = Mutex::new(BTreeMap::new());
 static NEXT_REQUEST: AtomicU32 = AtomicU32::new(0);
 
-pub fn send_async_request(driver_id: TaskID, io_callback: AsyncIOCallback, action: DriverIOAction) {
+pub fn send_async_request(driver_id: TaskID, io_callback: AsyncIOCallback, action: DriverIoAction) {
     let request = IncomingRequest {
         driver_id,
         source_task: io_callback.0,
@@ -52,26 +55,43 @@ pub fn send_async_request(driver_id: TaskID, io_callback: AsyncIOCallback, actio
 pub fn request_complete(request_id: u32, return_value: IoResult) {
     let current_id = get_current_id();
     let pending_request = PENDING_REQUESTS.lock().remove(&request_id);
-    if let Some(request) = pending_request {
-        if request.driver_id != current_id {
-            panic!("Can't respond to a request for a different driver");
-        }
+    let Some(request) = pending_request else {
+        return;
+    };
+    if request.driver_id != current_id {
+        // TODO: shouldn't be a panic, should be an error
+        panic!("Can't respond to a request for a different driver");
+    }
+    let Some(task_lock) = get_task(request.source_task) else {
+        return;
+    };
 
-        if let Some(task_lock) = get_task(request.source_task) {
-            let io_entry = task_lock.read().async_io_complete(request.source_io);
-            if let Some(entry) = io_entry {
-                if let Some(op) = entry
-                    .inner()
-                    .async_complete(request.source_op, return_value.clone())
-                {
-                    // If the operation was successful, and it was a close or share,
-                    // we need to remove the original handle. It would be incorrect
-                    // to prematurely remove it before the result is known.
-                    if let Ok(_) = return_value {
-                        op.maybe_close_handle(task_lock, request.source_io);
-                    }
-                }
-            }
+    // file mapping operations don't have per-op completions
+    match request.action {
+        DriverIoAction::CreateFileMapping { .. }
+        | DriverIoAction::RemoveFileMapping { .. }
+        | DriverIoAction::PageInFileMapping { .. } => {
+            task_lock.write().resolve_file_mapping_request(return_value);
+            reenqueue_task(request.source_task);
+            return;
         }
+        _ => (),
+    }
+
+    let io_entry = task_lock.read().async_io_complete(request.source_io);
+    let Some(entry) = io_entry else {
+        return;
+    };
+    let Some(op) = entry
+        .inner()
+        .async_complete(request.source_op, return_value.clone())
+    else {
+        return;
+    };
+    // If the operation was successful, and it was a close or share,
+    // we need to remove the original handle. It would be incorrect
+    // to prematurely remove it before the result is known.
+    if let Ok(_) = return_value {
+        op.maybe_close_handle(task_lock, request.source_io);
     }
 }

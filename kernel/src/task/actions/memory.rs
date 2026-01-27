@@ -1,9 +1,16 @@
+use idos_api::io::driver::DriverMappingToken;
+
 use super::super::id::TaskID;
 use super::super::map::get_task;
 use super::super::memory::{MemMapError, MemoryBacking};
 use super::super::switching::get_current_id;
+use crate::io::async_io::AsyncOpID;
+use crate::io::driver::pending::send_async_request;
+use crate::io::filesystem::driver::DriverID;
+use crate::io::filesystem::driver_create_mapping;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::physical::{maybe_add_frame_reference, release_tracked_frame};
+use crate::memory::shared::share_buffer;
 use crate::task::paging::{
     current_pagedir_unmap, page_on_demand, ExternalPageDirectory, PermissionFlags,
 };
@@ -138,4 +145,75 @@ impl DmaRange {
             page_count,
         })
     }
+}
+
+pub fn map_file(
+    vaddr: Option<VirtualAddress>,
+    size: u32,
+    path: &str,
+    offset_in_file: u32,
+) -> Result<VirtualAddress, MemMapError> {
+    // Mapping a file requires an async IO request to initialize the mapping
+    // and get back a token. This requires the syscall to suspend the current
+    // task until IO is complete. We don't want to be holding any locks when
+    // we do that.
+    let task_id = get_current_id();
+    let task_lock = get_task(task_id).ok_or(MemMapError::NoTask)?;
+
+    let (driver_id, relative_path) =
+        crate::io::prepare_file_path(path).map_err(|_| MemMapError::FileUnavailable)?;
+
+    let result = match driver_create_mapping(driver_id, relative_path) {
+        Some(immediate) => immediate,
+        None => {
+            // no immediate result, need to suspend task and wait for async io
+            task_lock.write().begin_file_mapping_request();
+            crate::task::actions::yield_coop();
+            // once awake, get token from task state and complete mapping
+            let mut task = task_lock.write();
+            let last_result = task.last_map_result.take();
+            let Some(result) = last_result else {
+                return Err(MemMapError::FileUnavailable);
+            };
+            result
+        }
+    };
+    let mapping_token = match result {
+        Ok(token) => DriverMappingToken::new(token),
+        Err(_) => return Err(MemMapError::DriverError),
+    };
+
+    let backing = MemoryBacking::FileBacked {
+        driver_id,
+        mapping_token,
+        offset_in_file,
+    };
+
+    let result = task_lock
+        .write()
+        .memory_mapping
+        .map_memory(vaddr, size, backing);
+
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    #[test_case]
+    fn test_mmap_file_async_driver() {
+        // map a frame of memory to a file on the ATEST: drive
+        let vaddr = super::map_file(None, 0x1000, "ATEST:\\MYFILE", 0).unwrap();
+        let buffer = unsafe { core::slice::from_raw_parts(vaddr.as_ptr::<u8>(), 0x1000) };
+        let start_slice = &buffer[0..9];
+        assert_eq!(start_slice, b"PAGE DATA");
+    }
+
+    #[test_case]
+    fn test_mmap_file_invalid_path() {
+        let result = super::map_file(None, 0x1000, "NONEXISTENT:\\FILE", 0);
+        assert!(result.is_err());
+    }
+
+    #[test_case]
+    fn test_mmap_file_offset_in_file() {}
 }
