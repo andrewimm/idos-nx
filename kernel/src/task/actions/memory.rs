@@ -215,5 +215,14 @@ mod tests {
     }
 
     #[test_case]
-    fn test_mmap_file_offset_in_file() {}
+    fn test_mmap_file_offset_in_file() {
+        // DEV:\\ASYNCDEV is a driver that, when mapped, returns the letters
+        // A-Z in sequence, one letter per page
+
+        let vaddr = super::map_file(None, 0x1000, "DEV:\\ASYNCDEV", 0xf00).unwrap();
+        let buffer = unsafe { core::slice::from_raw_parts(vaddr.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(buffer[0], b'A');
+        assert_eq!(buffer[0xff], b'A');
+        assert_eq!(buffer[0x100], b'B');
+    }
 }

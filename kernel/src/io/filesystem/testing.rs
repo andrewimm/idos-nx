@@ -239,11 +239,17 @@ pub mod async_fs {
 }
 
 pub mod async_dev {
-    use idos_api::io::{driver::DriverFileReference, AsyncOp};
+    use idos_api::io::{
+        driver::{DriverFileReference, DriverMappingToken},
+        AsyncOp,
+    };
 
-    use crate::task::actions::{
-        io::{driver_io_complete, send_io_op},
-        sync::{block_on_wake_set, create_wake_set},
+    use crate::{
+        memory::{address::PhysicalAddress, virt::scratch::UnmappedPage},
+        task::actions::{
+            io::{driver_io_complete, send_io_op},
+            sync::{block_on_wake_set, create_wake_set},
+        },
     };
 
     use super::*;
@@ -303,6 +309,38 @@ pub mod async_dev {
                 found.written += 1;
             }
             Ok(written as u32)
+        }
+
+        fn create_mapping(&mut self, path: &str) -> IoResult<DriverMappingToken> {
+            Ok(DriverMappingToken::new(1))
+        }
+
+        fn remove_mapping(&mut self, _mapping: DriverMappingToken) -> IoResult {
+            Ok(1)
+        }
+
+        fn page_in_mapping(
+            &mut self,
+            map_token: DriverMappingToken,
+            offset_in_file: u32,
+            frame_paddr: u32,
+        ) -> IoResult {
+            let frame_page = UnmappedPage::map(PhysicalAddress::new(frame_paddr));
+            let page_buffer_ptr = frame_page.virtual_address().as_ptr_mut::<u8>();
+            let page_buffer = unsafe { core::slice::from_raw_parts_mut(page_buffer_ptr, 0x1000) };
+
+            let frame_start_offset = offset_in_file & 0xfff;
+            let first_fill_length = (0x1000 - frame_start_offset) as usize;
+            let fill_value = b'A' + ((offset_in_file / 0x1000) % 26) as u8;
+            let second_fill_value = fill_value + 1;
+            for i in 0..first_fill_length {
+                page_buffer[i] = fill_value;
+            }
+            for i in first_fill_length..0x1000 {
+                page_buffer[i] = second_fill_value;
+            }
+
+            Ok(0x1000)
         }
     }
 

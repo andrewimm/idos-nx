@@ -1,3 +1,4 @@
+use idos_api::io::driver::DriverMappingToken;
 use idos_api::io::error::{IoError, IoResult};
 use idos_api::io::file::FileStatus;
 
@@ -61,6 +62,23 @@ pub trait KernelDriver {
         arg: u32,
         arg_len: usize,
         io_callback: AsyncIOCallback,
+    ) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
+    }
+
+    fn create_mapping(&self, path: &str) -> Option<IoResult<DriverMappingToken>> {
+        Some(Err(IoError::UnsupportedOperation))
+    }
+
+    fn remove_mapping(&self, map_token: DriverMappingToken) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
+    }
+
+    fn page_in_mapping(
+        &self,
+        map_token: DriverMappingToken,
+        offset_in_file: u32,
+        frame_paddr: u32,
     ) -> Option<IoResult> {
         Some(Err(IoError::UnsupportedOperation))
     }

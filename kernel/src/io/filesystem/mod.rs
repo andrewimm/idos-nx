@@ -351,16 +351,36 @@ pub fn driver_ioctl(
 
 pub fn driver_create_mapping(id: DriverID, path: Path) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
-        DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => unimplemented!(),
-        DriverType::TaskDevice(task_id, sub_id) => unimplemented!(),
+        DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
+            match d.create_mapping(path.as_str()) {
+                Some(Ok(token)) => Some(Ok(*token)),
+                Some(Err(e)) => Some(Err(e)),
+                None => None,
+            }
+        }
+        DriverType::TaskDevice(task_id, sub_id) => {
+            // let's avoid allocating memory to pass the sub_id
+            // Without implementing a separate enum value, we can pass it
+            // as the path ptr with a zero-length string.
+            // The receiving code can check the length and interpret the pointer
+            // appropriately.
+            let action = DriverIoAction::CreateFileMapping {
+                path_str_vaddr: VirtualAddress::new(*sub_id),
+                path_str_len: 0,
+            };
+            let io_callback: AsyncIOCallback = (get_current_id(), 0, AsyncOpID::new(0));
+            send_async_request(*task_id, io_callback, action);
+            None
+        }
         DriverType::TaskFilesystem(task_id) => {
             // like driver_open, we need to copy the string to a new frame for
             // security reasons
             let path_len = path.as_str().len();
             let action = if path_len == 0 {
-                // can't share memory for an empty slice, just hardcode it
+                // can't share memory for an empty slice, just hardcode it using
+                // a sentinel for the address.
                 DriverIoAction::CreateFileMapping {
-                    path_str_vaddr: VirtualAddress::new(0),
+                    path_str_vaddr: VirtualAddress::new(0xffff_ffff),
                     path_str_len: 0,
                 }
             } else {
@@ -393,13 +413,28 @@ pub fn driver_page_in_file(
     frame_paddr: PhysicalAddress,
 ) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
-        DriverType::KernelFilesystem(_) | DriverType::KernelDevice(_) => unimplemented!(),
-        DriverType::TaskDevice(_, _) => unimplemented!(),
-        DriverType::TaskFilesystem(task_id) => {
+        DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {
+            d.page_in_mapping(token, offset_in_file, frame_paddr.as_u32())
+        }
+        DriverType::TaskDevice(task_id, _) | DriverType::TaskFilesystem(task_id) => {
             let action = DriverIoAction::PageInFileMapping {
                 mapping_token: *token,
                 offset_in_file,
                 frame_paddr,
+            };
+            let io_callback: AsyncIOCallback = (get_current_id(), 0, AsyncOpID::new(0));
+            send_async_request(*task_id, io_callback, action);
+            None
+        }
+    })
+}
+
+pub fn driver_remove_mapping(id: DriverID, token: DriverMappingToken) -> Option<IoResult> {
+    with_driver(id, |driver| match driver {
+        DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => d.remove_mapping(token),
+        DriverType::TaskDevice(task_id, _) | DriverType::TaskFilesystem(task_id) => {
+            let action = DriverIoAction::RemoveFileMapping {
+                mapping_token: *token,
             };
             let io_callback: AsyncIOCallback = (get_current_id(), 0, AsyncOpID::new(0));
             send_async_request(*task_id, io_callback, action);
