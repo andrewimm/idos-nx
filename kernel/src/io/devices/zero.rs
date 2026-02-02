@@ -1,9 +1,13 @@
-use crate::files::path::Path;
 use crate::io::driver::kernel_driver::KernelDriver;
 use crate::io::filesystem::driver::AsyncIOCallback;
+use crate::memory::address::PhysicalAddress;
+use crate::{files::path::Path, memory::virt::scratch::UnmappedPage};
 use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};
-use idos_api::io::error::{IoError, IoResult};
+use idos_api::io::{
+    driver::DriverMappingToken,
+    error::{IoError, IoResult},
+};
 use spin::RwLock;
 
 pub struct ZeroDev {
@@ -70,5 +74,26 @@ impl KernelDriver for ZeroDev {
 
     fn close(&self, instance: u32, _: AsyncIOCallback) -> Option<IoResult> {
         Some(self.close_impl(instance))
+    }
+
+    fn create_mapping(&self, path: &str) -> Option<IoResult<DriverMappingToken>> {
+        Some(Ok(DriverMappingToken::new(1)))
+    }
+
+    fn remove_mapping(&self, map_token: DriverMappingToken) -> Option<IoResult> {
+        Some(Ok(1))
+    }
+
+    fn page_in_mapping(
+        &self,
+        map_token: DriverMappingToken,
+        offset_in_file: u32,
+        frame_paddr: u32,
+    ) -> Option<IoResult> {
+        let mapped_page = UnmappedPage::map(PhysicalAddress::new(frame_paddr));
+        let buffer_ptr = mapped_page.virtual_address().as_ptr_mut::<u8>();
+        let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, 0x1000) };
+        buffer.fill(0);
+        Some(Ok(0x1000))
     }
 }
