@@ -1,3 +1,5 @@
+use core::str::Utf8Error;
+
 use crate::io::error::{IoError, IoResult};
 use crate::io::file::FileStatus;
 use crate::ipc::Message;
@@ -85,6 +87,22 @@ impl core::ops::Deref for DriverMappingToken {
     }
 }
 
+fn number_to_utf8_bytes(num: u32, digits: &mut [u8; 10]) -> Result<&str, Utf8Error> {
+    let mut digit_index: usize = 10;
+    let mut remaining = num;
+    if remaining == 0 {
+        digits[9] = b'0';
+        digit_index = 9;
+    }
+    while remaining > 0 && digit_index > 0 {
+        digit_index -= 1;
+        digits[digit_index] = (remaining % 10) as u8 + b'0';
+        remaining /= 10;
+    }
+
+    core::str::from_utf8(&digits[digit_index..])
+}
+
 /// Trait implemented by all async drivers. It provides a helper method to
 /// translate incoming messages from the DriverIO system into file IO method
 /// calls.
@@ -111,19 +129,7 @@ pub trait AsyncDriver {
                 // 10 digits should be enough for any u32, and we can just skip
                 // leading zeros
                 let mut digits: [u8; 10] = [0; 10];
-                let mut digit_index: usize = 10;
-                let mut remaining = message.args[0];
-                if remaining == 0 {
-                    digits[9] = b'0';
-                    digit_index = 9;
-                }
-                while remaining > 0 && digit_index > 0 {
-                    digit_index -= 1;
-                    digits[digit_index] = (remaining % 10) as u8 + b'0';
-                    remaining /= 10;
-                }
-
-                let id_as_path = core::str::from_utf8(&digits[digit_index..]).ok()?;
+                let id_as_path = number_to_utf8_bytes(message.args[0], &mut digits).ok()?;
                 Some(self.open(id_as_path).map(|file_ref| *file_ref))
             }
             DriverCommand::Close => {
@@ -190,8 +196,16 @@ pub trait AsyncDriver {
             DriverCommand::CreateMapping => {
                 let path_ptr = message.args[0] as *mut u8;
                 let path_len = message.args[1] as usize;
+                let mut possible_sub_driver_path: [u8; 10] = [0; 10];
                 let path = if path_len == 0 {
-                    ""
+                    // length == 0 could mean empty string or sub-driver
+                    // if the path ptr is 0xffff_ffff, treat it as empty string
+                    if message.args[0] == 0xffff_ffff {
+                        ""
+                    } else {
+                        // else, we stringify the u32 as the path (possible_sub_driver_path)
+                        number_to_utf8_bytes(message.args[0], &mut possible_sub_driver_path).ok()?
+                    }
                 } else {
                     let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
                     core::str::from_utf8(path_slice).ok()?

@@ -4,6 +4,7 @@ use super::protocol::{extract_ata_string, AtaCommand};
 use crate::arch::port::Port;
 use crate::io::handle::Handle;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
+use crate::memory::virt::scratch::UnmappedPage;
 use crate::task::actions::io::{read_sync, write_sync};
 use crate::task::actions::memory::{map_memory, unmap_memory_for_task};
 use crate::task::actions::{sleep, yield_coop};
@@ -206,7 +207,7 @@ impl AtaChannel {
         })
     }
 
-    pub fn read(
+    pub fn read_virt(
         &self,
         drive: DriveSelect,
         first_sector: u32,
@@ -233,17 +234,48 @@ impl AtaChannel {
         }
     }
 
+    pub fn read_phys(
+        &self,
+        drive: DriveSelect,
+        first_sector: u32,
+        buffer_paddr: PhysicalAddress,
+        buffer_length: usize,
+    ) -> Result<u32, ()> {
+        if buffer_length % SECTOR_SIZE != 0 {
+            super::LOGGER.log(format_args!(
+                "ATA READ: Buffer must be divisible by sector size ({})",
+                SECTOR_SIZE
+            ));
+            return Err(());
+        }
+        match self.bus_master_port {
+            Some(_port) => {
+                super::LOGGER.log(format_args!("READ using DMA"));
+                return self.dma_transfer(drive, first_sector, buffer_paddr, buffer_length, false);
+            }
+            None => {
+                super::LOGGER.log(format_args!("READ using PIO"));
+                // need to map the physical buffer into virtual memory for PIO
+                let temp_mapping = UnmappedPage::map(buffer_paddr);
+                let vaddr = temp_mapping.virtual_address();
+                let buffer = unsafe {
+                    core::slice::from_raw_parts_mut(vaddr.as_ptr_mut::<u8>(), buffer_length)
+                };
+                return self.read_pio(drive, first_sector, buffer);
+            }
+        }
+    }
+
     pub fn dma_transfer(
         &self,
         drive: DriveSelect,
         first_sector: u32,
-        buffer: &mut [u8],
+        buffer_paddr: PhysicalAddress,
+        buffer_length: usize,
         is_write: bool,
     ) -> Result<u32, ()> {
         let prdt = PRDT::new();
-        let buffer_vaddr = VirtualAddress::new(buffer.as_ptr() as u32);
-        let buffer_paddr = get_current_physical_address(buffer_vaddr).unwrap();
-        prdt.set_buffer(buffer_paddr, buffer.len() as u32);
+        prdt.set_buffer(buffer_paddr, buffer_length as u32);
 
         let bus_master_port = self.bus_master_port.unwrap();
         Port::new(bus_master_port).write_u8(0);
@@ -264,7 +296,7 @@ impl AtaChannel {
             "DMA Complete, read from sector {}",
             first_sector
         ));
-        let sector_count = buffer.len() as u32 / 512;
+        let sector_count = buffer_length as u32 / 512;
         Port::new(self.base_port + 2).write_u8(sector_count as u8);
         Port::new(self.base_port + 3).write_u8(first_sector as u8);
         Port::new(self.base_port + 4).write_u8((first_sector >> 8) as u8);
@@ -312,7 +344,7 @@ impl AtaChannel {
         // clear interrupt
         Port::new(bus_master_port + 2).write_u8(4);
 
-        Ok(buffer.len() as u32)
+        Ok(buffer_length as u32)
     }
 
     fn read_dma(
@@ -324,7 +356,11 @@ impl AtaChannel {
         unsafe {
             core::ptr::read_volatile(buffer.as_ptr());
         }
-        self.dma_transfer(drive, first_sector, buffer, false)
+        let dma_phys =
+            get_current_physical_address(VirtualAddress::new(buffer.as_ptr() as u32)).unwrap();
+        let dma_length = buffer.len();
+
+        self.dma_transfer(drive, first_sector, dma_phys, dma_length, false)
     }
 
     fn read_pio(

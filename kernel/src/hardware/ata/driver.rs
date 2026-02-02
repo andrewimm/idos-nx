@@ -1,6 +1,7 @@
 use super::controller::{AtaChannel, DriveSelect, SECTOR_SIZE};
 use crate::io::filesystem::install_task_dev;
 use crate::io::handle::Handle;
+use crate::memory::address::PhysicalAddress;
 use crate::task::actions::handle::open_interrupt_handle;
 use crate::task::actions::handle::open_message_queue;
 use crate::task::actions::io::close_sync;
@@ -13,6 +14,7 @@ use alloc::collections::BTreeMap;
 use core::sync::atomic::{AtomicU32, Ordering};
 use idos_api::io::driver::AsyncDriver;
 use idos_api::io::driver::DriverFileReference;
+use idos_api::io::driver::DriverMappingToken;
 use idos_api::io::error::{IoError, IoResult};
 use idos_api::ipc::Message;
 
@@ -26,6 +28,9 @@ pub struct AtaDeviceDriver {
 
     next_instance: AtomicU32,
     open_instances: BTreeMap<u32, DriveSelect>,
+
+    next_mapping: AtomicU32,
+    active_mappings: BTreeMap<u32, DriveSelect>,
 }
 
 impl AtaDeviceDriver {
@@ -35,6 +40,9 @@ impl AtaDeviceDriver {
             attached: [None, None],
             next_instance: AtomicU32::new(1),
             open_instances: BTreeMap::new(),
+
+            next_mapping: AtomicU32::new(1),
+            active_mappings: BTreeMap::new(),
         }
     }
 }
@@ -85,7 +93,7 @@ impl AsyncDriver for AtaDeviceDriver {
             let first_sector = offset / SECTOR_SIZE as u32;
             let sectors_read = self
                 .channel
-                .read(select, first_sector, buffer)
+                .read_virt(select, first_sector, buffer)
                 .map_err(|_| IoError::FileSystemError)?;
             let bytes_read = sectors_read * SECTOR_SIZE as u32;
             return Ok(bytes_read);
@@ -103,7 +111,7 @@ impl AsyncDriver for AtaDeviceDriver {
             let bytes_remaining_in_buffer: u32 = buffer.len() as u32 - bytes_read;
 
             self.channel
-                .read(select, sector_index, &mut pio_buffer)
+                .read_virt(select, sector_index, &mut pio_buffer)
                 .map_err(|_| IoError::FileSystemError)?;
 
             let bytes_to_copy = bytes_remaining_in_sector.min(bytes_remaining_in_buffer);
@@ -119,6 +127,62 @@ impl AsyncDriver for AtaDeviceDriver {
         }
 
         Ok(bytes_read)
+    }
+
+    fn create_mapping(&mut self, path: &str) -> IoResult<DriverMappingToken> {
+        let attached_index = match path.parse::<usize>() {
+            Ok(i) => i - 1,
+            Err(_) => return Err(IoError::NotFound),
+        };
+        if attached_index >= self.attached.len() {
+            return Err(IoError::NotFound);
+        }
+        if let Some(select) = self.attached[attached_index] {
+            let mapping_id = self.next_mapping.fetch_add(1, Ordering::SeqCst);
+            self.active_mappings.insert(mapping_id, select);
+            return Ok(DriverMappingToken::new(mapping_id));
+        }
+        Err(IoError::NotFound)
+    }
+
+    fn remove_mapping(&mut self, map_token: DriverMappingToken) -> IoResult {
+        self.active_mappings
+            .remove(&*map_token)
+            .map(|_| 1)
+            .ok_or(IoError::FileHandleInvalid)
+    }
+
+    fn page_in_mapping(
+        &mut self,
+        map_token: DriverMappingToken,
+        offset_in_file: u32,
+        frame_paddr: u32,
+    ) -> IoResult {
+        let drive_select = self
+            .active_mappings
+            .get(&*map_token)
+            .cloned()
+            .ok_or(IoError::FileHandleInvalid)?;
+
+        if offset_in_file % SECTOR_SIZE as u32 == 0 {
+            // fast-path, DMA 4KB directly into the frame
+            // TODO: this won't work past 16MiB
+            let first_sector = offset_in_file / SECTOR_SIZE as u32;
+            let sectors_read = self
+                .channel
+                .read_phys(
+                    drive_select,
+                    first_sector,
+                    PhysicalAddress::new(frame_paddr),
+                    0x1000,
+                )
+                .map_err(|_| IoError::FileSystemError)?;
+            let bytes_read = sectors_read * SECTOR_SIZE as u32;
+            return Ok(bytes_read);
+        }
+        // if it's not aligned, we should dma 9 sectors to a bounce buffer
+        // and then copy it into the frame with the right offset
+        unimplemented!("Need to implement mapping at an offset")
     }
 }
 
