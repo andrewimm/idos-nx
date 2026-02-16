@@ -2,7 +2,7 @@ use idos_api::io::error::IoError;
 
 use super::id::TaskID;
 use super::map::get_task;
-use super::memory::{MemMappedRegion, MemoryBacking};
+use super::memory::{get_file_backed_page, track_file_backed_page, MemMappedRegion, MemoryBacking};
 use super::switching::get_current_task;
 use crate::io::filesystem::driver_page_in_file;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
@@ -95,6 +95,24 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             mapping_token,
             offset_in_file,
         } => {
+            // We want to use the same frame for identical sections of the same
+            // file. Assuming a driver correctly implements mapping tokens,
+            // the same offset of the same driver+token pair should represent
+            // the same data, and should be shared. If we've already read this
+            // frame, we can just increment the reference count and directly
+            // map it without needing to read anything.
+            let total_offset = offset_in_file + page_offset;
+            if let Some(paddr) = get_file_backed_page(*driver_id, *mapping_token, total_offset) {
+                // add another reference to the frame
+                super::LOGGER.log(format_args!("File-backed Mapping: re-use {:?}", paddr));
+                maybe_add_frame_reference(paddr);
+                current_pagedir_map(
+                    AllocatedFrame::new(paddr),
+                    address.prev_page_barrier(),
+                    flags,
+                );
+                return Some(paddr);
+            }
             let allocated_frame =
                 allocate_frame_with_tracking().expect("Failed to allocate memory");
             let frame_paddr = allocated_frame.peek_address();
@@ -115,7 +133,10 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
                 };
 
             match result {
-                Ok(_) => current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags),
+                Ok(_) => {
+                    track_file_backed_page(*driver_id, *mapping_token, total_offset, frame_paddr);
+                    current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags)
+                }
                 Err(_) => {
                     let _ = release_tracked_frame(allocated_frame);
                     return None;

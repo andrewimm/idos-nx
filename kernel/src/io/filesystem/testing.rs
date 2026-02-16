@@ -115,6 +115,8 @@ pub mod async_fs {
     pub struct AsyncTestFS {
         next_instance: AtomicU32,
         open_files: RwLock<BTreeMap<u32, OpenFile>>,
+        next_mapping_token: AtomicU32,
+        mapping_tokens: RwLock<BTreeMap<alloc::string::String, u32>>,
     }
 
     impl AsyncTestFS {
@@ -122,6 +124,8 @@ pub mod async_fs {
             Self {
                 next_instance: AtomicU32::new(1),
                 open_files: RwLock::new(BTreeMap::new()),
+                next_mapping_token: AtomicU32::new(0xA0),
+                mapping_tokens: RwLock::new(BTreeMap::new()),
             }
         }
     }
@@ -172,7 +176,11 @@ pub mod async_fs {
         }
 
         fn create_mapping(&mut self, path: &str) -> IoResult<DriverMappingToken> {
-            Ok(DriverMappingToken::new(0xA0))
+            let mut tokens = self.mapping_tokens.write();
+            let token = tokens
+                .entry(alloc::string::String::from(path))
+                .or_insert_with(|| self.next_mapping_token.fetch_add(1, Ordering::SeqCst));
+            Ok(DriverMappingToken::new(*token))
         }
 
         fn remove_mapping(&mut self, _mapping: DriverMappingToken) -> IoResult {
@@ -185,7 +193,8 @@ pub mod async_fs {
             offset: u32,
             frame_paddr: u32,
         ) -> IoResult {
-            if *map_token != 0xA0 {
+            let tokens = self.mapping_tokens.read();
+            if !tokens.values().any(|t| *t == *map_token) {
                 return Err(IoError::InvalidArgument);
             }
 

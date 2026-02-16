@@ -260,4 +260,114 @@ mod tests {
         assert_eq!(buffer[0xff], b'A');
         assert_eq!(buffer[0x100], b'B');
     }
+
+    #[test_case]
+    fn test_mmap_file_same_file_shares_frame() {
+        // Two mappings of the same file at the same offset should share the
+        // same physical frame, rather than allocating two separate frames.
+        // ATEST: returns the same mapping token for identical paths,
+        // so both mappings reference the same backing file data.
+        let vaddr1 = super::map_file(None, 0x1000, "ATEST:\\SHARE_TEST", 0).unwrap();
+        let buffer1 = unsafe { core::slice::from_raw_parts(vaddr1.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(&buffer1[0..9], b"PAGE DATA");
+
+        let vaddr2 = super::map_file(None, 0x1000, "ATEST:\\SHARE_TEST", 0).unwrap();
+        let buffer2 = unsafe { core::slice::from_raw_parts(vaddr2.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(&buffer2[0..9], b"PAGE DATA");
+
+        // Both virtual addresses should be backed by the same physical frame
+        let paddr1 =
+            crate::task::paging::maybe_get_current_physical_address(vaddr1).unwrap();
+        let paddr2 =
+            crate::task::paging::maybe_get_current_physical_address(vaddr2).unwrap();
+        assert_eq!(paddr1, paddr2);
+    }
+
+    #[test_case]
+    fn test_mmap_file_different_offsets_different_frames() {
+        // Two mappings of the same file at different page-aligned offsets
+        // should get different physical frames, because they contain
+        // different data.
+        let vaddr1 = super::map_file(None, 0x1000, "DEV:\\ASYNCDEV", 0).unwrap();
+        let buffer1 = unsafe { core::slice::from_raw_parts(vaddr1.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(buffer1[0], b'A');
+
+        let vaddr2 = super::map_file(None, 0x1000, "DEV:\\ASYNCDEV", 0x1000).unwrap();
+        let buffer2 = unsafe { core::slice::from_raw_parts(vaddr2.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(buffer2[0], b'B');
+
+        let paddr1 =
+            crate::task::paging::maybe_get_current_physical_address(vaddr1).unwrap();
+        let paddr2 =
+            crate::task::paging::maybe_get_current_physical_address(vaddr2).unwrap();
+        assert_ne!(paddr1, paddr2);
+    }
+
+    #[test_case]
+    fn test_mmap_file_cross_task_shares_frame() {
+        use core::sync::atomic::{AtomicU32, Ordering};
+        use crate::task::actions::io::read_sync;
+
+        static CHILD_PADDR: AtomicU32 = AtomicU32::new(0);
+
+        // Parent maps a file and triggers paging
+        let vaddr = super::map_file(None, 0x1000, "ATEST:\\CROSS_TASK", 0).unwrap();
+        let buffer = unsafe { core::slice::from_raw_parts(vaddr.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(&buffer[0..9], b"PAGE DATA");
+        let parent_paddr =
+            crate::task::paging::maybe_get_current_physical_address(vaddr).unwrap();
+
+        fn child_body() -> ! {
+            // Child maps the same file. Because the parent already paged it,
+            // the tracker should return the same physical frame.
+            let vaddr = crate::task::actions::memory::map_file(
+                None, 0x1000, "ATEST:\\CROSS_TASK", 0,
+            ).unwrap();
+            let buffer = unsafe { core::slice::from_raw_parts(vaddr.as_ptr::<u8>(), 0x1000) };
+            assert_eq!(&buffer[0..9], b"PAGE DATA");
+
+            let paddr =
+                crate::task::paging::maybe_get_current_physical_address(vaddr).unwrap();
+            CHILD_PADDR.store(paddr.as_u32(), Ordering::SeqCst);
+            crate::task::actions::lifecycle::terminate(0);
+        }
+
+        let (handle, _) = crate::task::actions::handle::create_kernel_task(
+            child_body,
+            Some("CHILD"),
+        );
+        read_sync(handle, &mut [], 0).unwrap();
+
+        let child_paddr = crate::memory::address::PhysicalAddress::new(
+            CHILD_PADDR.load(Ordering::SeqCst),
+        );
+        assert_eq!(parent_paddr, child_paddr);
+    }
+
+    #[test_case]
+    fn test_mmap_file_unmap_then_remap_gets_new_frame() {
+        // After unmapping a file-backed region, the tracked frame should be
+        // cleared (assuming ref count drops to zero). Re-mapping and paging
+        // the same file should allocate a fresh frame.
+        // Uses a unique path so this test gets its own mapping token,
+        // avoiding interference from other tests that map "MYFILE".
+        let vaddr1 = super::map_file(None, 0x1000, "ATEST:\\UNMAP_TEST", 0).unwrap();
+        let buffer1 = unsafe { core::slice::from_raw_parts(vaddr1.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(&buffer1[0..9], b"PAGE DATA");
+        let paddr1 =
+            crate::task::paging::maybe_get_current_physical_address(vaddr1).unwrap();
+
+        // Unmap the region — this should release the frame and untrack it
+        super::unmap_memory(vaddr1, 0x1000).unwrap();
+
+        // Re-map the same file
+        let vaddr2 = super::map_file(None, 0x1000, "ATEST:\\UNMAP_TEST", 0).unwrap();
+        let buffer2 = unsafe { core::slice::from_raw_parts(vaddr2.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(&buffer2[0..9], b"PAGE DATA");
+        let paddr2 =
+            crate::task::paging::maybe_get_current_physical_address(vaddr2).unwrap();
+
+        // The frame should be different because the old one was untracked
+        assert_ne!(paddr1, paddr2);
+    }
 }
