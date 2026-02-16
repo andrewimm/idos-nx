@@ -102,14 +102,17 @@ pub fn unmap_memory_for_task(
                             driver_id,
                             mapping_token,
                             offset_in_file,
+                            shared,
                         } = region.kind
                         {
-                            // If the frame was shared, we need to tell the driver that it's no longer mapped
-                            // TODO: send request to driver
+                            if shared {
+                                // If the frame was shared, we need to tell the driver that it's no longer mapped
+                                // TODO: send request to driver
 
-                            // If we dropped the frame used for a file-backed
-                            // mapping, we also need to clear the re-use cache
-                            untrack_file_backed_page(driver_id, mapping_token, offset_in_file);
+                                // If we dropped the frame used for a file-backed
+                                // mapping, we also need to clear the re-use cache
+                                untrack_file_backed_page(driver_id, mapping_token, offset_in_file);
+                            }
                         }
                     }
                 }
@@ -130,12 +133,15 @@ pub fn unmap_memory_for_task(
                             driver_id,
                             mapping_token,
                             offset_in_file,
+                            shared,
                         } = region.kind
                         {
-                            // If the frame was shared, we need to tell the driver that it's no longer mapped
-                            // TODO: send request to driver
-                            // If we dropped the frame used for a file-backed mapping, we also need to clear the re-use cache
-                            untrack_file_backed_page(driver_id, mapping_token, offset_in_file);
+                            if shared {
+                                // If the frame was shared, we need to tell the driver that it's no longer mapped
+                                // TODO: send request to driver
+                                // If we dropped the frame used for a file-backed mapping, we also need to clear the re-use cache
+                                untrack_file_backed_page(driver_id, mapping_token, offset_in_file);
+                            }
                         }
                     }
                 }
@@ -187,6 +193,7 @@ pub fn map_file(
     size: u32,
     path: &str,
     offset_in_file: u32,
+    shared: bool,
 ) -> Result<VirtualAddress, MemMapError> {
     // Mapping a file requires an async IO request to initialize the mapping
     // and get back a token. This requires the syscall to suspend the current
@@ -222,6 +229,7 @@ pub fn map_file(
         driver_id,
         mapping_token,
         offset_in_file,
+        shared,
     };
 
     let result = task_lock
@@ -237,7 +245,7 @@ mod tests {
     #[test_case]
     fn test_mmap_file_async_driver() {
         // map a frame of memory to a file on the ATEST: drive
-        let vaddr = super::map_file(None, 0x1000, "ATEST:\\MYFILE", 0).unwrap();
+        let vaddr = super::map_file(None, 0x1000, "ATEST:\\MYFILE", 0, true).unwrap();
         let buffer = unsafe { core::slice::from_raw_parts(vaddr.as_ptr::<u8>(), 0x1000) };
         let start_slice = &buffer[0..9];
         assert_eq!(start_slice, b"PAGE DATA");
@@ -245,7 +253,7 @@ mod tests {
 
     #[test_case]
     fn test_mmap_file_invalid_path() {
-        let result = super::map_file(None, 0x1000, "NONEXISTENT:\\FILE", 0);
+        let result = super::map_file(None, 0x1000, "NONEXISTENT:\\FILE", 0, true);
         assert!(result.is_err());
     }
 
@@ -254,7 +262,7 @@ mod tests {
         // DEV:\\ASYNCDEV is a driver that, when mapped, returns the letters
         // A-Z in sequence, one letter per page
 
-        let vaddr = super::map_file(None, 0x1000, "DEV:\\ASYNCDEV", 0xf00).unwrap();
+        let vaddr = super::map_file(None, 0x1000, "DEV:\\ASYNCDEV", 0xf00, true).unwrap();
         let buffer = unsafe { core::slice::from_raw_parts(vaddr.as_ptr::<u8>(), 0x1000) };
         assert_eq!(buffer[0], b'A');
         assert_eq!(buffer[0xff], b'A');
@@ -267,11 +275,11 @@ mod tests {
         // same physical frame, rather than allocating two separate frames.
         // ATEST: returns the same mapping token for identical paths,
         // so both mappings reference the same backing file data.
-        let vaddr1 = super::map_file(None, 0x1000, "ATEST:\\SHARE_TEST", 0).unwrap();
+        let vaddr1 = super::map_file(None, 0x1000, "ATEST:\\SHARE_TEST", 0, true).unwrap();
         let buffer1 = unsafe { core::slice::from_raw_parts(vaddr1.as_ptr::<u8>(), 0x1000) };
         assert_eq!(&buffer1[0..9], b"PAGE DATA");
 
-        let vaddr2 = super::map_file(None, 0x1000, "ATEST:\\SHARE_TEST", 0).unwrap();
+        let vaddr2 = super::map_file(None, 0x1000, "ATEST:\\SHARE_TEST", 0, true).unwrap();
         let buffer2 = unsafe { core::slice::from_raw_parts(vaddr2.as_ptr::<u8>(), 0x1000) };
         assert_eq!(&buffer2[0..9], b"PAGE DATA");
 
@@ -288,11 +296,11 @@ mod tests {
         // Two mappings of the same file at different page-aligned offsets
         // should get different physical frames, because they contain
         // different data.
-        let vaddr1 = super::map_file(None, 0x1000, "DEV:\\ASYNCDEV", 0).unwrap();
+        let vaddr1 = super::map_file(None, 0x1000, "DEV:\\ASYNCDEV", 0, true).unwrap();
         let buffer1 = unsafe { core::slice::from_raw_parts(vaddr1.as_ptr::<u8>(), 0x1000) };
         assert_eq!(buffer1[0], b'A');
 
-        let vaddr2 = super::map_file(None, 0x1000, "DEV:\\ASYNCDEV", 0x1000).unwrap();
+        let vaddr2 = super::map_file(None, 0x1000, "DEV:\\ASYNCDEV", 0x1000, true).unwrap();
         let buffer2 = unsafe { core::slice::from_raw_parts(vaddr2.as_ptr::<u8>(), 0x1000) };
         assert_eq!(buffer2[0], b'B');
 
@@ -311,7 +319,7 @@ mod tests {
         static CHILD_PADDR: AtomicU32 = AtomicU32::new(0);
 
         // Parent maps a file and triggers paging
-        let vaddr = super::map_file(None, 0x1000, "ATEST:\\CROSS_TASK", 0).unwrap();
+        let vaddr = super::map_file(None, 0x1000, "ATEST:\\CROSS_TASK", 0, true).unwrap();
         let buffer = unsafe { core::slice::from_raw_parts(vaddr.as_ptr::<u8>(), 0x1000) };
         assert_eq!(&buffer[0..9], b"PAGE DATA");
         let parent_paddr =
@@ -321,7 +329,7 @@ mod tests {
             // Child maps the same file. Because the parent already paged it,
             // the tracker should return the same physical frame.
             let vaddr = crate::task::actions::memory::map_file(
-                None, 0x1000, "ATEST:\\CROSS_TASK", 0,
+                None, 0x1000, "ATEST:\\CROSS_TASK", 0, true,
             ).unwrap();
             let buffer = unsafe { core::slice::from_raw_parts(vaddr.as_ptr::<u8>(), 0x1000) };
             assert_eq!(&buffer[0..9], b"PAGE DATA");
@@ -351,7 +359,7 @@ mod tests {
         // the same file should allocate a fresh frame.
         // Uses a unique path so this test gets its own mapping token,
         // avoiding interference from other tests that map "MYFILE".
-        let vaddr1 = super::map_file(None, 0x1000, "ATEST:\\UNMAP_TEST", 0).unwrap();
+        let vaddr1 = super::map_file(None, 0x1000, "ATEST:\\UNMAP_TEST", 0, true).unwrap();
         let buffer1 = unsafe { core::slice::from_raw_parts(vaddr1.as_ptr::<u8>(), 0x1000) };
         assert_eq!(&buffer1[0..9], b"PAGE DATA");
         let paddr1 =
@@ -361,7 +369,7 @@ mod tests {
         super::unmap_memory(vaddr1, 0x1000).unwrap();
 
         // Re-map the same file
-        let vaddr2 = super::map_file(None, 0x1000, "ATEST:\\UNMAP_TEST", 0).unwrap();
+        let vaddr2 = super::map_file(None, 0x1000, "ATEST:\\UNMAP_TEST", 0, true).unwrap();
         let buffer2 = unsafe { core::slice::from_raw_parts(vaddr2.as_ptr::<u8>(), 0x1000) };
         assert_eq!(&buffer2[0..9], b"PAGE DATA");
         let paddr2 =
@@ -369,5 +377,42 @@ mod tests {
 
         // The frame should be different because the old one was untracked
         assert_ne!(paddr1, paddr2);
+    }
+
+    #[test_case]
+    fn test_mmap_file_private_gets_separate_frames() {
+        // Two private mappings of the same file at the same offset should
+        // get different physical frames, since private mappings skip the
+        // shared page tracker entirely.
+        let vaddr1 = super::map_file(None, 0x1000, "ATEST:\\PRIV_TEST", 0, false).unwrap();
+        let buffer1 = unsafe { core::slice::from_raw_parts(vaddr1.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(&buffer1[0..9], b"PAGE DATA");
+
+        let vaddr2 = super::map_file(None, 0x1000, "ATEST:\\PRIV_TEST", 0, false).unwrap();
+        let buffer2 = unsafe { core::slice::from_raw_parts(vaddr2.as_ptr::<u8>(), 0x1000) };
+        assert_eq!(&buffer2[0..9], b"PAGE DATA");
+
+        let paddr1 =
+            crate::task::paging::maybe_get_current_physical_address(vaddr1).unwrap();
+        let paddr2 =
+            crate::task::paging::maybe_get_current_physical_address(vaddr2).unwrap();
+        assert_ne!(paddr1, paddr2);
+    }
+
+    #[test_case]
+    fn test_mmap_file_private_is_writable() {
+        // Private file-backed mappings should be writable. Writing to the
+        // mapping should not panic or fault.
+        let vaddr = super::map_file(None, 0x1000, "ATEST:\\PRIV_WRITE", 0, false).unwrap();
+        let buffer = unsafe { core::slice::from_raw_parts_mut(vaddr.as_ptr_mut::<u8>(), 0x1000) };
+        assert_eq!(&buffer[0..9], b"PAGE DATA");
+
+        // Overwrite the start of the private mapping
+        buffer[0] = b'X';
+        buffer[1] = b'Y';
+        assert_eq!(buffer[0], b'X');
+        assert_eq!(buffer[1], b'Y');
+        // The rest of the original data is still intact
+        assert_eq!(&buffer[2..9], b"GE DATA");
     }
 }

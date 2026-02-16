@@ -103,6 +103,9 @@ pub enum MemoryBacking {
         mapping_token: DriverMappingToken,
         /// The offset within the file where this mapping starts
         offset_in_file: u32,
+        /// If true, physical frames are shared across tasks via the tracker.
+        /// If false, each mapping gets its own writable copy.
+        shared: bool,
     },
 }
 
@@ -119,6 +122,7 @@ pub enum UnmappedRegionKind {
         driver_id: DriverID,
         mapping_token: DriverMappingToken,
         offset_in_file: u32,
+        shared: bool,
     },
 }
 
@@ -261,10 +265,12 @@ impl<const U: u32> MappedMemory<U> {
                             driver_id,
                             mapping_token,
                             offset_in_file,
+                            shared,
                         } => UnmappedRegionKind::FileBacked {
                             driver_id,
                             mapping_token,
                             offset_in_file: offset_in_file + local_offset,
+                            shared,
                         },
                     },
                 });

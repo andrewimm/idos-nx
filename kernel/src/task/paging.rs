@@ -94,29 +94,28 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             driver_id,
             mapping_token,
             offset_in_file,
+            shared,
         } => {
-            // We want to use the same frame for identical sections of the same
-            // file. Assuming a driver correctly implements mapping tokens,
-            // the same offset of the same driver+token pair should represent
-            // the same data, and should be shared. If we've already read this
-            // frame, we can just increment the reference count and directly
-            // map it without needing to read anything.
             let total_offset = offset_in_file + page_offset;
-            if let Some(paddr) = get_file_backed_page(*driver_id, *mapping_token, total_offset) {
-                // add another reference to the frame
-                super::LOGGER.log(format_args!("File-backed Mapping: re-use {:?}", paddr));
-                maybe_add_frame_reference(paddr);
-                current_pagedir_map(
-                    AllocatedFrame::new(paddr),
-                    address.prev_page_barrier(),
-                    flags,
-                );
-                return Some(paddr);
+
+            // Shared mappings reuse physical frames across tasks via the
+            // tracker. Private mappings always get a fresh frame.
+            if *shared {
+                if let Some(paddr) = get_file_backed_page(*driver_id, *mapping_token, total_offset) {
+                    super::LOGGER.log(format_args!("File-backed Mapping: re-use {:?}", paddr));
+                    maybe_add_frame_reference(paddr);
+                    current_pagedir_map(
+                        AllocatedFrame::new(paddr),
+                        address.prev_page_barrier(),
+                        flags,
+                    );
+                    return Some(paddr);
+                }
             }
+
             let allocated_frame =
                 allocate_frame_with_tracking().expect("Failed to allocate memory");
             let frame_paddr = allocated_frame.peek_address();
-            let total_offset = offset_in_file + page_offset;
             let result =
                 match driver_page_in_file(*driver_id, *mapping_token, total_offset, frame_paddr) {
                     Some(immediate) => immediate,
@@ -134,7 +133,9 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
 
             match result {
                 Ok(_) => {
-                    track_file_backed_page(*driver_id, *mapping_token, total_offset, frame_paddr);
+                    if *shared {
+                        track_file_backed_page(*driver_id, *mapping_token, total_offset, frame_paddr);
+                    }
                     current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags)
                 }
                 Err(_) => {
@@ -290,6 +291,12 @@ pub fn get_flags_for_region(region: &MemMappedRegion) -> PermissionFlags {
     // page is cleaned up
     if let MemoryBacking::Direct(_) = region.backed_by {
         flags |= PermissionFlags::NO_RECLAIM;
+    }
+
+    // Shared file-backed mappings are read-only since multiple tasks share
+    // the same physical frame
+    if let MemoryBacking::FileBacked { shared: true, .. } = region.backed_by {
+        flags &= !PermissionFlags::WRITE_ACCESS;
     }
 
     PermissionFlags::new(flags)

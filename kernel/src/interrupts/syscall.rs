@@ -409,7 +409,8 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
                 }
             };
             let file_offset = mapping.file_offset;
-            match map_file(address, size, path, file_offset) {
+            let shared = mapping.flags & idos_api::syscall::memory::MMAP_SHARED != 0;
+            match map_file(address, size, path, file_offset, shared) {
                 Ok(vaddr) => {
                     registers.eax = vaddr.into();
                 }

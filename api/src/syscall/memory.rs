@@ -19,6 +19,8 @@ pub fn map_memory(
     }
 }
 
+pub const MMAP_SHARED: u32 = 1;
+
 #[repr(C)]
 pub struct FileMapping {
     pub virtual_address: u32,
@@ -26,6 +28,7 @@ pub struct FileMapping {
     pub path_ptr: u32,
     pub path_len: u32,
     pub file_offset: u32,
+    pub flags: u32,
 }
 
 pub fn map_file(
@@ -33,6 +36,7 @@ pub fn map_file(
     size: u32,
     path: &str,
     file_offset: u32,
+    flags: u32,
 ) -> Result<u32, ()> {
     let path_bytes = path.as_bytes();
     let mapping = FileMapping {
@@ -41,6 +45,7 @@ pub fn map_file(
         path_ptr: path_bytes.as_ptr() as u32,
         path_len: path_bytes.len() as u32,
         file_offset,
+        flags,
     };
 
     let result = syscall(0x31, &mapping as *const FileMapping as u32, 0, 0);
