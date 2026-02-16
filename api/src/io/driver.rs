@@ -69,7 +69,7 @@ impl core::ops::Deref for DriverFileReference {
 /// Because the token handling is driver-specific, it allows the driver to
 /// maintain a single token for each file, so that different tasks can map to
 /// the same file without needing to re-open it each time.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct DriverMappingToken(u32);
 

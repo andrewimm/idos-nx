@@ -1,8 +1,11 @@
 use alloc::boxed::Box;
 
-use crate::{task::id::TaskID, io::{driver::kernel_driver::KernelDriver, async_io::AsyncOpID}};
+use crate::{
+    io::{async_io::AsyncOpID, driver::kernel_driver::KernelDriver},
+    task::id::TaskID,
+};
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DriverID(u32);
 
 impl DriverID {

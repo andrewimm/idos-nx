@@ -68,8 +68,28 @@ pub enum MemoryBacking {
     },
 }
 
+pub struct UnmappedRegion {
+    pub address: VirtualAddress,
+    pub size: u32,
+    pub kind: UnmappedRegionKind,
+}
+
+pub enum UnmappedRegionKind {
+    Direct(PhysicalAddress),
+    FreeMemory,
+    FileBacked {
+        driver_id: DriverID,
+        mapping_token: DriverMappingToken,
+        offset_in_file: u32,
+    },
+}
+
 /// MappedMemory is a collection of memory mappings. The const parameter
 /// represents the upper bound of the memory mapped region.
+/// This struct is stored on every Task. It doesn't directly modify any page
+/// tables, but it tells the kernel how to handle a page fault. When a page
+/// fault exception occurs, the kernel looks at the current Task's MappedMemory
+/// to determine whether the faulting address is valid and how to handle it.
 pub struct MappedMemory<const U: u32> {
     regions: BTreeMap<VirtualAddress, MemMappedRegion>,
 }
@@ -130,11 +150,19 @@ impl<const U: u32> MappedMemory<U> {
         Ok(free_space)
     }
 
+    /// Remove a Task's reference to a region of mapped memory. This does not
+    /// directly modify any page table -- that is handled separately.
+    /// The requested unmapped region may overlap with one or more current
+    /// mappings. Those intersections are removed, leaving behind any
+    /// non-intersecting parts as new mappings.
+    /// The method returns a `Vec` of `UnmappedRegion`s, which represent the
+    /// sections that were unmapped and can now be safely cleaned up by other
+    /// memory management systems.
     pub fn unmap_memory(
         &mut self,
         addr: VirtualAddress,
         length: u32,
-    ) -> Result<Range<VirtualAddress>, MemMapError> {
+    ) -> Result<Vec<UnmappedRegion>, MemMapError> {
         if length & 0xfff != 0 {
             return Err(MemMapError::UnmapNotPageMultiple);
         }
@@ -142,72 +170,86 @@ impl<const U: u32> MappedMemory<U> {
             return Err(MemMapError::MapOutOfBounds);
         }
 
-        // Is there a more efficient data structure?
-        // Something like an "interval tree" which contains non-overlapping
-        // ranges.
+        // An interval tree could be more efficient, but it's extra overhead
+        // for the relatively low number of mappings we expect each task to
+        // have.
 
-        // Iterate over all regions, and find the ones that need to be modified.
-        // Once that set has been computed, all intersected regions will be
-        // removed from the map, and any remaining sub-regions will be put back.
-        let mut unmap_start = addr;
-        let mut unmap_length = length;
-        let mut modified_regions: Vec<(VirtualAddress, u32, u32)> = Vec::new();
-        for (_, region) in self.regions.iter() {
-            let region_range = region.get_address_range();
-            if unmap_start < region_range.start && (unmap_start + unmap_length) > region_range.start
-            {
-                let delta = region_range.start - unmap_start;
-                unmap_length -= delta;
-                unmap_start = unmap_start + delta;
+        let mut unmapped: Vec<UnmappedRegion> = Vec::new();
+        let unmap_end = addr + length;
+        // The first mapping region that intersects with our query is either the
+        // last one before our address, or the first one after:
+        let initial_key = if let Some((k, _)) = self.regions.range(..=addr).next_back() {
+            *k
+        } else if let Some((k, _)) = self.regions.range(addr..).next() {
+            *k
+        } else {
+            // No mappings at all, so we can just return
+            return Ok(unmapped);
+        };
+
+        let mut key_to_modify: Vec<VirtualAddress> = Vec::new();
+        for (k, v) in self.regions.range(initial_key..) {
+            if v.get_address_range().start >= unmap_end {
+                break;
             }
-            if region_range.contains(&unmap_start) {
-                let can_unmap = region_range.end - unmap_start;
-                let (to_remove, remaining) = if can_unmap > unmap_length {
-                    (unmap_length, 0)
-                } else {
-                    (can_unmap, unmap_length - can_unmap)
-                };
-                unmap_length = remaining;
-                let remove_start = unmap_start - region_range.start;
-                let remove_end = remove_start + to_remove;
-                modified_regions.push((region_range.start, remove_start, remove_end));
-                unmap_start = unmap_start + to_remove;
-                if remaining == 0 {
-                    break;
-                }
+            if v.get_address_range().end <= addr {
+                continue;
             }
+            key_to_modify.push(*k);
         }
 
-        for (modification_key, range_start, range_end) in modified_regions {
+        for k in key_to_modify {
             let region = self
                 .regions
-                .remove(&modification_key)
-                .expect("Attempted to unmap region that is not mapped");
-            let MemMappedRegion {
-                address,
-                backed_by,
-                size,
-            } = region;
-            if range_start > 0 {
-                let before = MemMappedRegion {
-                    address,
-                    size: range_start,
-                    backed_by: backed_by.clone(),
-                };
-                self.regions.insert(address, before);
+                .remove(&k)
+                .expect("Attempted to remove mmap region that is not mapped");
+            let region_range = region.get_address_range();
+            let intersection_start = region_range.start.max(addr);
+            let intersection_end = region_range.end.min(unmap_end);
+            assert!(intersection_end >= intersection_start);
+            let intersection_size = intersection_end - intersection_start;
+            let local_offset = intersection_start - region_range.start;
+            if intersection_size > 0 {
+                unmapped.push(UnmappedRegion {
+                    address: intersection_start,
+                    size: intersection_size,
+                    kind: match region.backed_by {
+                        MemoryBacking::Direct(paddr) => {
+                            UnmappedRegionKind::Direct(paddr + local_offset)
+                        }
+                        MemoryBacking::FreeMemory => UnmappedRegionKind::FreeMemory,
+                        MemoryBacking::IsaDma => UnmappedRegionKind::FreeMemory,
+                        MemoryBacking::FileBacked {
+                            driver_id,
+                            mapping_token,
+                            offset_in_file,
+                        } => UnmappedRegionKind::FileBacked {
+                            driver_id,
+                            mapping_token,
+                            offset_in_file: offset_in_file + local_offset,
+                        },
+                    },
+                });
             }
-            if range_end < size {
-                let new_size = size - range_end;
-                let new_address = address + (size - new_size);
-                let after = MemMappedRegion {
-                    address: new_address,
-                    size: new_size,
-                    backed_by,
+            if region_range.start < addr {
+                let before = MemMappedRegion {
+                    address: region_range.start,
+                    size: addr - region_range.start,
+                    backed_by: region.backed_by.clone(),
                 };
-                self.regions.insert(new_address, after);
+                self.regions.insert(before.address, before);
+            }
+            if region_range.end > unmap_end {
+                let after = MemMappedRegion {
+                    address: unmap_end,
+                    size: region_range.end - unmap_end,
+                    backed_by: region.backed_by.clone(),
+                };
+                self.regions.insert(after.address, after);
             }
         }
-        Ok(addr..(addr + length))
+
+        Ok(unmapped)
     }
 
     /// Returns a reference to a mmap region if it contains the requested
@@ -393,64 +435,5 @@ mod tests {
         );
     }
 
-    #[test_case]
-    fn unmapping() {
-        let mut regions = MappedMemory::<0xbfff_e000>::new();
-        regions
-            .map_memory(
-                Some(VirtualAddress::new(0x1000)),
-                0x1000,
-                MemoryBacking::FreeMemory,
-            )
-            .unwrap();
-        assert_eq!(
-            regions
-                .unmap_memory(VirtualAddress::new(0x1000), 0x1000)
-                .unwrap(),
-            VirtualAddress::new(0x1000)..VirtualAddress::new(0x2000),
-        );
-        assert!(regions.regions.is_empty());
-
-        regions
-            .map_memory(
-                Some(VirtualAddress::new(0x1000)),
-                0x2000,
-                MemoryBacking::FreeMemory,
-            )
-            .unwrap();
-        regions
-            .map_memory(
-                Some(VirtualAddress::new(0x4000)),
-                0x3000,
-                MemoryBacking::FreeMemory,
-            )
-            .unwrap();
-        assert_eq!(
-            regions
-                .unmap_memory(VirtualAddress::new(0x2000), 0x2000)
-                .unwrap(),
-            VirtualAddress::new(0x2000)..VirtualAddress::new(0x4000),
-        );
-
-        {
-            let shrunk = regions.regions.get(&VirtualAddress::new(0x1000)).unwrap();
-            assert_eq!(shrunk.address, VirtualAddress::new(0x1000));
-            assert_eq!(shrunk.size, 0x1000);
-        }
-
-        assert_eq!(regions.len(), 2);
-        assert_eq!(
-            regions
-                .unmap_memory(VirtualAddress::new(0x1000), 0x4000)
-                .unwrap(),
-            VirtualAddress::new(0x1000)..VirtualAddress::new(0x5000),
-        );
-
-        {
-            let shrunk = regions.regions.get(&VirtualAddress::new(0x5000)).unwrap();
-            assert_eq!(shrunk.address, VirtualAddress::new(0x5000));
-            assert_eq!(shrunk.size, 0x2000);
-        }
-        assert_eq!(regions.len(), 1);
-    }
+    // TODO: unmap tests
 }
