@@ -195,11 +195,21 @@ pub fn map_file(
     offset_in_file: u32,
     shared: bool,
 ) -> Result<VirtualAddress, MemMapError> {
+    map_file_for_task(get_current_id(), vaddr, size, path, offset_in_file, shared)
+}
+
+pub fn map_file_for_task(
+    task_id: TaskID,
+    vaddr: Option<VirtualAddress>,
+    size: u32,
+    path: &str,
+    offset_in_file: u32,
+    shared: bool,
+) -> Result<VirtualAddress, MemMapError> {
     // Mapping a file requires an async IO request to initialize the mapping
     // and get back a token. This requires the syscall to suspend the current
     // task until IO is complete. We don't want to be holding any locks when
     // we do that.
-    let task_id = get_current_id();
     let task_lock = get_task(task_id).ok_or(MemMapError::NoTask)?;
 
     let (driver_id, relative_path) =
