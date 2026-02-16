@@ -7,7 +7,7 @@ mod gdt;
 mod video;
 
 use core::fmt::Write;
-use core::{any::Any, arch::asm};
+use core::arch::asm;
 
 use crate::elf::{ElfHeader, SectionHeader};
 
@@ -114,7 +114,7 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     let disk_number: u8 = unsafe { (*fat_metadata).disk_number };
     let root_data_sector: u16 = unsafe { (*fat_metadata).root_cluster_sector };
     let sectors_per_cluster: u16 = unsafe { (*fat_metadata).sectors_per_cluster };
-    let (first_cluster, file_size) = match disk::find_root_dir_file("KERNEL  BIN") {
+    let (first_cluster, _file_size) = match disk::find_root_dir_file("KERNEL  BIN") {
         Some(pair) => pair,
         None => {
             video::print_string("Kernel not found!");
@@ -125,36 +125,36 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         }
     };
     video::print_string("Kernel found, loading into memory.\r\n");
-    let kernel_sectors = bytes_to_sectors(file_size, 512);
-
-    let mut first_kernel_sector = root_data_sector;
-    first_kernel_sector += sectors_per_cluster * first_cluster;
-    first_kernel_sector -= sectors_per_cluster * 2;
-    write!(
-        video::VideoWriter,
-        "Kernel at sector {:#X}, {:#X} sectors long\r\n",
-        first_kernel_sector,
-        kernel_sectors
-    )
-    .unwrap();
     write!(video::VideoWriter, "Disk No: {:#x}\r\n", disk_number).unwrap();
-    // only memory below 1MB is available to BIOS, so we need to first copy to
-    // a lowmem buffer, and then copy that to higher memory when it's ready.
-    // The segmented memory model also makes it easiest to just copy in 64KiB
-    // chunks.
-    let max_sectors_per_copy = 128;
-    let mut kernel_copy_sector = first_kernel_sector;
-    let mut remaining_sectors = kernel_sectors as u16;
-    let mut total_bytes_copied = 0;
-    let mut section_header_location = 0;
-    let mut section_header_entry_size = 0;
-    let mut section_header_entry_count = 0;
 
-    loop {
-        let sector_copy_count = max_sectors_per_copy.min(remaining_sectors) as u16;
-        // copy up to 128 sectors to 0x8000
-        disk::read_sectors(disk_number, kernel_copy_sector, 0x800, 0, sector_copy_count);
-        let copy_size = sector_copy_count as u32 * 512;
+    // Load the FAT table so we can follow cluster chains
+    disk::load_fat_table(disk_number);
+
+    // Follow the FAT12 cluster chain to load the kernel, reading contiguous
+    // runs of clusters at a time for efficiency. This handles fragmented files.
+    let max_sectors_per_copy: u16 = 128;
+    let max_clusters_per_copy = max_sectors_per_copy / sectors_per_cluster;
+    let mut current_cluster = first_cluster;
+    let mut total_bytes_copied: u32 = 0;
+    let mut section_header_location: u32 = 0;
+    let mut section_header_entry_size: u32 = 0;
+    let mut section_header_entry_count: u16 = 0;
+
+    while current_cluster < 0xFF8 {
+        // Find a contiguous run of clusters starting at current_cluster
+        let run_start = current_cluster;
+        let mut run_len: u16 = 1;
+        let mut next = disk::fat12_next(current_cluster);
+        while next == current_cluster + run_len && run_len < max_clusters_per_copy {
+            run_len += 1;
+            next = disk::fat12_next(run_start + run_len - 1);
+        }
+
+        let lba = root_data_sector + (run_start - 2) * sectors_per_cluster;
+        let sector_count = run_len * sectors_per_cluster;
+
+        disk::read_sectors(disk_number, lba, 0x800, 0, sector_count);
+        let copy_size = sector_count as u32 * 512;
 
         write!(
             video::VideoWriter,
@@ -163,8 +163,8 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         )
         .unwrap();
 
-        if kernel_copy_sector == first_kernel_sector {
-            // First sector has the ELF header
+        if total_bytes_copied == 0 {
+            // First chunk has the ELF header
             let elf_root_ptr = 0x8000 as *const ElfHeader;
             let elf_root = &(*elf_root_ptr);
             section_header_location = elf_root.section_header_location;
@@ -182,12 +182,8 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
 
         total_bytes_copied += copy_size;
 
-        if remaining_sectors <= max_sectors_per_copy {
-            break;
-        }
-
-        remaining_sectors -= sector_copy_count;
-        kernel_copy_sector += sector_copy_count;
+        // Advance: next is already the FAT entry after the run
+        current_cluster = next;
     }
 
     // Now that the entire kernel has been copied to high memory, walk the
@@ -307,12 +303,6 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     );
 
     panic!("Kernel returned to BOOTBIN");
-}
-
-fn bytes_to_sectors(bytes: u32, sector_size: u32) -> u32 {
-    let sectors = bytes / sector_size;
-    let addl = if bytes & (sector_size - 1) == 0 { 0 } else { 1 };
-    sectors + addl
 }
 
 #[panic_handler]

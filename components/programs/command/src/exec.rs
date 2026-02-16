@@ -17,7 +17,7 @@ use idos_api::syscall::memory::map_memory;
 use idos_api::time::DateTime;
 use idos_api::{io::file::FileStatus, syscall::exec::create_task};
 use idos_api::{
-    io::{error::IOError, sync::io_sync, FILE_OP_STAT},
+    io::{error::IoError, sync::io_sync, FILE_OP_STAT},
     syscall::exec::load_executable,
 };
 

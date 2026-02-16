@@ -104,6 +104,33 @@ pub struct DiskAccessPacket {
     pub lba_high: u32,
 }
 
+/// Load the FAT table from disk into memory at 0x5000 (segment 0x500).
+/// Reads BPB fields from the boot sector still at 0x7C00.
+pub fn load_fat_table(disk_number: u8) {
+    let bpb = 0x7C00 as *const FatHeader;
+    let reserved = unsafe { (*bpb).reserved_sector_count };
+    let fat_sectors = unsafe { (*bpb).sectors_per_fat };
+    // Load FAT to segment 0x500 (physical 0x5000), offset 0
+    read_sectors(disk_number, reserved, 0x500, 0, fat_sectors);
+}
+
+/// Read a FAT12 entry for the given cluster from the FAT table at 0x5000.
+/// Returns the next cluster number, or >= 0xFF8 for end-of-chain.
+pub fn fat12_next(cluster: u16) -> u16 {
+    let fat_base = 0x5000 as *const u8;
+    let offset = (cluster as usize) * 3 / 2;
+    let raw = unsafe {
+        let lo = core::ptr::read_volatile(fat_base.add(offset)) as u16;
+        let hi = core::ptr::read_volatile(fat_base.add(offset + 1)) as u16;
+        lo | (hi << 8)
+    };
+    if cluster & 1 == 0 {
+        raw & 0x0FFF
+    } else {
+        raw >> 4
+    }
+}
+
 pub fn read_sectors(disk_number: u8, lba: u16, dest_segment: u16, dest_offset: u16, count: u16) {
     let packet = DiskAccessPacket {
         packet_size: 16,
