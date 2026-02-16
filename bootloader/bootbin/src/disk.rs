@@ -143,16 +143,44 @@ pub fn read_sectors(disk_number: u8, lba: u16, dest_segment: u16, dest_offset: u
     };
 
     let packet_address: u16 = &packet as *const DiskAccessPacket as u16;
+    let max_retries = 3u8;
 
+    for attempt in 0..max_retries {
+        let error: u16;
+        unsafe {
+            asm!(
+                "push si",
+                "mov si, ax",
+                "mov ax, 0x4200",
+                "int 0x13",
+                "jc 2f",
+                "xor ax, ax",  // success: AH = 0
+                "2:",
+                "pop si",
+                inout("ax") packet_address => error,
+                in("dx") disk_number as u16,
+            );
+        }
+
+        if error & 0xFF00 == 0 {
+            return;
+        }
+
+        // Reset the disk before retrying
+        if attempt < max_retries - 1 {
+            unsafe {
+                asm!(
+                    "xor ax, ax",
+                    "int 0x13",
+                    in("dx") disk_number as u16,
+                );
+            }
+        }
+    }
+
+    // All retries exhausted — halt with an error message
+    crate::video::print_string("Disk read error!\r\n");
     unsafe {
-        asm!(
-            "push si",
-            "mov si, ax",
-            "mov ax, 0x4200",
-            "int 0x13",
-            "pop si",
-            in("ax") packet_address,
-            in("dx") disk_number as u16,
-        );
+        asm!("cli", "hlt", options(noreturn));
     }
 }

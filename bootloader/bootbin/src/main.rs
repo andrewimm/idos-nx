@@ -164,9 +164,23 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         .unwrap();
 
         if total_bytes_copied == 0 {
-            // First chunk has the ELF header
+            // First chunk has the ELF header — validate before trusting it
             let elf_root_ptr = 0x8000 as *const ElfHeader;
             let elf_root = &(*elf_root_ptr);
+
+            if elf_root.magic_number != [0x7f, b'E', b'L', b'F'] {
+                video::print_string("Invalid ELF magic!\r\n");
+                loop { asm!("cli; hlt"); }
+            }
+            if elf_root.bit_class != 1 {
+                video::print_string("Kernel is not 32-bit ELF!\r\n");
+                loop { asm!("cli; hlt"); }
+            }
+            if elf_root.endianness != 1 {
+                video::print_string("Kernel is not little-endian!\r\n");
+                loop { asm!("cli; hlt"); }
+            }
+
             section_header_location = elf_root.section_header_location;
             KERNEL_ENTRY_LOCATION = core::ptr::read_volatile(0x8018 as *const u32);
 
