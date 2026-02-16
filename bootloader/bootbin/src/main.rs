@@ -108,13 +108,22 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         "pop esi",
     );
 
+    // Verify that we got at least one memory map entry
+    {
+        let entry_count = core::ptr::read_volatile(0x1000 as *const u32);
+        if entry_count == 0 {
+            video::print_string("BIOS memory map failed!\r\n");
+            loop { asm!("cli; hlt"); }
+        }
+    }
+
     // Find the kernel file, and load it into memory
     // Some of the necessary numbers for interacting with the boot drive were
     // stored by MBR in the fat_metadata struct
     let disk_number: u8 = unsafe { (*fat_metadata).disk_number };
     let root_data_sector: u16 = unsafe { (*fat_metadata).root_cluster_sector };
     let sectors_per_cluster: u16 = unsafe { (*fat_metadata).sectors_per_cluster };
-    let (first_cluster, _file_size) = match disk::find_root_dir_file("KERNEL  BIN") {
+    let (first_cluster, file_size) = match disk::find_root_dir_file("KERNEL  BIN") {
         Some(pair) => pair,
         None => {
             video::print_string("Kernel not found!");
@@ -134,6 +143,9 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     // runs of clusters at a time for efficiency. This handles fragmented files.
     let max_sectors_per_copy: u16 = 128;
     let max_clusters_per_copy = max_sectors_per_copy / sectors_per_cluster;
+    let bytes_per_cluster = sectors_per_cluster as u32 * 512;
+    let max_clusters = file_size / bytes_per_cluster + 2; // generous ceiling
+    let mut clusters_read: u32 = 0;
     let mut current_cluster = first_cluster;
     let mut total_bytes_copied: u32 = 0;
     let mut section_header_location: u32 = 0;
@@ -141,6 +153,10 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
     let mut section_header_entry_count: u16 = 0;
 
     while current_cluster < 0xFF8 {
+        if clusters_read >= max_clusters {
+            video::print_string("FAT chain too long!\r\n");
+            loop { asm!("cli; hlt"); }
+        }
         // Find a contiguous run of clusters starting at current_cluster
         let run_start = current_cluster;
         let mut run_len: u16 = 1;
@@ -195,6 +211,7 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         }
 
         total_bytes_copied += copy_size;
+        clusters_read += run_len as u32;
 
         // Advance: next is already the FAT entry after the run
         current_cluster = next;
