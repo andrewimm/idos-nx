@@ -5,6 +5,44 @@ use crate::{
 use alloc::{collections::BTreeMap, vec::Vec};
 use core::ops::Range;
 use idos_api::io::driver::DriverMappingToken;
+use spin::rwlock::RwLock;
+
+/// Global lookup for which physical memory pages are currently being used
+/// for file-backed memory mappings. This is used to re-map the same physical
+/// pages for different tasks, to automatically share memory.
+static FILE_BACKED_PAGE_TRACKER: RwLock<
+    BTreeMap<(DriverID, DriverMappingToken, u32), PhysicalAddress>,
+> = RwLock::new(BTreeMap::new());
+
+pub fn get_file_backed_page(
+    driver_id: DriverID,
+    mapping_token: DriverMappingToken,
+    offset_in_file: u32,
+) -> Option<PhysicalAddress> {
+    let tracker = FILE_BACKED_PAGE_TRACKER.read();
+    tracker
+        .get(&(driver_id, mapping_token, offset_in_file))
+        .cloned()
+}
+
+pub fn track_file_backed_page(
+    driver_id: DriverID,
+    mapping_token: DriverMappingToken,
+    offset_in_file: u32,
+    paddr: PhysicalAddress,
+) {
+    let mut tracker = FILE_BACKED_PAGE_TRACKER.write();
+    tracker.insert((driver_id, mapping_token, offset_in_file), paddr);
+}
+
+pub fn untrack_file_backed_page(
+    driver_id: DriverID,
+    mapping_token: DriverMappingToken,
+    offset_in_file: u32,
+) {
+    let mut tracker = FILE_BACKED_PAGE_TRACKER.write();
+    tracker.remove(&(driver_id, mapping_token, offset_in_file));
+}
 
 /// MemMappedRegion represents a section of memory that has been mapped to a
 /// Task.
@@ -349,6 +387,8 @@ pub enum MemMapError {
     FileUnavailable,
     /// An error occurred in the backing driver while mapping memory
     DriverError,
+    /// An error occurred in the kernel while managing memory
+    KernelError,
 }
 
 #[cfg(test)]
@@ -435,5 +475,32 @@ mod tests {
         );
     }
 
-    // TODO: unmap tests
+    #[test_case]
+    fn unmapping() {
+        let mut regions = MappedMemory::<0xbfff_e000>::new();
+        regions
+            .map_memory(
+                Some(VirtualAddress::new(0x4000)),
+                0x3000,
+                MemoryBacking::FreeMemory,
+            )
+            .unwrap();
+        let unmapped = regions
+            .unmap_memory(VirtualAddress::new(0x5000), 0x1000)
+            .unwrap();
+        assert_eq!(unmapped.len(), 1);
+        assert_eq!(unmapped[0].address, VirtualAddress::new(0x5000));
+        assert_eq!(unmapped[0].size, 0x1000);
+        assert_eq!(regions.len(), 2);
+        let first = regions
+            .get_mapping_containing_address(&VirtualAddress::new(0x4000))
+            .unwrap();
+        assert_eq!(first.address, VirtualAddress::new(0x4000));
+        assert_eq!(first.size, 0x1000);
+        let second = regions
+            .get_mapping_containing_address(&VirtualAddress::new(0x6000))
+            .unwrap();
+        assert_eq!(second.address, VirtualAddress::new(0x6000));
+        assert_eq!(second.size, 0x1000);
+    }
 }

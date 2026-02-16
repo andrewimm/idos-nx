@@ -171,17 +171,21 @@ pub fn tracked_frame_reference_count(paddr: PhysicalAddress) -> Option<usize> {
 /// for the frame, and only actually free it back to the allocator if the
 /// refcount reaches zero.
 /// If the frame was not allocated with tracking, this will simply free it.
-pub fn release_tracked_frame(frame: AllocatedFrame) -> Result<(), BitmapError> {
+/// Returns `Ok(true)` if the frame was actually freed, and `Ok(false)` if it is
+/// still being tracked or was not tracked at all. Returns an error if there was
+/// an issue freeing the frame.
+pub fn release_tracked_frame(frame: AllocatedFrame) -> Result<bool, BitmapError> {
     let phys_addr = frame.to_physical_address();
     let remaining_ref_count = FRAME_REF_TRACKER.lock().remove_reference(phys_addr);
     if let Some(ref_count) = remaining_ref_count {
         crate::kprintln!("Release tracked frame {:?}", phys_addr);
         if ref_count == 0 {
             crate::kprintln!("Freeing frame {:?}", phys_addr);
-            return with_allocator(|alloc| alloc.free_frame(phys_addr));
+            with_allocator(|alloc| alloc.free_frame(phys_addr))?;
+            return Ok(true);
         }
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Allocates a contiguous range of frames of physical memory. Returns an

@@ -11,6 +11,7 @@ use crate::io::filesystem::driver_create_mapping;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use crate::memory::physical::{maybe_add_frame_reference, release_tracked_frame};
 use crate::memory::shared::share_buffer;
+use crate::task::memory::{untrack_file_backed_page, UnmappedRegionKind};
 use crate::task::paging::{
     current_pagedir_unmap, page_on_demand, ExternalPageDirectory, PermissionFlags,
 };
@@ -83,29 +84,63 @@ pub fn unmap_memory_for_task(
     addr: VirtualAddress,
     size: u32,
 ) -> Result<(), MemMapError> {
-    {
+    let unmapped_regions = {
         let task_lock = get_task(task_id).ok_or(MemMapError::NoTask)?;
         let mut task = task_lock.write();
-        task.memory_mapping.unmap_memory(addr, size)?;
-    }
+        task.memory_mapping.unmap_memory(addr, size)?
+    };
     if task_id == get_current_id() {
-        let mut offset = 0;
-        while offset < size {
-            let mapping = addr + offset;
-            if let Some(frame) = current_pagedir_unmap(mapping) {
-                release_tracked_frame(frame);
+        for region in unmapped_regions {
+            let mut offset = 0;
+            while offset < region.size {
+                let mapping = region.address + offset;
+                if let Some(frame) = current_pagedir_unmap(mapping) {
+                    let released =
+                        release_tracked_frame(frame).map_err(|_| MemMapError::KernelError)?;
+                    if released {
+                        if let UnmappedRegionKind::FileBacked {
+                            driver_id,
+                            mapping_token,
+                            offset_in_file,
+                        } = region.kind
+                        {
+                            // If the frame was shared, we need to tell the driver that it's no longer mapped
+                            // TODO: send request to driver
+
+                            // If we dropped the frame used for a file-backed
+                            // mapping, we also need to clear the re-use cache
+                            untrack_file_backed_page(driver_id, mapping_token, offset_in_file);
+                        }
+                    }
+                }
+                offset += 0x1000;
             }
-            offset += 4096;
         }
     } else {
         let pagedir = ExternalPageDirectory::for_task(task_id);
-        let mut offset = 0;
-        while offset < size {
-            let mapping = addr + offset;
-            if let Some(frame) = pagedir.unmap(mapping) {
-                release_tracked_frame(frame);
+        for region in unmapped_regions {
+            let mut offset = 0;
+            while offset < size {
+                let mapping = region.address + offset;
+                if let Some(frame) = pagedir.unmap(mapping) {
+                    let released =
+                        release_tracked_frame(frame).map_err(|_| MemMapError::KernelError)?;
+                    if released {
+                        if let UnmappedRegionKind::FileBacked {
+                            driver_id,
+                            mapping_token,
+                            offset_in_file,
+                        } = region.kind
+                        {
+                            // If the frame was shared, we need to tell the driver that it's no longer mapped
+                            // TODO: send request to driver
+                            // If we dropped the frame used for a file-backed mapping, we also need to clear the re-use cache
+                            untrack_file_backed_page(driver_id, mapping_token, offset_in_file);
+                        }
+                    }
+                }
+                offset += 4096;
             }
-            offset += 4096;
         }
     }
 
