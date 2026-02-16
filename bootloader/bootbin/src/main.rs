@@ -154,7 +154,6 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         let sector_copy_count = max_sectors_per_copy.min(remaining_sectors) as u16;
         // copy up to 128 sectors to 0x8000
         disk::read_sectors(disk_number, kernel_copy_sector, 0x800, 0, sector_copy_count);
-        let first_byte = total_bytes_copied as u32;
         let copy_size = sector_copy_count as u32 * 512;
 
         write!(
@@ -175,46 +174,6 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
             section_header_entry_count = elf_root.section_header_entry_count;
         }
 
-        if section_header_location > first_byte
-            && section_header_location < (first_byte + copy_size)
-        {
-            let mut sections_end = 0;
-            let mut section_header_addr = (section_header_location - first_byte) + 0x8000;
-            while section_header_entry_count > 0 {
-                let section_header_ptr = section_header_addr as *const SectionHeader;
-                let header = &(*section_header_ptr);
-                let section_load_at = header.section_address;
-                let section_end_at = section_load_at + header.section_size;
-                if section_end_at > sections_end {
-                    sections_end = section_end_at;
-                }
-
-                // if the header type is NOBITS, we should zero it now since the
-                // executable assumes it is zeroed out
-                if header.header_type == 0x8 {
-                    assert!(header.section_size & 3 == 0);
-                    let zero_start = (0x100000 + header.section_offset) as *mut u32;
-                    let zero_size = header.section_size as isize;
-                    for offset in 0..(zero_size / 4) {
-                        core::ptr::write_volatile(zero_start.offset(offset), 0);
-                    }
-
-                    write!(
-                        video::VideoWriter,
-                        "ZERO from {:#X}, len {:#X}/r/n",
-                        zero_start as u32,
-                        zero_size
-                    );
-                }
-
-                section_header_entry_count -= 1;
-                section_header_addr += section_header_entry_size;
-            }
-
-            KERNEL_MEMORY_END = sections_end;
-            KERNEL_MEMORY_END -= 0xc0000000;
-        }
-
         {
             let src = 0x8000 as *const u8;
             let dst = (0x100000 + total_bytes_copied) as *mut u8;
@@ -231,8 +190,45 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         kernel_copy_sector += sector_copy_count;
     }
 
-    // After the kernel has been copied, KERNEL_MEMORY_END will contain the
-    // last address of the last section.
+    // Now that the entire kernel has been copied to high memory, walk the
+    // section headers directly from the copy at 0x100000+. This avoids
+    // boundary issues with the 64KiB copy buffer and ensures NOBITS zeroing
+    // happens after all data has been written.
+    {
+        let mut sections_end = 0u32;
+        let mut section_header_addr = (0x100000 + section_header_location) as *const SectionHeader;
+        for _ in 0..section_header_entry_count {
+            let header = &*section_header_addr;
+            let section_load_at = header.section_address;
+            let section_end_at = section_load_at + header.section_size;
+            if section_end_at > sections_end {
+                sections_end = section_end_at;
+            }
+
+            // if the header type is NOBITS, we should zero it now since the
+            // executable assumes it is zeroed out
+            if header.header_type == 0x8 {
+                assert!(header.section_size & 3 == 0);
+                let zero_start = (0x100000 + header.section_offset) as *mut u32;
+                let zero_size = header.section_size as isize;
+                for offset in 0..(zero_size / 4) {
+                    core::ptr::write_volatile(zero_start.offset(offset), 0);
+                }
+
+                write!(
+                    video::VideoWriter,
+                    "ZERO from {:#X}, len {:#X}\r\n",
+                    zero_start as u32,
+                    zero_size
+                );
+            }
+
+            section_header_addr = ((section_header_addr as u32) + section_header_entry_size) as *const SectionHeader;
+        }
+
+        KERNEL_MEMORY_END = sections_end;
+        KERNEL_MEMORY_END -= 0xc0000000;
+    }
 
     write!(
         video::VideoWriter,
