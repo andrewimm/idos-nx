@@ -242,7 +242,7 @@ fn start_command(console_index: usize) -> Handle {
     transfer_handle(stdin, task_id);
     transfer_handle(stdout, task_id);
 
-    let _ = crate::loader::load_executable(task_id, "C:\\COMMAND.ELF");
+    let _ = crate::exec::exec_program(task_id, "C:\\COMMAND.ELF");
 
     task_handle
 }

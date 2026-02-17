@@ -209,7 +209,7 @@ fn try_exec(
     let stdin_dup = crate::task::actions::handle::dup_handle(stdin).unwrap();
     let stdout_dup = crate::task::actions::handle::dup_handle(stdout).unwrap();
 
-    let _ = crate::loader::load_executable(child_id, name);
+    let _ = crate::exec::exec_program(child_id, name);
 
     share_sync(stdin_dup, child_id).unwrap();
     share_sync(stdout_dup, child_id).unwrap();

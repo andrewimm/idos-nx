@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use idos_api::ipc::Message;
 
 use crate::{
-    loader::load_executable,
+    exec::exec_program,
     memory::address::VirtualAddress,
     sync::futex::futex_wait,
     task::{
@@ -18,8 +18,7 @@ static GFX_TASK: AtomicTaskID = AtomicTaskID::new(0xffff_ffff);
 
 pub fn register_graphics_driver(path: &str) {
     let (_, gfx_task) = create_task();
-    // error messages on load_executable are useless right now
-    let _ = load_executable(gfx_task, path);
+    let _ = exec_program(gfx_task, path);
 
     GFX_TASK.swap(gfx_task, Ordering::SeqCst);
 }

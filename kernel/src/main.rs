@@ -94,7 +94,8 @@ fn init_system() -> ! {
     crate::kprintln!("INIT task: {:?}", id);
     // initialize drivers that rely on multitasking
     {
-        let _loader_id = loader::resident::get_loader_id();
+        // Resident loader disabled — all loading now goes through exec_program
+        // let _loader_id = loader::resident::get_loader_id();
         //let con = task::actions::handle::create_file_handle();
         //task::actions::io::open_sync(con, "DEV:\\CON1").unwrap();
 
