@@ -21,7 +21,6 @@ name = "doslayer"
 version = "0.1.0"
 dependencies = [
  "idos_api",
- "idos_sdk",
 ]
 
 [[package]]

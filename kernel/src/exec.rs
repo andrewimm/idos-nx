@@ -45,6 +45,9 @@ const ELF_MAGIC: [u8; 4] = [0x7f, 0x45, 0x4c, 0x46];
 /// configuration object
 const ELF_LOADER_PATH: &str = "C:\\ELFLOAD.ELF";
 
+/// Path to the DOS compatibility layer binary
+const DOS_LOADER_PATH: &str = "C:\\DOSLAYER.ELF";
+
 /// Stack is placed at the top of user address space, 2 pages
 const STACK_TOP: u32 = 0xc000_0000;
 const STACK_PAGES: u32 = 2;
@@ -75,6 +78,8 @@ pub enum ExecError {
 /// When we support multiple executable formats, we'll need to extend this with
 /// an enum for format-specific metadata
 struct CachedLoader {
+    /// Path used to identify this loader in the cache
+    path: &'static str,
     driver_id: DriverID,
     mapping_token: DriverMappingToken,
     /// Entry point, relative to the base address of the first segment
@@ -97,7 +102,7 @@ struct CachedSegment {
     writable: bool,
 }
 
-static LOADER_CACHE: RwLock<Option<CachedLoader>> = RwLock::new(None);
+static LOADER_CACHE: RwLock<Vec<CachedLoader>> = RwLock::new(Vec::new());
 
 /// Header written at the start of the load info page. This struct is shared
 /// between the kernel and the userspace loader, so its layout must be stable.
@@ -148,8 +153,11 @@ pub fn exec_program(task_id: TaskID, path: &str) -> Result<(), ExecError> {
     let _ = close_sync(exec_handle);
 
     // 2. Pick the loader based on format
+    let is_mz = magic[..2] == [b'M', b'Z'] || magic[..2] == [b'Z', b'M'];
     let loader_path = if magic == ELF_MAGIC {
         ELF_LOADER_PATH
+    } else if is_mz || path.to_ascii_uppercase().ends_with(".COM") {
+        DOS_LOADER_PATH
     } else {
         LOGGER.log(format_args!("Unsupported executable format: {:?}", magic));
         return Err(ExecError::UnsupportedFormat);
@@ -212,11 +220,11 @@ pub fn exec_program(task_id: TaskID, path: &str) -> Result<(), ExecError> {
 /// absolute entry point address and the base address the loader was mapped at.
 fn map_loader_for_task(
     task_id: TaskID,
-    loader_path: &str,
+    loader_path: &'static str,
 ) -> Result<(u32, VirtualAddress), ExecError> {
     // Check cache first
     let cache = LOADER_CACHE.read();
-    if let Some(cached) = &*cache {
+    if let Some(cached) = cache.iter().find(|c| c.path == loader_path) {
         let base = map_cached_loader(task_id, cached)?;
         let entry = base.as_u32() + cached.entry_point_offset;
         return Ok((entry, base));
@@ -229,7 +237,7 @@ fn map_loader_for_task(
     let base = map_cached_loader(task_id, &cached)?;
     let entry = base.as_u32() + cached.entry_point_offset;
 
-    *LOADER_CACHE.write() = Some(cached);
+    LOADER_CACHE.write().push(cached);
 
     Ok((entry, base))
 }
@@ -267,7 +275,7 @@ fn map_cached_loader(task_id: TaskID, cached: &CachedLoader) -> Result<VirtualAd
 
 /// Parse the loader's ELF headers and create a driver mapping. This is the
 /// cold path — only runs once per loader binary.
-fn parse_and_cache_loader(loader_path: &str) -> Result<CachedLoader, ExecError> {
+fn parse_and_cache_loader(loader_path: &'static str) -> Result<CachedLoader, ExecError> {
     LOGGER.log(format_args!("Parsing loader: {}", loader_path));
 
     // Open and read ELF headers
@@ -362,6 +370,7 @@ fn parse_and_cache_loader(loader_path: &str) -> Result<CachedLoader, ExecError> 
     ));
 
     Ok(CachedLoader {
+        path: loader_path,
         driver_id,
         mapping_token,
         entry_point_offset,

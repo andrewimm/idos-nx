@@ -5,4 +5,3 @@ edition = "2021"
 
 [dependencies]
 idos_api = {path = "../../../api"}
-idos_sdk = {path = "../../../sdk"}
