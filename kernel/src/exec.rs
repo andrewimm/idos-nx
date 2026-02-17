@@ -36,7 +36,7 @@ use crate::{
     },
 };
 
-const LOGGER: TaggedLogger = TaggedLogger::new("EXEC", 214);
+const LOGGER: TaggedLogger = TaggedLogger::new("EXEC", 33);
 
 const ELF_MAGIC: [u8; 4] = [0x7f, 0x45, 0x4c, 0x46];
 
@@ -65,6 +65,8 @@ pub enum ExecError {
     ParseError,
     /// Mapping of memory failed
     MappingFailed,
+    /// The target task is not in the expected Uninitialized state
+    InvalidTaskState,
     /// An internal error occurred
     InternalError,
 }
@@ -123,6 +125,19 @@ const LOAD_INFO_DATA_START: usize = 0x100;
 /// into the task, writes a load info page, sets up a stack, and marks the task
 /// as runnable. The loader will take over from there.
 pub fn exec_program(task_id: TaskID, path: &str) -> Result<(), ExecError> {
+    // 0. Verify the target task is in the expected state
+    {
+        let task_lock = get_task(task_id).ok_or(ExecError::InternalError)?;
+        let task = task_lock.read();
+        if !matches!(task.state, crate::task::state::RunState::Uninitialized) {
+            LOGGER.log(format_args!(
+                "exec {:?}: task is not Uninitialized, cannot exec",
+                task_id
+            ));
+            return Err(ExecError::InvalidTaskState);
+        }
+    }
+
     // 1. Detect executable format by reading magic bytes
     let exec_handle = create_file_handle();
     let _ = open_sync(exec_handle, path).map_err(|_| ExecError::FileNotFound)?;

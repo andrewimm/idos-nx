@@ -227,7 +227,7 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             let path = unsafe {
                 core::str::from_utf8_unchecked(core::slice::from_raw_parts(path_ptr, path_len))
             };
-            match crate::loader::load_executable(task_id, path) {
+            match crate::exec::exec_program(task_id, path) {
                 Ok(_) => registers.eax = 1,
                 Err(_) => registers.eax = 0xffff_ffff,
             }
