@@ -12,7 +12,7 @@ gfx := target/i386-idos/release/gfx
 kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
 
 
-.PHONY: all, clean, run
+.PHONY: all clean run libc
 
 all: bootdisk
 
@@ -88,3 +88,9 @@ $(elfload):
 $(gfx):
 	@cd components/programs/gfx && \
 	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
+
+libc:
+	cargo build -p idos-libc --target components/i386-idos.json \
+		-Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --release
+	@cp target/i386-idos/release/libidos_libc.a sysroot/lib/libc.a
+	@gcc -m32 -c sysroot/src/crt0.s -o sysroot/lib/crt0.o

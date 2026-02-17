@@ -88,6 +88,16 @@ pub fn page_on_demand(address: VirtualAddress) -> Option<PhysicalAddress> {
             // allocate a single page for the requested address
             let allocated_frame =
                 allocate_frame_with_tracking().expect("Failed to allocate memory for page");
+            // Zero the frame before mapping it. This is critical for BSS
+            // sections and any anonymous memory that expects zero-initialized
+            // pages.
+            {
+                let scratch = UnmappedPage::map(allocated_frame.peek_address());
+                let page_ptr = scratch.virtual_address().as_u32() as *mut u8;
+                unsafe {
+                    core::ptr::write_bytes(page_ptr, 0, 0x1000);
+                }
+            }
             current_pagedir_map(allocated_frame, address.prev_page_barrier(), flags)
         }
         MemoryBacking::FileBacked {

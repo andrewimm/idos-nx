@@ -1,3 +1,11 @@
 /build/
 testkernel.log
 target/
+
+# Build artifacts in sysroot
+sysroot/lib/
+sysroot/test/*.o
+sysroot/test/*.elf
+
+# Debug dumps
+dump.dat

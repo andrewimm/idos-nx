@@ -13,5 +13,6 @@ members = [
   "components/programs/gopher",
   "components/programs/netcat",
   "kernel",
+  "libc",
   "sdk",
 ]

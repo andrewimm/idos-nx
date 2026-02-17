@@ -58,6 +58,13 @@ name = "idos-bootbin"
 version = "0.1.0"
 
 [[package]]
+name = "idos-libc"
+version = "0.1.0"
+dependencies = [
+ "idos_api",
+]
+
+[[package]]
 name = "idos-mbr"
 version = "0.1.0"
 
