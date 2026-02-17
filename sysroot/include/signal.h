@@ -1,6 +1,7 @@
 #ifndef _SIGNAL_H
 #define _SIGNAL_H
 
+typedef int sig_atomic_t;
 typedef void (*sighandler_t)(int);
 
 #define SIG_DFL ((sighandler_t)0)

@@ -10,6 +10,9 @@
 
 char *setlocale(int category, const char *locale);
 
+struct lconv;
+struct lconv *localeconv(void);
+
 struct lconv {
     char *decimal_point;
     char *thousands_sep;

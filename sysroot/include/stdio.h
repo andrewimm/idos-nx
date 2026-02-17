@@ -10,6 +10,9 @@
 #define SEEK_END 2
 
 #define BUFSIZ 1024
+#define FILENAME_MAX 256
+#define L_tmpnam 20
+#define TMP_MAX 1000
 
 #define _IOFBF 0
 #define _IOLBF 1
@@ -22,6 +25,7 @@ extern FILE *stdout;
 extern FILE *stderr;
 
 FILE *fopen(const char *path, const char *mode);
+FILE *freopen(const char *path, const char *mode, FILE *stream);
 int fclose(FILE *stream);
 size_t fread(void *ptr, size_t size, size_t nmemb, FILE *stream);
 size_t fwrite(const void *ptr, size_t size, size_t nmemb, FILE *stream);
@@ -59,6 +63,7 @@ int sscanf(const char *str, const char *format, ...);
 int remove(const char *pathname);
 int rename(const char *oldpath, const char *newpath);
 FILE *tmpfile(void);
+char *tmpnam(char *s);
 
 int fileno(FILE *stream);
 void setbuf(FILE *stream, char *buf);
