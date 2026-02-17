@@ -190,70 +190,108 @@ fn setup_stack_and_jump(
     let argv_data_ptr = (load_info_addr + header.argv_offset) as *const u8;
     let argv_total_len = header.argv_total_len as usize;
 
-    // We'll build the stack at STACK_TOP, growing downward.
-    // Layout (top to bottom):
-    //   - raw string data (copied from load info argv)
-    //   - argv pointer array
-    //   - argc
+    // We build argc/argv data at the top of the stack page, then set ESP
+    // below it and jump to the entry point.
+    //
+    // IMPORTANT: The elfload is currently using this same stack page. Writing
+    // near the top of the page will clobber the elfload's stack frame. To
+    // handle this safely, we call a helper function that first relocates ESP
+    // to a safe location, then writes the argv data and jumps.
+    write_argv_and_jump(
+        argc,
+        argv_data_ptr,
+        argv_total_len,
+        entry_point,
+    )
+}
 
+/// First relocate ESP away from the top of the stack page, then write
+/// argc/argv data there safely before jumping to the entry point.
+///
+/// We use inline asm to move ESP to a safe location (middle of the second
+/// stack page), then call the actual writer. This ensures no compiler-generated
+/// stack frame overlaps with the argv data area at the top of the stack.
+fn write_argv_and_jump(
+    argc: u32,
+    argv_data_ptr: *const u8,
+    argv_total_len: usize,
+    entry_point: u32,
+) -> ! {
+    unsafe {
+        asm!(
+            // Move ESP to a safe location in the second stack page
+            "mov esp, {safe}",
+            // Push args for the writer (cdecl calling convention)
+            "push {entry}",
+            "push {len}",
+            "push {ptr}",
+            "push {argc}",
+            "call {func}",
+            safe = in(reg) (STACK_TOP - 0x1800u32),
+            argc = in(reg) argc,
+            ptr = in(reg) argv_data_ptr,
+            len = in(reg) argv_total_len,
+            entry = in(reg) entry_point,
+            func = sym do_write_argv_and_jump,
+            options(noreturn),
+        );
+    }
+}
+
+/// Actually write argv data and jump. Called after ESP has been relocated
+/// to a safe location away from the top of the stack page.
+#[inline(never)]
+unsafe extern "C" fn do_write_argv_and_jump(
+    argc: u32,
+    argv_data_ptr: *const u8,
+    argv_total_len: usize,
+    entry_point: u32,
+) -> ! {
     let stack_page = (STACK_TOP - 0x1000) as *mut u8;
 
-    // Copy raw argv string data to the top of the stack page
-    // Align the start down to 4 bytes
+    // Compute layout
     let mut strings_start = 0x1000 - argv_total_len;
     strings_start &= !3;
+    let strings_vaddr = STACK_TOP - 0x1000 + strings_start as u32;
+    let argv_array_size = (argc as usize + 1) * 4;
+    let argv_array_start = strings_start - argv_array_size;
+    let argc_offset = argv_array_start - 4;
+    let new_esp = STACK_TOP - 0x1000 + argc_offset as u32;
 
+    // Write string data
     if argv_total_len > 0 {
-        unsafe {
-            let dest = stack_page.add(strings_start);
-            core::ptr::copy_nonoverlapping(argv_data_ptr, dest, argv_total_len);
-        }
+        let dest = stack_page.add(strings_start);
+        core::ptr::copy_nonoverlapping(argv_data_ptr, dest, argv_total_len);
     }
 
-    // The string data lives at virtual address (STACK_TOP - 0x1000 + strings_start)
-    let strings_vaddr = STACK_TOP - 0x1000 + strings_start as u32;
-
-    // Build argv pointer array below the strings
-    let argv_array_size = argc as usize * 4;
-    let argv_array_start = strings_start - argv_array_size;
-    let argv_array_ptr = unsafe { stack_page.add(argv_array_start) as *mut u32 };
-
-    // Walk through the null-terminated strings to build pointers
+    // Write argv pointer array
+    let argv_array_ptr = stack_page.add(argv_array_start) as *mut u32;
     let mut string_offset: u32 = 0;
     for i in 0..argc as usize {
-        unsafe {
-            *argv_array_ptr.add(i) = strings_vaddr + string_offset;
-        }
-        // Find the next null terminator
+        *argv_array_ptr.add(i) = strings_vaddr + string_offset;
         let mut j = string_offset as usize;
         while j < argv_total_len {
-            let byte = unsafe { *argv_data_ptr.add(j) };
-            if byte == 0 {
+            if *argv_data_ptr.add(j) == 0 {
                 break;
             }
             j += 1;
         }
-        string_offset = (j + 1) as u32; // skip past the null
+        string_offset = (j + 1) as u32;
     }
+    // argv[argc] = NULL
+    *argv_array_ptr.add(argc as usize) = 0;
 
-    // Place argc below the argv array
-    let argc_offset = argv_array_start - 4;
-    unsafe {
-        *(stack_page.add(argc_offset) as *mut u32) = argc;
-    }
+    // Write argc
+    *(stack_page.add(argc_offset) as *mut u32) = argc;
 
-    // ESP points to argc
-    let new_esp = STACK_TOP - 0x1000 + argc_offset as u32;
-
-    unsafe {
-        asm!(
-            "mov esp, {esp}",
-            "jmp {entry}",
-            esp = in(reg) new_esp,
-            entry = in(reg) entry_point,
-            options(noreturn),
-        );
-    }
+    // Set ESP and jump
+    asm!(
+        "mov esp, {esp}",
+        "jmp {entry}",
+        esp = in(reg) new_esp,
+        entry = in(reg) entry_point,
+        options(noreturn),
+    );
 }
 
 #[lang = "eh_personality"]

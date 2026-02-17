@@ -90,7 +90,7 @@ const ELF_LOADER_PATH: &str = "C:\\ELFLOAD.ELF";
 /// Path to the DOS compatibility layer binary
 const DOS_LOADER_PATH: &str = "C:\\DOSLAYER.ELF";
 
-/// Stack is placed at the top of user address space, 2 pages
+/// Stack is placed at the top of user address space
 const STACK_TOP: u32 = 0xc000_0000;
 const STACK_PAGES: u32 = 2;
 

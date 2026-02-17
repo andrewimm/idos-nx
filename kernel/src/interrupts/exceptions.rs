@@ -124,7 +124,7 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
         if error & 4 == 4 {
             // Permission error - access attempt did not come from ring 0
             // This should segfault
-            crate::kprintln!("User program attempted to reach out-of-bounds memory");
+            crate::kprint!("SEGFAULT AT IP: {:#010X} (Access {:#010X}) [out-of-bounds]\n", eip, address);
             crate::task::actions::lifecycle::terminate(0);
         }
         if error & 1 == 0 {
