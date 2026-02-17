@@ -6,6 +6,7 @@ kernel := build/kernel.bin
 
 command := target/i386-idos/release/command
 doslayer := target/i386-idos/release/doslayer
+elfload := target/i386-idos/release/elfload
 gfx := target/i386-idos/release/gfx
 
 kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
@@ -35,12 +36,13 @@ $(userdata):
 	@mcopy -D o -i $(userdata) userdata/disk/*.* ::
 	@mcopy -D o -i $(userdata) userdata/static/*.* ::
 
-bootdisk: $(command) $(doslayer) $(gfx) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
+bootdisk: $(command) $(doslayer) $(elfload) $(gfx) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
 	@mcopy -D o -i $(diskimage) $(bootbin) ::BOOT.BIN
 	@mcopy -D o -i $(diskimage) $(kernel) ::KERNEL.BIN
 	@mcopy -D o -i $(diskimage) $(command) ::COMMAND.ELF
 	@mcopy -D o -i $(diskimage) $(doslayer) ::DOSLAYER.ELF
+	@mcopy -D o -i $(diskimage) $(elfload) ::ELFLOAD.ELF
 	@mcopy -D o -i $(diskimage) $(gfx) ::GFX.ELF
 	@mcopy -D o -i $(diskimage) resources/ter-i14n.psf ::TERM14.PSF
 
@@ -77,6 +79,10 @@ $(command):
 
 $(doslayer):
 	@cd components/programs/doslayer && \
+	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
+
+$(elfload):
+	@cd components/programs/elfload && \
 	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
 
 $(gfx):

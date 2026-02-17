@@ -25,6 +25,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "elfload"
+version = "0.1.0"
+dependencies = [
+ "idos_api",
+]
+
+[[package]]
 name = "gamedemo"
 version = "0.1.0"
 dependencies = [
