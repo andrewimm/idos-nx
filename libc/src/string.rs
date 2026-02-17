@@ -17,6 +17,12 @@ pub unsafe extern "C" fn strlen(s: *const c_char) -> usize {
 
 #[no_mangle]
 pub unsafe extern "C" fn strcmp(s1: *const c_char, s2: *const c_char) -> c_int {
+    strcoll(s1, s2)
+}
+
+/// In the "C" locale, strcoll is identical to strcmp.
+#[no_mangle]
+pub unsafe extern "C" fn strcoll(s1: *const c_char, s2: *const c_char) -> c_int {
     let mut i = 0;
     loop {
         let a = *s1.add(i) as u8;
@@ -208,6 +214,61 @@ pub unsafe extern "C" fn strncasecmp(
         }
     }
     0
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn strspn(s: *const c_char, accept: *const c_char) -> usize {
+    let mut count = 0;
+    while *s.add(count) != 0 {
+        let c = *s.add(count);
+        let mut found = false;
+        let mut a = accept;
+        while *a != 0 {
+            if *a == c {
+                found = true;
+                break;
+            }
+            a = a.add(1);
+        }
+        if !found {
+            break;
+        }
+        count += 1;
+    }
+    count
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn strcspn(s: *const c_char, reject: *const c_char) -> usize {
+    let mut count = 0;
+    while *s.add(count) != 0 {
+        let c = *s.add(count);
+        let mut r = reject;
+        while *r != 0 {
+            if *r == c {
+                return count;
+            }
+            r = r.add(1);
+        }
+        count += 1;
+    }
+    count
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn strpbrk(s: *const c_char, accept: *const c_char) -> *mut c_char {
+    let mut p = s;
+    while *p != 0 {
+        let mut a = accept;
+        while *a != 0 {
+            if *a == *p {
+                return p as *mut c_char;
+            }
+            a = a.add(1);
+        }
+        p = p.add(1);
+    }
+    ptr::null_mut()
 }
 
 fn to_lower(c: u8) -> u8 {

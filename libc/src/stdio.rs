@@ -247,6 +247,48 @@ unsafe fn file_size(handle: Handle) -> u32 {
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn freopen(
+    path: *const c_char,
+    mode: *const c_char,
+    stream: *mut FILE,
+) -> *mut FILE {
+    if stream.is_null() {
+        return ptr::null_mut();
+    }
+    // Close the existing stream
+    if (*stream).is_open && !(*stream).is_console {
+        io_sync((*stream).handle, ASYNC_OP_CLOSE, 0, 0, 0).ok();
+    }
+    if path.is_null() {
+        // NULL path means just change mode on the same fd — not meaningful for us
+        return stream;
+    }
+    let handle = create_file_handle();
+    let mut path_buf = [0u8; 256];
+    let path_len = translate_path(path, &mut path_buf);
+    let result = io_sync(
+        handle,
+        ASYNC_OP_OPEN,
+        path_buf.as_ptr() as u32,
+        path_len as u32,
+        0,
+    );
+    if result.is_err() {
+        io_sync(handle, ASYNC_OP_CLOSE, 0, 0, 0).ok();
+        (*stream).is_open = false;
+        return ptr::null_mut();
+    }
+    (*stream).handle = handle;
+    (*stream).pos = 0;
+    (*stream).error = 0;
+    (*stream).eof = 0;
+    (*stream).is_open = true;
+    (*stream).is_console = false;
+    (*stream).unget = -1;
+    stream
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn fclose(f: *mut FILE) -> c_int {
     if f.is_null() || !(*f).is_open {
         return EOF;
@@ -1084,6 +1126,43 @@ pub unsafe extern "C" fn rename(_old: *const c_char, _new: *const c_char) -> c_i
 #[no_mangle]
 pub unsafe extern "C" fn tmpfile() -> *mut FILE {
     ptr::null_mut() // stub
+}
+
+static mut TMPNAM_COUNTER: u32 = 0;
+
+#[no_mangle]
+pub unsafe extern "C" fn tmpnam(s: *mut c_char) -> *mut c_char {
+    static mut BUF: [u8; 20] = [0; 20];
+    TMPNAM_COUNTER += 1;
+    let dest = if s.is_null() { BUF.as_mut_ptr() as *mut c_char } else { s };
+    // Generate "C:\TMP\tXXXXX"
+    let prefix = b"C:\\TMP\\t";
+    let mut i = 0;
+    for &b in prefix {
+        *dest.add(i) = b as c_char;
+        i += 1;
+    }
+    // Append counter as decimal
+    let mut num = TMPNAM_COUNTER;
+    let start = i;
+    loop {
+        *dest.add(i) = b'0' as c_char + (num % 10) as c_char;
+        i += 1;
+        num /= 10;
+        if num == 0 { break; }
+    }
+    // Reverse the digits
+    let mut a = start;
+    let mut b = i - 1;
+    while a < b {
+        let tmp = *dest.add(a);
+        *dest.add(a) = *dest.add(b);
+        *dest.add(b) = tmp;
+        a += 1;
+        b -= 1;
+    }
+    *dest.add(i) = 0;
+    dest
 }
 
 // ---- fileno ----
