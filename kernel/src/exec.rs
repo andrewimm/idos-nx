@@ -17,7 +17,6 @@ use crate::{
         filesystem::{driver::DriverID, driver_create_mapping},
         handle::Handle,
     },
-    loader::elf::headers::{ElfHeader, ProgramHeader, SEGMENT_FLAG_WRITE, SEGMENT_TYPE_LOAD},
     log::TaggedLogger,
     memory::{
         address::VirtualAddress, physical::allocate_frame_with_tracking,
@@ -35,6 +34,49 @@ use crate::{
         paging::{ExternalPageDirectory, PermissionFlags},
     },
 };
+
+// === ELF Header Definitions ===
+
+#[derive(Default)]
+#[repr(C, packed)]
+struct ElfHeader {
+    magic: [u8; 4],
+    bit_class: u8,
+    endianness: u8,
+    id_version: u8,
+    os_abi: u8,
+    abi_version: u8,
+    _padding: [u8; 7],
+    object_file_type: u16,
+    machine: u16,
+    elf_version: u32,
+    entry_point: u32,
+    program_header_offset: u32,
+    section_header_offset: u32,
+    flags: u32,
+    header_size: u16,
+    program_header_size: u16,
+    program_header_count: u16,
+    section_header_size: u16,
+    section_header_count: u16,
+    section_name_index: u16,
+}
+
+#[derive(Default)]
+#[repr(C, packed)]
+struct ProgramHeader {
+    segment_type: u32,
+    offset: u32,
+    virtual_address: VirtualAddress,
+    physical_address: u32,
+    file_size: u32,
+    memory_size: u32,
+    flags: u32,
+    alignment: u32,
+}
+
+const SEGMENT_TYPE_LOAD: u32 = 1;
+const SEGMENT_FLAG_WRITE: u32 = 1 << 1;
 
 const LOGGER: TaggedLogger = TaggedLogger::new("EXEC", 33);
 

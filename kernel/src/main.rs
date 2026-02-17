@@ -30,7 +30,6 @@ pub mod hardware;
 pub mod init;
 pub mod interrupts;
 pub mod io;
-pub mod loader;
 pub mod log;
 pub mod memory;
 pub mod net;
@@ -94,8 +93,6 @@ fn init_system() -> ! {
     crate::kprintln!("INIT task: {:?}", id);
     // initialize drivers that rely on multitasking
     {
-        // Resident loader disabled — all loading now goes through exec_program
-        // let _loader_id = loader::resident::get_loader_id();
         //let con = task::actions::handle::create_file_handle();
         //task::actions::io::open_sync(con, "DEV:\\CON1").unwrap();
 
