@@ -92,7 +92,7 @@ const DOS_LOADER_PATH: &str = "C:\\DOSLAYER.ELF";
 
 /// Stack is placed at the top of user address space
 const STACK_TOP: u32 = 0xc000_0000;
-const STACK_PAGES: u32 = 2;
+const STACK_PAGES: u32 = 64;
 
 /// Magic number written to the load info page header
 const LOAD_INFO_MAGIC: u32 = 0x4C4F4144; // "LOAD"
@@ -213,11 +213,11 @@ pub fn exec_program(task_id: TaskID, path: &str) -> Result<(), ExecError> {
     // 3. Map the loader into the target task
     let (entry_point, _loader_base) = map_loader_for_task(task_id, loader_path)?;
 
-    // 4. Set up the load info page
-    let load_info_addr = setup_load_info_page(task_id, path)?;
-
-    // 5. Set up stack
+    // 4. Set up stack (before load info, so auto-allocated pages land below it)
     setup_stack(task_id)?;
+
+    // 5. Set up the load info page
+    let load_info_addr = setup_load_info_page(task_id, path)?;
 
     // 6. Set registers and mark runnable
     {
@@ -368,7 +368,9 @@ fn parse_and_cache_loader(loader_path: &'static str) -> Result<CachedLoader, Exe
         Err(_) => return Err(ExecError::LoaderNotFound),
     };
 
-    // Build cached segment list from PT_LOAD headers
+    // Build cached segment list from PT_LOAD headers, merging segments that
+    // overlap after page-alignment (e.g. a read-only data segment and a code
+    // segment that share the same page).
     let mut segments: Vec<CachedSegment> = Vec::new();
     let mut elf_base: Option<u32> = None;
 
@@ -392,13 +394,39 @@ fn parse_and_cache_loader(loader_path: &'static str) -> Result<CachedLoader, Exe
         let file_offset_aligned = ph.offset & 0xfffff000;
         let memory_size_aligned =
             ((seg_vaddr + ph.memory_size + 0xfff) & 0xfffff000) - seg_vaddr_aligned;
+        let vaddr_offset = seg_vaddr_aligned - base;
+        let writable = ph.flags & SEGMENT_FLAG_WRITE != 0;
 
-        segments.push(CachedSegment {
-            vaddr_offset: seg_vaddr_aligned - base,
-            file_offset: file_offset_aligned,
-            memory_size: memory_size_aligned,
-            writable: ph.flags & SEGMENT_FLAG_WRITE != 0,
-        });
+        // Check if this segment overlaps with the previous one (common when
+        // multiple segments share the same page). If so, extend the previous
+        // segment to cover both.
+        let merged = if let Some(prev) = segments.last_mut() {
+            let prev_end = prev.vaddr_offset + prev.memory_size;
+            let new_end = vaddr_offset + memory_size_aligned;
+            if vaddr_offset < prev_end {
+                // Overlapping — extend the previous segment if needed
+                if new_end > prev_end {
+                    prev.memory_size = new_end - prev.vaddr_offset;
+                }
+                if writable {
+                    prev.writable = true;
+                }
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if !merged {
+            segments.push(CachedSegment {
+                vaddr_offset,
+                file_offset: file_offset_aligned,
+                memory_size: memory_size_aligned,
+                writable,
+            });
+        }
     }
 
     let elf_base = elf_base.ok_or(ExecError::ParseError)?;
@@ -479,9 +507,8 @@ fn setup_load_info_page(task_id: TaskID, exec_path: &str) -> Result<VirtualAddre
         header.argc = argc;
         header.argv_offset = argv_offset as u32;
         header.argv_total_len = argv_len;
-    }
 
-    LOGGER.log(format_args!("Load info page at {:?}", vaddr));
+    }
 
     Ok(vaddr)
 }

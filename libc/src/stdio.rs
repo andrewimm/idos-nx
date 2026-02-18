@@ -1109,6 +1109,28 @@ pub unsafe extern "C" fn vsscanf(s: *const c_char, fmt: *const c_char, mut args:
     matched
 }
 
+// ---- debug helpers (write directly to console handle) ----
+
+/// Write raw bytes to stdout's kernel handle (Handle 1).
+/// Used for early debug output before full stdio is needed.
+pub unsafe fn debug_write(bytes: &[u8]) {
+    let handle = Handle::new(1);
+    io_sync(handle, ASYNC_OP_WRITE, bytes.as_ptr() as u32, bytes.len() as u32, 0).ok();
+}
+
+/// Write a u32 value as hex to stdout's kernel handle.
+pub unsafe fn debug_write_hex(val: u32) {
+    let digits = b"0123456789ABCDEF";
+    let mut buf = [b'0'; 10]; // "0x" + 8 hex digits
+    buf[0] = b'0';
+    buf[1] = b'x';
+    for i in 0..8 {
+        let nibble = (val >> (28 - i * 4)) & 0xF;
+        buf[2 + i] = digits[nibble as usize];
+    }
+    debug_write(&buf);
+}
+
 // ---- remove / rename ----
 
 #[no_mangle]

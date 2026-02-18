@@ -249,9 +249,12 @@ unsafe extern "C" fn do_write_argv_and_jump(
 ) -> ! {
     let stack_page = (STACK_TOP - 0x1000) as *mut u8;
 
-    // Compute layout
-    let mut strings_start = 0x1000 - argv_total_len;
-    strings_start &= !3;
+    // Compute layout — clamp strings_start so it stays within the page
+    let mut strings_start = if argv_total_len > 0 {
+        (0x1000 - argv_total_len) & !3
+    } else {
+        0x1000 - 4 // leave room even when there are no strings
+    };
     let strings_vaddr = STACK_TOP - 0x1000 + strings_start as u32;
     let argv_array_size = (argc as usize + 1) * 4;
     let argv_array_start = strings_start - argv_array_size;

@@ -147,13 +147,29 @@ impl<const U: u32> MappedMemory<U> {
         self.regions.len()
     }
 
+    /// Debug: print all mapped regions to the kernel console
+    pub fn dump_regions(&self) {
+        crate::kprint!("  Memory map ({} regions, U={:#010X}):\n", self.regions.len(), U);
+        for (_, region) in self.regions.iter() {
+            let start = region.address.as_u32();
+            let end = start + region.size;
+            let backing = match &region.backed_by {
+                MemoryBacking::Direct(_) => "Direct",
+                MemoryBacking::FreeMemory => "Free",
+                MemoryBacking::IsaDma => "DMA",
+                MemoryBacking::FileBacked { .. } => "File",
+            };
+            crate::kprint!("    {:#010X}..{:#010X} ({})\n", start, end, backing);
+        }
+    }
+
     /// Create a memory mapping. This does not actually modify the page table,
     /// but the next time a page fault occurs in this region the kernel will be
     /// able to use this information to fill in the page.
-    /// If a virtual address is provided, the algorithm will attempt to find the
-    /// closest available space that is large enough to fit the requested size.
-    /// Otherwise, it iterates downwards from the top of the memory mapping
-    /// area.
+    /// If a virtual address is provided, the mapping is placed at that exact
+    /// address if possible, otherwise the closest available space is used.
+    /// When no address is provided, the allocator picks a free region starting
+    /// from the top of the address space and working downward.
     /// On success, it returns the address that the region has been mapped to.
     pub fn map_memory(
         &mut self,
@@ -175,7 +191,7 @@ impl<const U: u32> MappedMemory<U> {
                 if self.can_fit_range(request_start..request_end) {
                     Some(request_start)
                 } else {
-                    self.find_free_mapping_space(rounded_size)
+                    self.find_nearest_free_space(request_start, rounded_size)
                 }
             }
             None => self.find_free_mapping_space(rounded_size),
@@ -337,6 +353,83 @@ impl<const U: u32> MappedMemory<U> {
         true
     }
 
+    /// Find the closest available free space to a hint address. Searches both
+    /// above and below the hint, returning whichever gap is nearest.
+    fn find_nearest_free_space(
+        &self,
+        hint: VirtualAddress,
+        size: u32,
+    ) -> Option<VirtualAddress> {
+        let mut best: Option<VirtualAddress> = None;
+        let mut best_distance: u32 = u32::MAX;
+
+        // Walk all gaps between regions (and boundaries) looking for the
+        // closest one that fits.
+        let upper_bound = VirtualAddress::new(U);
+
+        // Collect gap starts/ends: gaps are between consecutive regions,
+        // plus the gap before the first region and after the last region.
+        let mut prev_end = VirtualAddress::new(0x1000); // skip null page
+        for (_, region) in self.regions.iter() {
+            let gap_start = prev_end;
+            let gap_end = region.address;
+            if gap_end > gap_start {
+                let gap_size = gap_end - gap_start;
+                if gap_size >= size {
+                    // Try to place at the hint, clamped to this gap
+                    let place = if hint >= gap_start
+                        && hint + size <= gap_end
+                    {
+                        hint
+                    } else if hint < gap_start {
+                        gap_start
+                    } else {
+                        // hint is past this gap; place at the end of gap
+                        (gap_end - size).prev_page_barrier()
+                    };
+                    let dist = if place >= hint {
+                        place - hint
+                    } else {
+                        hint - place
+                    };
+                    if dist < best_distance {
+                        best_distance = dist;
+                        best = Some(place);
+                    }
+                }
+            }
+            prev_end = (region.address + region.size).next_page_barrier();
+        }
+
+        // Gap after the last region, up to the upper bound
+        if upper_bound > prev_end {
+            let gap_size = upper_bound - prev_end;
+            if gap_size >= size {
+                let gap_start = prev_end;
+                let gap_end = upper_bound;
+                let place = if hint >= gap_start
+                    && hint + size <= gap_end
+                {
+                    hint
+                } else if hint < gap_start {
+                    gap_start
+                } else {
+                    (gap_end - size).prev_page_barrier()
+                };
+                let dist = if place >= hint {
+                    place - hint
+                } else {
+                    hint - place
+                };
+                if dist < best_distance {
+                    best = Some(place);
+                }
+            }
+        }
+
+        best
+    }
+
     /// Finds a free mapping space for the requested size.
     /// Iterate backwards through the mapped set. If the space between the
     /// current region and the previous one is large enough to fit the requested
@@ -431,7 +524,7 @@ mod tests {
 
     #[test_case]
     fn explicit_mmap() {
-        let mut regions = MappedMemory::<0xbfff_e000>::new();
+        let mut regions = MappedMemory::<0xc000_0000>::new();
         assert_eq!(
             regions
                 .map_memory(
@@ -452,6 +545,9 @@ mod tests {
                 .unwrap(),
             VirtualAddress::new(0x6000),
         );
+        // 0x5000 with size 0x2000 overlaps both existing regions (0x4000
+        // and 0x6000). The nearest available space is at 0x8000, right after
+        // the 0x6000..0x8000 region.
         assert_eq!(
             regions
                 .map_memory(
@@ -460,30 +556,30 @@ mod tests {
                     MemoryBacking::FreeMemory
                 )
                 .unwrap(),
-            VirtualAddress::new(0xbfffc000),
+            VirtualAddress::new(0x8000),
         );
     }
 
     #[test_case]
     fn auto_allocated_mmap() {
-        let mut regions = MappedMemory::<0xbfff_e000>::new();
+        let mut regions = MappedMemory::<0xc000_0000>::new();
         assert_eq!(
             regions
                 .map_memory(None, 0x1000, MemoryBacking::FreeMemory)
                 .unwrap(),
-            VirtualAddress::new(0xbfffd000),
+            VirtualAddress::new(0xbffff000),
         );
         assert_eq!(
             regions
                 .map_memory(None, 0x400, MemoryBacking::FreeMemory)
                 .unwrap(),
-            VirtualAddress::new(0xbfffc000),
+            VirtualAddress::new(0xbfffe000),
         );
     }
 
     #[test_case]
     fn unmapping() {
-        let mut regions = MappedMemory::<0xbfff_e000>::new();
+        let mut regions = MappedMemory::<0xc000_0000>::new();
         regions
             .map_memory(
                 Some(VirtualAddress::new(0x4000)),

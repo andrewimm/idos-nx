@@ -206,6 +206,16 @@ fn try_exec(
     }
     let (child_handle, child_id) = crate::task::actions::handle::create_task();
 
+    // Push args: argv[0] = program name, then any additional arguments
+    {
+        let task_lock = crate::task::map::get_task(child_id).unwrap();
+        let mut task = task_lock.write();
+        task.push_arg(name.as_bytes());
+        for arg in args {
+            task.push_arg(arg.as_bytes());
+        }
+    }
+
     let stdin_dup = crate::task::actions::handle::dup_handle(stdin).unwrap();
     let stdout_dup = crate::task::actions::handle::dup_handle(stdout).unwrap();
 

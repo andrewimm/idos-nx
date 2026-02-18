@@ -124,7 +124,18 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
         if error & 4 == 4 {
             // Permission error - access attempt did not come from ring 0
             // This should segfault
+            let user_esp = unsafe {
+                let sf_ptr = &stack_frame as *const StackFrame as *const u32;
+                core::ptr::read_volatile(sf_ptr.add(3))
+            };
             crate::kprint!("SEGFAULT AT IP: {:#010X} (Access {:#010X}) [out-of-bounds]\n", eip, address);
+            crate::kprint!("  User ESP: {:#010X}\n", user_esp);
+            {
+                let task_lock = crate::task::switching::get_current_task();
+                let task = task_lock.read();
+                crate::kprint!("  Task: {:?} \"{}\"\n", task.id, task.filename);
+                task.memory_mapping.dump_regions();
+            }
             crate::task::actions::lifecycle::terminate(0);
         }
         if error & 1 == 0 {
@@ -152,7 +163,13 @@ pub extern "x86-interrupt" fn page_fault(stack_frame: StackFrame, error: u32) {
 
         // All other cases (accessing an unmapped section, writing a read-only
         // segment, etc) should cause a segfault.
-        crate::kprint!("SEGFAULT AT IP: {:#010X} (Access {:#010X})\n", eip, address);
+        crate::kprint!("SEGFAULT AT IP: {:#010X} (Access {:#010X}) [err={:#X}]\n", eip, address, error);
+        {
+            let task_lock = crate::task::switching::get_current_task();
+            let task = task_lock.read();
+            crate::kprint!("  Task: {:?} \"{}\"\n", task.id, task.filename);
+            task.memory_mapping.dump_regions();
+        }
     }
     crate::task::actions::lifecycle::terminate(0);
 }

@@ -280,8 +280,18 @@ fn try_exec(env: &Environment, name: &String, args: &Vec<String>) -> bool {
     }
     let (child_handle, child_id) = create_task();
 
-    let arg_structure_size: usize = args.iter().map(|s| s.len() + 2).sum();
+    // Build arg structure: argv[0] = program path, then any additional args
+    // Format: [u16 len][bytes][u16 len][bytes]...
+    let arg_structure_size: usize =
+        exec_path.len() + 2 + args.iter().map(|s| s.len() + 2).sum::<usize>();
     let mut arg_structure_buffer = Vec::with_capacity(arg_structure_size);
+    // argv[0] = program path
+    let len_low = (exec_path.len() & 0xFF) as u8;
+    let len_high = ((exec_path.len() >> 8) & 0xFF) as u8;
+    arg_structure_buffer.push(len_low);
+    arg_structure_buffer.push(len_high);
+    arg_structure_buffer.extend_from_slice(exec_path.as_bytes());
+    // argv[1..] = additional args
     for arg in args {
         let len_low = (arg.len() & 0xFF) as u8;
         let len_high = ((arg.len() >> 8) & 0xFF) as u8;

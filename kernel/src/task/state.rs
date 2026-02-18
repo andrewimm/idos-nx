@@ -41,7 +41,7 @@ pub struct Task {
     /// Physical address of the task's page directory
     pub page_directory: PhysicalAddress,
     /// Stores all of the memory mappings for the Task
-    pub memory_mapping: MappedMemory<0xbfffe000>,
+    pub memory_mapping: MappedMemory<0xc0000000>,
 
     /// Store Messages that have been sent to this task
     pub message_queue: MessageQueue,
