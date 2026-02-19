@@ -134,7 +134,7 @@ impl ConsoleManager {
                     buffer[dest_offset..dest_offset + byte_width]
                         .copy_from_slice(&raw_buffer[src_offset..src_offset + byte_width]);
                 } else if src_bpp == 1 {
-                    let palette = &crate::console::graphics::palette::VGA_PALETTE;
+                    let palette = graphics_buffer.get_palette();
                     for px in 0..copy_width {
                         let color = palette[raw_buffer[src_offset + px] as usize];
                         crate::console::graphics::write_pixel(buffer, dest_offset + px * bpp, color, bpp);

@@ -19,6 +19,13 @@ pub const TIOCSWINSZ: u32 = 0x5414;
 pub const TSETGFX: u32 = 0x6001;
 /// Disable raw graphics mode, return to text mode
 pub const TSETTEXT: u32 = 0x6002;
+/// Get the current 256-color palette (returns 768 bytes of packed R,G,B)
+pub const TGETPAL: u32 = 0x6003;
+/// Set the current 256-color palette (expects 768 bytes of packed R,G,B)
+pub const TSETPAL: u32 = 0x6004;
+
+pub const PALETTE_ENTRIES: usize = 256;
+pub const PALETTE_SIZE: usize = PALETTE_ENTRIES * 3;
 
 // TERMIOS: structure for getting / setting attributes
 #[repr(C, packed)]

@@ -223,6 +223,32 @@ impl ConsoleManager {
                 console.terminal.set_graphics_mode(gfx_struct);
                 Ok(1)
             }
+            termios::TGETPAL => {
+                if arg_len < termios::PALETTE_SIZE {
+                    return Err(IoError::InvalidArgument);
+                }
+                let buf = unsafe { core::slice::from_raw_parts_mut(arg_ptr, termios::PALETTE_SIZE) };
+                match &console.terminal.graphics_buffer {
+                    Some(gfx) => {
+                        gfx.get_palette_rgb(buf);
+                        Ok(1)
+                    }
+                    None => Err(IoError::InvalidArgument),
+                }
+            }
+            termios::TSETPAL => {
+                if arg_len < termios::PALETTE_SIZE {
+                    return Err(IoError::InvalidArgument);
+                }
+                let buf = unsafe { core::slice::from_raw_parts(arg_ptr, termios::PALETTE_SIZE) };
+                match &mut console.terminal.graphics_buffer {
+                    Some(gfx) => {
+                        gfx.set_palette_rgb(buf);
+                        Ok(1)
+                    }
+                    None => Err(IoError::InvalidArgument),
+                }
+            }
             _ => Err(IoError::UnsupportedOperation),
         }
     }
