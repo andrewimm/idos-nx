@@ -50,6 +50,7 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
     match root {
         CommandComponent::Executable(name, args) => match name.to_ascii_uppercase().as_str() {
             "CD" | "CHDIR" => cd(env, args),
+            "CLS" => cls(env),
             "DIR" => dir(env, args),
             //"DRIVES" => drives(env),
             "TYPE" => type_file(env, args),
@@ -69,6 +70,11 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
             let _ = write_sync(env.stdout, "Unsupported syntax!\n".as_bytes(), 0);
         }
     }
+}
+
+fn cls(env: &Environment) {
+    // ESC[2J clears the screen, ESC[H moves cursor to top-left
+    let _ = write_sync(env.stdout, b"\x1b[2J\x1b[H", 0);
 }
 
 fn is_drive(name: &[u8]) -> bool {

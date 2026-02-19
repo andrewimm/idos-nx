@@ -158,7 +158,8 @@ impl ConsoleManager {
             for row in 0..ROWS {
                 let colored_chars = console.row_cells_iter(row).map(|cell| {
                     let fg_index = (cell.color.0 & 0x0F) as usize;
-                    (cell.glyph, palette[fg_index])
+                    let bg_index = ((cell.color.0 >> 4) & 0x0F) as usize;
+                    (cell.glyph, palette[fg_index], palette[bg_index])
                 });
                 font.draw_colored_string(
                     fb,

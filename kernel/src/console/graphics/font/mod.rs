@@ -44,6 +44,10 @@ impl Glyph {
     }
 
     pub fn draw_row(&self, framebuffer: &Framebuffer, x: u16, y: u16, row: u8, color: u32, bytes_per_pixel: usize) {
+        self.draw_row_with_bg(framebuffer, x, y, row, color, None, bytes_per_pixel);
+    }
+
+    pub fn draw_row_with_bg(&self, framebuffer: &Framebuffer, x: u16, y: u16, row: u8, fg: u32, bg: Option<u32>, bytes_per_pixel: usize) {
         let draw_offset = (y as usize) * (framebuffer.stride as usize) + (x as usize) * bytes_per_pixel;
         let glyph_stride = (self.width as usize + 7) / 8;
         let mut bitmap_byte_offset = (row as usize) * glyph_stride;
@@ -52,7 +56,9 @@ impl Glyph {
         let raw_buffer = framebuffer.get_buffer_mut();
         for col in 0..self.width as usize {
             if bitmap_byte & 0x80 != 0 {
-                super::write_pixel(raw_buffer, draw_offset + col * bytes_per_pixel, color, bytes_per_pixel);
+                super::write_pixel(raw_buffer, draw_offset + col * bytes_per_pixel, fg, bytes_per_pixel);
+            } else if let Some(bg_color) = bg {
+                super::write_pixel(raw_buffer, draw_offset + col * bytes_per_pixel, bg_color, bytes_per_pixel);
             }
             bitmap_byte = bitmap_byte << 1;
             shift += 1;
@@ -103,8 +109,8 @@ pub trait Font {
         }
     }
 
-    /// Like draw_string, but each character carries its own color.
-    fn draw_colored_string<T: Iterator<Item = (u8, u32)> + Clone>(
+    /// Like draw_string, but each character carries its own fg and bg color.
+    fn draw_colored_string<T: Iterator<Item = (u8, u32, u32)> + Clone>(
         &self,
         framebuffer: &Framebuffer,
         x: u16,
@@ -115,9 +121,9 @@ pub trait Font {
         let height = self.get_height();
         for row in 0..height {
             let mut run_offset = 0u16;
-            for (byte, color) in chars.clone() {
+            for (byte, fg, bg) in chars.clone() {
                 if let Some(glyph) = self.get_glyph(byte) {
-                    glyph.draw_row(framebuffer, x + run_offset, y + row as u16, row, color, bytes_per_pixel);
+                    glyph.draw_row_with_bg(framebuffer, x + run_offset, y + row as u16, row, fg, Some(bg), bytes_per_pixel);
                     run_offset += glyph.width as u16;
                 }
             }

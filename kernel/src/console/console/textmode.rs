@@ -28,10 +28,43 @@ impl ColorCode {
         Self((bg as u8) << 4 | (fg as u8))
     }
 
-    pub fn set_fg(&mut self, fg: Color) {
-        self.0 &= 0xf0;
-        self.0 |= fg as u8;
+    pub fn fg(&self) -> u8 {
+        self.0 & 0x0f
     }
+
+    pub fn bg(&self) -> u8 {
+        (self.0 >> 4) & 0x0f
+    }
+
+    pub fn set_fg(&mut self, fg: u8) {
+        self.0 = (self.0 & 0xf0) | (fg & 0x0f);
+    }
+
+    pub fn set_bg(&mut self, bg: u8) {
+        self.0 = (self.0 & 0x0f) | ((bg & 0x0f) << 4);
+    }
+}
+
+/// Map ANSI SGR color index (0-7) to VGA palette index.
+/// ANSI order: black, red, green, yellow, blue, magenta, cyan, white
+/// VGA order:  black, blue, green, cyan, red, magenta, brown, light gray
+const ANSI_TO_VGA: [u8; 8] = [
+    0,  // ANSI 0 black   -> VGA 0 black
+    4,  // ANSI 1 red     -> VGA 4 red
+    2,  // ANSI 2 green   -> VGA 2 green
+    6,  // ANSI 3 yellow  -> VGA 6 brown
+    1,  // ANSI 4 blue    -> VGA 1 blue
+    5,  // ANSI 5 magenta -> VGA 5 magenta
+    3,  // ANSI 6 cyan    -> VGA 3 cyan
+    7,  // ANSI 7 white   -> VGA 7 light gray
+];
+
+/// Convert an ANSI SGR color code to a VGA palette index.
+/// Normal colors (30-37 fg, 40-47 bg) map to VGA 0-7.
+/// Bright colors (90-97 fg, 100-107 bg) map to VGA 8-15.
+pub fn ansi_color_to_vga(ansi_index: u8, bright: bool) -> u8 {
+    let base = ANSI_TO_VGA[ansi_index as usize & 0x07];
+    if bright { base + 8 } else { base }
 }
 
 #[derive(Clone, Copy)]

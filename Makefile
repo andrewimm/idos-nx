@@ -4,6 +4,7 @@ bootsector := build/mbr.bin
 bootbin := build/boot.bin
 kernel := build/kernel.bin
 
+colordemo := target/i386-idos/release/colordemo
 command := target/i386-idos/release/command
 doslayer := target/i386-idos/release/doslayer
 elfload := target/i386-idos/release/elfload
@@ -28,13 +29,14 @@ $(diskimage):
 	@mkdir -p $(shell dirname $@)
 	@mkfs.msdos -C $(diskimage) 1440
 
-$(userdata):
+$(userdata): $(colordemo)
 	@mkdir -p $(shell dirname $@)
 	@mkdir -p userdata/disk
 	@mkfs.msdos -C $(userdata) 1440
 	@cd userdata && make
 	@mcopy -D o -i $(userdata) userdata/disk/*.* ::
 	@mcopy -D o -i $(userdata) userdata/static/*.* ::
+	@mcopy -D o -i $(userdata) $(colordemo) ::COLORS.ELF
 
 bootdisk: $(command) $(doslayer) $(elfload) $(gfx) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
@@ -83,6 +85,10 @@ $(doslayer):
 
 $(elfload):
 	@cd components/programs/elfload && \
+	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
+
+$(colordemo):
+	@cd components/programs/colordemo && \
 	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
 
 $(gfx):

@@ -12,6 +12,7 @@ use idos_api::io::termios;
 pub struct Terminal<const COLS: usize, const ROWS: usize> {
     cursor_x: u8,
     cursor_y: u8,
+    current_color: ColorCode,
     parse_state: AnsiParseState,
     ansi_params: Vec<u8>,
 
@@ -58,6 +59,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         Self {
             cursor_x: 0,
             cursor_y: (ROWS - 2) as u8,
+            current_color: ColorCode::new(Color::LightGray, Color::Black),
             parse_state: AnsiParseState::Normal,
             ansi_params: Vec::new(),
 
@@ -108,10 +110,11 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
             }
             AnsiParseState::Escape => {
                 if ch == b'[' {
+                    self.ansi_params.clear();
                     self.parse_state = AnsiParseState::CSI;
                 } else {
                     // Other escape sequences aren't handled
-                    self.parse_state = AnsiParseState::Normal; // Reset state
+                    self.parse_state = AnsiParseState::Normal;
                 }
             }
             AnsiParseState::CSI => {
@@ -137,7 +140,9 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
 
     pub fn put_raw_character(&mut self, ch: u8) {
         let absolute_offset = self.get_cursor_offset();
-        self.text_buffer.get_text_buffer()[absolute_offset].glyph = ch;
+        let cell = &mut self.text_buffer.get_text_buffer()[absolute_offset];
+        cell.glyph = ch;
+        cell.color = self.current_color;
 
         self.advance_cursor();
     }
@@ -179,10 +184,138 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         }
     }
 
+    /// Parse the collected CSI parameter bytes into a list of numeric values.
+    /// Parameters are separated by ';'. Missing or empty params default to 0.
+    fn parse_csi_params(&self) -> Vec<u32> {
+        let mut params = Vec::new();
+        let mut current: u32 = 0;
+        let mut has_digit = false;
+        for &byte in &self.ansi_params {
+            if byte == b';' {
+                params.push(if has_digit { current } else { 0 });
+                current = 0;
+                has_digit = false;
+            } else if byte >= b'0' && byte <= b'9' {
+                current = current * 10 + (byte - b'0') as u32;
+                has_digit = true;
+            }
+        }
+        params.push(if has_digit { current } else { 0 });
+        params
+    }
+
     pub fn handle_csi(&mut self, final_char: u8) {
+        let params = self.parse_csi_params();
+        self.ansi_params.clear();
+
         match final_char {
             b'A' => {
                 // Cursor up
+                let n = params.first().copied().unwrap_or(1).max(1) as u8;
+                self.cursor_y = self.cursor_y.saturating_sub(n);
+            }
+            b'B' => {
+                // Cursor down
+                let n = params.first().copied().unwrap_or(1).max(1) as u8;
+                self.cursor_y = (self.cursor_y + n).min((ROWS - 1) as u8);
+            }
+            b'C' => {
+                // Cursor forward
+                let n = params.first().copied().unwrap_or(1).max(1) as u8;
+                self.cursor_x = (self.cursor_x + n).min((COLS - 1) as u8);
+            }
+            b'D' => {
+                // Cursor back
+                let n = params.first().copied().unwrap_or(1).max(1) as u8;
+                self.cursor_x = self.cursor_x.saturating_sub(n);
+            }
+            b'H' | b'f' => {
+                // Cursor position: ESC[row;colH
+                let row = params.first().copied().unwrap_or(1).max(1) - 1;
+                let col = params.get(1).copied().unwrap_or(1).max(1) - 1;
+                self.cursor_y = (row as u8).min((ROWS - 1) as u8);
+                self.cursor_x = (col as u8).min((COLS - 1) as u8);
+            }
+            b'J' => {
+                // Erase in display
+                let mode = params.first().copied().unwrap_or(0);
+                match mode {
+                    2 => {
+                        // Clear entire screen
+                        self.clear_buffer();
+                        self.cursor_x = 0;
+                        self.cursor_y = 0;
+                    }
+                    _ => {}
+                }
+            }
+            b'm' => {
+                // SGR - Select Graphic Rendition
+                // If no params, treat as reset (0)
+                let params = if params.is_empty() || (params.len() == 1 && params[0] == 0) {
+                    &[0u32][..]
+                } else {
+                    &params[..]
+                };
+                for &code in params {
+                    self.handle_sgr(code);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_sgr(&mut self, code: u32) {
+        use super::textmode::ansi_color_to_vga;
+        match code {
+            0 => {
+                // Reset
+                self.current_color = ColorCode::new(Color::LightGray, Color::Black);
+            }
+            1 => {
+                // Bold / bright: promote fg to bright variant
+                let fg = self.current_color.fg();
+                if fg < 8 {
+                    self.current_color.set_fg(fg + 8);
+                }
+            }
+            22 => {
+                // Normal intensity: demote fg to normal variant
+                let fg = self.current_color.fg();
+                if fg >= 8 {
+                    self.current_color.set_fg(fg - 8);
+                }
+            }
+            7 => {
+                // Reverse video: swap fg and bg
+                let fg = self.current_color.fg();
+                let bg = self.current_color.bg();
+                self.current_color.set_fg(bg);
+                self.current_color.set_bg(fg);
+            }
+            30..=37 => {
+                // Normal foreground colors
+                self.current_color.set_fg(ansi_color_to_vga((code - 30) as u8, false));
+            }
+            39 => {
+                // Default foreground
+                self.current_color.set_fg(Color::LightGray as u8);
+            }
+            40..=47 => {
+                // Normal background colors
+                self.current_color.set_bg(ansi_color_to_vga((code - 40) as u8, false));
+            }
+            49 => {
+                // Default background
+                self.current_color.set_bg(Color::Black as u8);
+            }
+            90..=97 => {
+                // Bright foreground colors
+                self.current_color.set_fg(ansi_color_to_vga((code - 90) as u8, true));
+            }
+            100..=107 => {
+                // Bright background colors
+                self.current_color.set_bg(ansi_color_to_vga((code - 100) as u8, true));
             }
             _ => {}
         }
