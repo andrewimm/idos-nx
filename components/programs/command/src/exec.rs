@@ -308,16 +308,18 @@ fn try_exec(env: &Environment, name: &String, args: &Vec<String>) -> bool {
     let stdin_dup = dup_handle(env.stdin).unwrap();
     let stdout_dup = dup_handle(env.stdout).unwrap();
 
+    // Share handles BEFORE load_executable, because load_executable makes
+    // the child runnable immediately. If we share after, the child may start
+    // running before its stdin/stdout handles exist (race condition).
+    share_sync(stdin_dup, child_id).unwrap();
+    share_sync(stdout_dup, child_id).unwrap();
+
     if !load_executable(child_id, exec_path.as_str()) {
         // exec failed — clean up the handles we created
-        let _ = close_sync(stdin_dup);
-        let _ = close_sync(stdout_dup);
+        // TODO: the shares already completed, would need to revoke them
         let _ = close_sync(child_handle);
         return false;
     }
-
-    share_sync(stdin_dup, child_id).unwrap();
-    share_sync(stdout_dup, child_id).unwrap();
 
     let _ = read_sync(child_handle, &mut [0u8], 0);
     true

@@ -55,8 +55,8 @@ pub fn manager_task() -> ! {
     let mouse_buffer = unsafe { &*(keyboard_buffer_ptr.add(1)) };
 
     let mut vbe_mode_info: VbeModeInfo = VbeModeInfo::default();
-    get_vbe_mode_info(&mut vbe_mode_info, 0x0103);
-    set_vbe_mode(0x0103);
+    get_vbe_mode_info(&mut vbe_mode_info, 0x0115);
+    set_vbe_mode(0x0115);
 
     let framebuffer_bytes = (vbe_mode_info.pitch as u32) * (vbe_mode_info.height as u32);
     let framebuffer_pages = (framebuffer_bytes + 0xfff) / 0x1000;
@@ -75,12 +75,16 @@ pub fn manager_task() -> ! {
         buffer: graphics_buffer_base,
     };
 
+    let bytes_per_pixel = (vbe_mode_info.bpp / 8) as usize;
+    let bytes_per_pixel = if bytes_per_pixel == 0 { 1 } else { bytes_per_pixel };
+
     {
         let buffer = fb.get_buffer_mut();
         for row in 0..vbe_mode_info.height as usize {
-            let offset = row * vbe_mode_info.width as usize;
+            let offset = row * vbe_mode_info.pitch as usize;
             for col in 0..vbe_mode_info.width as usize {
-                buffer[offset + col] = if (row ^ col) & 2 == 0 { 0x00 } else { 0x0f };
+                let color: u32 = if (row ^ col) & 2 == 0 { 0x000000 } else { 0xFFFFFF };
+                graphics::write_pixel(buffer, offset + col * bytes_per_pixel, color, bytes_per_pixel);
             }
         }
     }
@@ -111,7 +115,7 @@ pub fn manager_task() -> ! {
     let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
 
     let mut compositor =
-        manager::compositor::Compositor::<{ manager::compositor::ColorDepth::Color8Bit }>::new(fb);
+        manager::compositor::Compositor::<{ manager::compositor::ColorDepth::Color888 }>::new(fb);
 
     compositor.add_window(con1);
 
@@ -274,7 +278,8 @@ fn draw_desktop(framebuffer: &Framebuffer, font: &PsfFont) {
         10,
         topbar_text_y as u16,
         "IDOS-NX".bytes(),
-        0x0f,
+        0xFFFFFF,
+        1,
     );
     // clear the rest of the desktop
 

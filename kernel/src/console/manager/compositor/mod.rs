@@ -25,7 +25,7 @@ impl ColorDepth {
             ColorDepth::Color8Bit => 1,
             ColorDepth::Color555 => 2,
             ColorDepth::Color565 => 2,
-            ColorDepth::Color888 => 4,
+            ColorDepth::Color888 => 3,
         }
     }
 }
@@ -60,8 +60,9 @@ pub struct Compositor<const COLOR_DEPTH: ColorDepth> {
 impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
     pub fn new(fb: Framebuffer) -> Self {
         // allocate double buffer memory
+        // stride is already in bytes (VBE pitch), so no need to multiply by bpp
         let scratch_buffer_size =
-            (fb.stride as usize) * (fb.height as usize) * COLOR_DEPTH.to_usize();
+            (fb.stride as usize) * (fb.height as usize);
         let scratch_page_count = (scratch_buffer_size + 0xfff) / 0x1000;
         let scratch_buffer_size = scratch_page_count * 0x1000;
         let scratch_buffer_vaddr = crate::task::actions::memory::map_memory(
@@ -106,16 +107,12 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
 
     pub fn draw_bg(&mut self, region: Region) {
         let buffer = self.get_scratch_buffer();
-        match COLOR_DEPTH {
-            ColorDepth::Color8Bit => {
-                for row in region.y..(region.y + region.height) {
-                    let offset = self.fb.stride as usize * row as usize;
-                    for col in region.x..(region.x + region.width) {
-                        buffer[offset + col as usize] = 0x00;
-                    }
-                }
+        let bpp = COLOR_DEPTH.to_usize();
+        for row in region.y..(region.y + region.height) {
+            let offset = self.fb.stride as usize * row as usize;
+            for col in region.x..(region.x + region.width) {
+                crate::console::graphics::write_pixel(buffer, offset + col as usize * bpp, 0x000000, bpp);
             }
-            _ => unimplemented!(),
         }
     }
 
@@ -179,7 +176,7 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
                     width: self.fb.width - 5,
                     height: self.fb.height - 29,
                     stride: self.fb.stride,
-                    buffer: self.scratch_buffer_vaddr + (29 * self.fb.stride as u32) + 5,
+                    buffer: self.scratch_buffer_vaddr + (29 * self.fb.stride as u32) + 5 * COLOR_DEPTH.to_usize() as u32,
                 };
 
                 let console = conman.consoles.get(console_index).unwrap();
@@ -314,22 +311,16 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
         let total_cols = self.current_cursor.width.min(self.fb.width - new_x) as usize;
         let start =
             (new_y as usize * self.fb.stride as usize) + (new_x as usize * COLOR_DEPTH.to_usize());
-        match COLOR_DEPTH {
-            ColorDepth::Color8Bit => {
-                for row in 0..total_rows {
-                    let row_offset = start + row * self.fb.stride as usize;
-                    let mut cursor_row = self.current_cursor.bitmap[row];
-                    for col in 0..total_cols {
-                        if cursor_row & 0x8000 != 0 {
-                            fb_raw[row_offset + col] = 0x0f;
-                        }
-                        cursor_row <<= 1;
-                    }
+        let bpp = COLOR_DEPTH.to_usize();
+        for row in 0..total_rows {
+            let row_offset = start + row * self.fb.stride as usize;
+            let mut cursor_row = self.current_cursor.bitmap[row];
+            for col in 0..total_cols {
+                if cursor_row & 0x8000 != 0 {
+                    crate::console::graphics::write_pixel(fb_raw, row_offset + col * bpp, 0xFFFFFF, bpp);
                 }
+                cursor_row <<= 1;
             }
-            ColorDepth::Color555 => unimplemented!(),
-            ColorDepth::Color565 => unimplemented!(),
-            ColorDepth::Color888 => unimplemented!(),
         }
 
         self.cursor_x = new_x;
@@ -347,16 +338,12 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
 
 fn draw_bg(framebuffer: &mut Framebuffer, color_depth: ColorDepth, region: Region) {
     let buffer = framebuffer.get_buffer_mut();
-    match color_depth {
-        ColorDepth::Color8Bit => {
-            for row in region.y..(region.y + region.height) {
-                let offset = framebuffer.stride as usize * row as usize;
-                for col in region.x..(region.x + region.width) {
-                    buffer[offset + col as usize] = 0x00;
-                }
-            }
+    let bpp = color_depth.to_usize();
+    for row in region.y..(region.y + region.height) {
+        let offset = framebuffer.stride as usize * row as usize;
+        for col in region.x..(region.x + region.width) {
+            crate::console::graphics::write_pixel(buffer, offset + col as usize * bpp, 0x000000, bpp);
         }
-        _ => unimplemented!(),
     }
 }
 

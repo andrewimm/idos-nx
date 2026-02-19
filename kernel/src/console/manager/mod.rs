@@ -100,7 +100,13 @@ impl ConsoleManager {
         font: &F,
     ) -> (u16, u16, Option<Region>) {
         let window_pos = Point { x: 0, y: 0 };
-        self::decor::draw_window_bar(fb, window_pos, 180, font, "C:\\COMMAND.ELF");
+        // Determine bytes_per_pixel from the framebuffer stride and width
+        // stride is in bytes per scanline; for the compositor sub_buffer,
+        // the parent's bpp is reflected in the stride vs width ratio
+        let bpp = (fb.stride / fb.width) as usize;
+        let bpp = if bpp == 0 { 1 } else { bpp };
+
+        self::decor::draw_window_bar(fb, window_pos, 180, font, "C:\\COMMAND.ELF", bpp);
 
         let (width, height) = if let Some(graphics_buffer) = &console.terminal.graphics_buffer {
             let width = graphics_buffer.width as usize;
@@ -108,27 +114,32 @@ impl ConsoleManager {
             // clear screen
             let buffer = fb.get_buffer_mut();
             for row in 0..height {
-                let offset = (20 + row) * fb.stride as usize + 2;
+                let offset = (20 + row) * fb.stride as usize + 2 * bpp;
                 for px in 0..width {
-                    // this should be abstracted, since it cannot assume color depth
-                    buffer[offset + px] = 0x00;
+                    crate::console::graphics::write_pixel(buffer, offset + px * bpp, 0x000000, bpp);
                 }
             }
 
-            match graphics_buffer.bits_per_pixel {
-                8 => {
-                    let copy_width = width.min(graphics_buffer.width as usize);
-                    let copy_height = height.min(graphics_buffer.height as usize);
-                    let raw_buffer = graphics_buffer.get_buffer();
-                    for row in 0..copy_height {
-                        let dest_offset = (20 + row) * fb.stride as usize + 2; // assume 1 byte per pixel
-                        let src_offset = row * graphics_buffer.width as usize;
-                        let src_slice = &raw_buffer[src_offset..src_offset + copy_width];
-                        let dest_slice = &mut buffer[dest_offset..dest_offset + copy_width];
-                        dest_slice.copy_from_slice(src_slice);
+            let copy_width = width.min(graphics_buffer.width as usize);
+            let copy_height = height.min(graphics_buffer.height as usize);
+            let raw_buffer = graphics_buffer.get_buffer();
+            let src_bpp = (graphics_buffer.bits_per_pixel + 7) / 8;
+
+            for row in 0..copy_height {
+                let dest_offset = (20 + row) * fb.stride as usize + 2 * bpp;
+                let src_offset = row * graphics_buffer.width as usize * src_bpp;
+
+                if src_bpp == bpp {
+                    let byte_width = copy_width * bpp;
+                    buffer[dest_offset..dest_offset + byte_width]
+                        .copy_from_slice(&raw_buffer[src_offset..src_offset + byte_width]);
+                } else if src_bpp == 1 {
+                    let palette = &crate::console::graphics::palette::VGA_PALETTE;
+                    for px in 0..copy_width {
+                        let color = palette[raw_buffer[src_offset + px] as usize];
+                        crate::console::graphics::write_pixel(buffer, dest_offset + px * bpp, color, bpp);
                     }
                 }
-                _ => unimplemented!(),
             }
 
             (width, height)
@@ -137,10 +148,9 @@ impl ConsoleManager {
             let height = 400;
             let buffer = fb.get_buffer_mut();
             for row in 0..height {
-                let offset = (20 + row) * fb.stride as usize + 2;
+                let offset = (20 + row) * fb.stride as usize + 2 * bpp;
                 for px in 0..width {
-                    // this should be abstracted, since it cannot assume color depth
-                    buffer[offset + px] = 0x00;
+                    crate::console::graphics::write_pixel(buffer, offset + px * bpp, 0x000000, bpp);
                 }
             }
 
@@ -150,13 +160,14 @@ impl ConsoleManager {
                     window_pos.x + 2,
                     (window_pos.y + 20) + (row as u16 * 16),
                     console.row_text_iter(row),
-                    0x0f,
+                    crate::console::graphics::COLOR_WHITE,
+                    bpp,
                 );
             }
             (width, height)
         };
 
-        self::decor::draw_window_border(fb, window_pos, width as u16, height as u16);
+        self::decor::draw_window_border(fb, window_pos, width as u16, height as u16, bpp);
 
         (
             width as u16,

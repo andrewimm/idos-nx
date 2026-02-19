@@ -145,9 +145,11 @@ fn log_syscall(registers: &FullSavedRegisters) {
         _ => "unknown",
     };
 
+    let current_id = crate::task::switching::get_current_id();
+
     LOGGER.log(format_args!(
-        "{:#02X} {}\n          {:?}",
-        eax, name, registers
+        "{:#02X} {} (Task {})\n          {:?}",
+        eax, name, current_id, registers
     ));
 }
 

@@ -17,14 +17,24 @@ pub extern "C" fn main() {
     let serial = idos_api::syscall::io::create_file_handle();
     idos_api::io::sync::open_sync(serial, "DEV:\\COM1").unwrap();
 
+    idos_api::io::sync::write_sync(serial, b"[gamedemo] started, serial=", 0).ok();
+    let serial_id = [b'0' + serial.as_u32() as u8];
+    idos_api::io::sync::write_sync(serial, &serial_id, 0).ok();
+    idos_api::io::sync::write_sync(serial, b"\n", 0).ok();
+
     let mut termios = Termios::default();
-    let _ = idos_api::io::sync::ioctl_sync(
+    idos_api::io::sync::write_sync(serial, b"[gamedemo] TCGETS...\n", 0).ok();
+    let tcgets_result = idos_api::io::sync::ioctl_sync(
         stdin,
         idos_api::io::termios::TCGETS,
         &mut termios as *mut Termios as u32,
         core::mem::size_of::<Termios>() as u32,
-    )
-    .unwrap();
+    );
+    if tcgets_result.is_err() {
+        idos_api::io::sync::write_sync(serial, b"[gamedemo] TCGETS FAILED!\n", 0).ok();
+        return;
+    }
+    tcgets_result.unwrap();
 
     let saved_termios = termios.clone();
     termios.lflags &= !(idos_api::io::termios::ECHO | idos_api::io::termios::ICANON);
@@ -42,6 +52,7 @@ pub extern "C" fn main() {
         bpp_flags: 8,
         framebuffer: 0,
     };
+    idos_api::io::sync::write_sync(serial, b"[gamedemo] TSETGFX...\n", 0).ok();
     let _ = idos_api::io::sync::ioctl_sync(
         stdin,
         idos_api::io::termios::TSETGFX,
@@ -50,8 +61,25 @@ pub extern "C" fn main() {
     );
 
     let framebuffer_phys = graphics_mode.framebuffer;
-    let framebuffer_vaddr =
-        idos_api::syscall::memory::map_memory(None, 200 * 200, Some(framebuffer_phys)).unwrap();
+    idos_api::io::sync::write_sync(serial, b"[gamedemo] map_memory fb_phys=", 0).ok();
+    // Print framebuffer_phys as hex
+    let mut hex_buf = [b'0'; 8];
+    let mut val = framebuffer_phys;
+    for i in (0..8).rev() {
+        let nibble = (val & 0xf) as u8;
+        hex_buf[i] = if nibble < 10 { b'0' + nibble } else { b'a' + nibble - 10 };
+        val >>= 4;
+    }
+    idos_api::io::sync::write_sync(serial, &hex_buf, 0).ok();
+    idos_api::io::sync::write_sync(serial, b"\n", 0).ok();
+
+    let framebuffer_vaddr = match idos_api::syscall::memory::map_memory(None, 200 * 200, Some(framebuffer_phys)) {
+        Ok(v) => v,
+        Err(_) => {
+            idos_api::io::sync::write_sync(serial, b"[gamedemo] map_memory FAILED!\n", 0).ok();
+            return;
+        }
+    };
 
     let framebuffer_ptr = framebuffer_vaddr as *mut u8;
     let framebuffer_size = 200 * 200;

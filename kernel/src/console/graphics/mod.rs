@@ -1,5 +1,25 @@
 pub mod font;
 pub mod framebuffer;
+pub mod palette;
+
+// UI color constants (0x00RRGGBB format)
+pub const COLOR_BLACK: u32 = 0x000000;
+pub const COLOR_WHITE: u32 = 0xFFFFFF;
+pub const COLOR_GRAY: u32 = 0x606060;
+pub const COLOR_DARK_GRAY: u32 = 0x404040;
+
+#[inline]
+pub fn write_pixel(buffer: &mut [u8], offset: usize, color: u32, bytes_per_pixel: usize) {
+    match bytes_per_pixel {
+        1 => buffer[offset] = color as u8,
+        3 => {
+            buffer[offset] = color as u8; // B
+            buffer[offset + 1] = (color >> 8) as u8; // G
+            buffer[offset + 2] = (color >> 16) as u8; // R
+        }
+        _ => {}
+    }
+}
 
 #[derive(Clone, Copy)]
 pub struct Point {

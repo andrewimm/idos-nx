@@ -507,7 +507,6 @@ fn setup_load_info_page(task_id: TaskID, exec_path: &str) -> Result<VirtualAddre
         header.argc = argc;
         header.argv_offset = argv_offset as u32;
         header.argv_total_len = argv_len;
-
     }
 
     Ok(vaddr)
