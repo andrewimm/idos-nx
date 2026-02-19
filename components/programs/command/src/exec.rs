@@ -23,7 +23,7 @@ use idos_api::{
 
 static IO_BUFFER: AtomicPtr<u8> = AtomicPtr::new(0xffff_ffff as *mut u8);
 
-fn get_io_buffer() -> &'static mut [u8] {
+pub fn get_io_buffer() -> &'static mut [u8] {
     let buffer_start = {
         let stored = IO_BUFFER.load(Ordering::SeqCst);
         if stored as u32 == 0xffff_ffff {
@@ -41,6 +41,15 @@ fn get_io_buffer() -> &'static mut [u8] {
     unsafe { core::slice::from_raw_parts_mut(buffer_start, 0x1000) }
 }
 
+/// Parse and execute a single line of input (used by batch file executor).
+pub fn exec_line(env: &mut Environment, line: &[u8]) {
+    let lexer = crate::lexer::Lexer::new(line);
+    let mut parser = crate::parser::Parser::new(lexer);
+    parser.parse_input();
+    let tree = parser.into_tree();
+    exec_command_tree(env, tree);
+}
+
 pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
     let root = match tree.get_root() {
         Some(component) => component,
@@ -53,17 +62,17 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
             "CLS" => cls(env),
             "COLOR" => color(env, args),
             "DIR" => dir(env, args),
+            "ECHO" => echo(env, args),
             "PROMPT" => prompt(env, args),
             //"DRIVES" => drives(env),
             "TYPE" => type_file(env, args),
+            "VER" => ver(env),
             _ => {
                 if is_drive(name.as_bytes()) {
                     let mut cd_args = Vec::new();
                     cd_args.push(String::from(name));
                     cd(env, &cd_args);
-                } else if try_exec(env, name, args) {
-                    // command ran successfully
-                } else {
+                } else if !try_external(env, name, args) {
                     let _ = write_sync(env.stdout, "Unknown command!\n".as_bytes(), 0);
                 }
             }
@@ -72,6 +81,36 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
             let _ = write_sync(env.stdout, "Unsupported syntax!\n".as_bytes(), 0);
         }
     }
+}
+
+fn echo(env: &Environment, args: &Vec<String>) {
+    // ECHO with no args could toggle echo state, but for now just print a blank line
+    if args.is_empty() {
+        let _ = write_sync(env.stdout, b"\n", 0);
+        return;
+    }
+    // Rejoin args with spaces
+    let mut buf = [0u8; 256];
+    let mut len = 0;
+    for (i, arg) in args.iter().enumerate() {
+        if i > 0 && len < buf.len() {
+            buf[len] = b' ';
+            len += 1;
+        }
+        let bytes = arg.as_bytes();
+        let n = bytes.len().min(buf.len() - len);
+        buf[len..len + n].copy_from_slice(&bytes[..n]);
+        len += n;
+    }
+    if len < buf.len() {
+        buf[len] = b'\n';
+        len += 1;
+    }
+    let _ = write_sync(env.stdout, &buf[..len], 0);
+}
+
+fn ver(env: &Environment) {
+    let _ = write_sync(env.stdout, b"\nIDOS-NX Version 0.1\n\n", 0);
 }
 
 fn cls(env: &Environment) {
@@ -405,10 +444,78 @@ fn type_file_inner(env: &Environment, arg: &String) -> Result<(), ()> {
     Ok(())
 }
 
-fn try_exec(env: &Environment, name: &String, args: &Vec<String>) -> bool {
+/// Try to resolve a command name to an external file. Checks in order:
+/// exact name, name.ELF, name.BAT. Dispatches to the appropriate executor.
+fn try_external(env: &mut Environment, name: &String, args: &Vec<String>) -> bool {
+    // If the name already has an extension, try it directly
+    if has_extension(name.as_bytes()) {
+        let path = env.full_file_path(name);
+        if ends_with_ignore_case(path.as_bytes(), b".BAT") {
+            if file_exists(&path) {
+                crate::batch::exec_batch(env, path.as_str(), args);
+                return true;
+            }
+        } else {
+            return try_exec(env, &path, args);
+        }
+        return false;
+    }
+
+    // Try name.ELF
+    let mut elf_name = name.clone();
+    elf_name.push_str(".ELF");
+    let elf_path = env.full_file_path(&elf_name);
+    if try_exec(env, &elf_path, args) {
+        return true;
+    }
+
+    // Try name.BAT
+    let mut bat_name = name.clone();
+    bat_name.push_str(".BAT");
+    let bat_path = env.full_file_path(&bat_name);
+    if file_exists(&bat_path) {
+        crate::batch::exec_batch(env, bat_path.as_str(), args);
+        return true;
+    }
+
+    // Try exact name as-is (maybe it has no extension but is an ELF)
+    let exact_path = env.full_file_path(name);
+    try_exec(env, &exact_path, args)
+}
+
+fn has_extension(name: &[u8]) -> bool {
+    name.iter().any(|&c| c == b'.')
+}
+
+fn ends_with_ignore_case(s: &[u8], suffix: &[u8]) -> bool {
+    if s.len() < suffix.len() {
+        return false;
+    }
+    let start = s.len() - suffix.len();
+    for i in 0..suffix.len() {
+        let a = if s[start + i].is_ascii_alphabetic() { s[start + i] | 0x20 } else { s[start + i] };
+        let b = if suffix[i].is_ascii_alphabetic() { suffix[i] | 0x20 } else { suffix[i] };
+        if a != b {
+            return false;
+        }
+    }
+    true
+}
+
+fn file_exists(path: &str) -> bool {
+    let handle = create_file_handle();
+    match open_sync(handle, path) {
+        Ok(_) => {
+            let _ = close_sync(handle);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn try_exec(env: &Environment, exec_path: &str, args: &Vec<String>) -> bool {
     let exec_handle = create_file_handle();
-    let exec_path = env.full_file_path(name);
-    match open_sync(exec_handle, exec_path.as_str()) {
+    match open_sync(exec_handle, exec_path) {
         Ok(_) => {
             let _ = close_sync(exec_handle);
         }
@@ -450,7 +557,7 @@ fn try_exec(env: &Environment, name: &String, args: &Vec<String>) -> bool {
     share_sync(stdin_dup, child_id).unwrap();
     share_sync(stdout_dup, child_id).unwrap();
 
-    if !load_executable(child_id, exec_path.as_str()) {
+    if !load_executable(child_id, exec_path) {
         // exec failed — clean up the handles we created
         // TODO: the shares already completed, would need to revoke them
         let _ = close_sync(child_handle);

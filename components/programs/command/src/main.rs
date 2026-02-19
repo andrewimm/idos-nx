@@ -7,6 +7,7 @@ extern crate idos_sdk;
 
 use idos_api::io::sync::{read_sync, write_sync};
 
+mod batch;
 mod env;
 mod exec;
 mod lexer;
@@ -28,12 +29,7 @@ pub extern "C" fn main() {
         let _ = write_sync(env.stdout, &prompt[..prompt_len], 0);
         match read_sync(env.stdin, &mut input_buffer, 0) {
             Ok(read_len) => {
-                let lexer = self::lexer::Lexer::new(&input_buffer[..(read_len as usize)]);
-                let mut parser = self::parser::Parser::new(lexer);
-                parser.parse_input();
-                let tree = parser.into_tree();
-
-                self::exec::exec_command_tree(&mut env, tree);
+                self::exec::exec_line(&mut env, &input_buffer[..(read_len as usize)]);
             }
             Err(_) => (),
         }
