@@ -19,6 +19,10 @@ pub struct Terminal<const COLS: usize, const ROWS: usize> {
 
     pub graphics_buffer: Option<GraphicsBuffer>,
 
+    /// Custom 256-color palette stored as 0x00RRGGBB. When None, the default
+    /// VGA palette is used for color lookups in both text and graphics mode.
+    pub palette: Option<Box<[u32; 256]>>,
+
     // termios flags
     pub iflags: u32,
     pub oflags: u32,
@@ -33,53 +37,11 @@ pub struct GraphicsBuffer {
     pub width: u16,
     pub height: u16,
     pub bits_per_pixel: usize,
-
-    /// Custom 256-color palette stored as 0x00RRGGBB. When None, the default
-    /// VGA palette is used for color lookups during blit.
-    pub palette: Option<Box<[u32; 256]>>,
 }
 
 impl GraphicsBuffer {
     pub fn get_buffer(&self) -> &mut [u8] {
         unsafe { core::slice::from_raw_parts_mut(self.vaddr.as_ptr_mut(), self.allocated_size) }
-    }
-
-    pub fn get_palette(&self) -> &[u32; 256] {
-        match &self.palette {
-            Some(p) => p,
-            None => &crate::console::graphics::palette::VGA_PALETTE,
-        }
-    }
-
-    /// Copy the active palette out to packed RGB bytes (R, G, B per entry)
-    pub fn get_palette_rgb(&self, out: &mut [u8]) {
-        let palette = self.get_palette();
-        for (i, &color) in palette.iter().enumerate() {
-            let offset = i * 3;
-            if offset + 2 >= out.len() {
-                break;
-            }
-            out[offset] = (color >> 16) as u8; // R
-            out[offset + 1] = (color >> 8) as u8; // G
-            out[offset + 2] = color as u8; // B
-        }
-    }
-
-    /// Load a palette from packed RGB bytes (R, G, B per entry) into internal u32 format
-    pub fn set_palette_rgb(&mut self, data: &[u8]) {
-        let palette = self.palette.get_or_insert_with(|| {
-            Box::new(crate::console::graphics::palette::VGA_PALETTE)
-        });
-        for i in 0..256 {
-            let offset = i * 3;
-            if offset + 2 >= data.len() {
-                break;
-            }
-            let r = data[offset] as u32;
-            let g = data[offset + 1] as u32;
-            let b = data[offset + 2] as u32;
-            palette[i] = (r << 16) | (g << 8) | b;
-        }
     }
 }
 
@@ -101,6 +63,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
 
             text_buffer,
             graphics_buffer: None,
+            palette: None,
 
             iflags: 0,
             oflags: 0,
@@ -239,6 +202,44 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         termios_struct.lflags = self.lflags;
     }
 
+    pub fn get_palette(&self) -> &[u32; 256] {
+        match &self.palette {
+            Some(p) => p,
+            None => &crate::console::graphics::palette::VGA_PALETTE,
+        }
+    }
+
+    /// Copy the active palette out to packed RGB bytes (R, G, B per entry)
+    pub fn get_palette_rgb(&self, out: &mut [u8]) {
+        let palette = self.get_palette();
+        for (i, &color) in palette.iter().enumerate() {
+            let offset = i * 3;
+            if offset + 2 >= out.len() {
+                break;
+            }
+            out[offset] = (color >> 16) as u8; // R
+            out[offset + 1] = (color >> 8) as u8; // G
+            out[offset + 2] = color as u8; // B
+        }
+    }
+
+    /// Load a palette from packed RGB bytes (R, G, B per entry) into internal u32 format
+    pub fn set_palette_rgb(&mut self, data: &[u8]) {
+        let palette = self.palette.get_or_insert_with(|| {
+            Box::new(crate::console::graphics::palette::VGA_PALETTE)
+        });
+        for i in 0..256 {
+            let offset = i * 3;
+            if offset + 2 >= data.len() {
+                break;
+            }
+            let r = data[offset] as u32;
+            let g = data[offset + 1] as u32;
+            let b = data[offset + 2] as u32;
+            palette[i] = (r << 16) | (g << 8) | b;
+        }
+    }
+
     pub fn set_graphics_mode(&mut self, graphics_struct: &mut termios::GraphicsMode) {
         if let Some(_existing_buffer) = &self.graphics_buffer {
             // resize the graphics buffer if necessary, otherwise do nothing
@@ -274,7 +275,6 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
             width: graphics_struct.width,
             height: graphics_struct.height,
             bits_per_pixel,
-            palette: None,
         });
 
         graphics_struct.framebuffer = paddr.as_u32();

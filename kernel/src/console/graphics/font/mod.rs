@@ -102,4 +102,25 @@ pub trait Font {
             }
         }
     }
+
+    /// Like draw_string, but each character carries its own color.
+    fn draw_colored_string<T: Iterator<Item = (u8, u32)> + Clone>(
+        &self,
+        framebuffer: &Framebuffer,
+        x: u16,
+        y: u16,
+        chars: T,
+        bytes_per_pixel: usize,
+    ) {
+        let height = self.get_height();
+        for row in 0..height {
+            let mut run_offset = 0u16;
+            for (byte, color) in chars.clone() {
+                if let Some(glyph) = self.get_glyph(byte) {
+                    glyph.draw_row(framebuffer, x + run_offset, y + row as u16, row, color, bytes_per_pixel);
+                    run_offset += glyph.width as u16;
+                }
+            }
+        }
+    }
 }

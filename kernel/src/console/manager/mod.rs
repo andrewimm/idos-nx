@@ -134,7 +134,7 @@ impl ConsoleManager {
                     buffer[dest_offset..dest_offset + byte_width]
                         .copy_from_slice(&raw_buffer[src_offset..src_offset + byte_width]);
                 } else if src_bpp == 1 {
-                    let palette = graphics_buffer.get_palette();
+                    let palette = console.terminal.get_palette();
                     for px in 0..copy_width {
                         let color = palette[raw_buffer[src_offset + px] as usize];
                         crate::console::graphics::write_pixel(buffer, dest_offset + px * bpp, color, bpp);
@@ -154,13 +154,17 @@ impl ConsoleManager {
                 }
             }
 
+            let palette = console.terminal.get_palette();
             for row in 0..ROWS {
-                font.draw_string(
+                let colored_chars = console.row_cells_iter(row).map(|cell| {
+                    let fg_index = (cell.color.0 & 0x0F) as usize;
+                    (cell.glyph, palette[fg_index])
+                });
+                font.draw_colored_string(
                     fb,
                     window_pos.x + 2,
                     (window_pos.y + 20) + (row as u16 * 16),
-                    console.row_text_iter(row),
-                    crate::console::graphics::COLOR_WHITE,
+                    colored_chars,
                     bpp,
                 );
             }

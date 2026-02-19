@@ -99,24 +99,13 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
         }
     }
 
-    /// Construct an iterator over the text glyphs in a specific row of the
-    /// screen.
-    pub fn row_text_iter(
+    /// Construct an iterator over the TextCells in a specific row of the screen.
+    pub fn row_cells_iter(
         &self,
         row: usize,
-    ) -> core::iter::StepBy<core::iter::Cloned<core::slice::Iter<'_, u8>>> {
-        let row_size = COLS * core::mem::size_of::<textmode::TextCell>();
-        let offset = row * COLS * core::mem::size_of::<textmode::TextCell>();
-
-        let buffer = unsafe {
-            let ptr: *mut u8 = self
-                .terminal
-                .text_buffer
-                .get_visible_buffer_byte_ptr()
-                .add(offset);
-            core::slice::from_raw_parts_mut(ptr, row_size)
-        };
-
-        buffer.iter().cloned().step_by(2)
+    ) -> core::iter::Cloned<core::slice::Iter<'_, textmode::TextCell>> {
+        let visible = self.terminal.text_buffer.get_visible_buffer();
+        let start = row * COLS;
+        visible[start..start + COLS].iter().cloned()
     }
 }
