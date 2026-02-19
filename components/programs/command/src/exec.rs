@@ -51,7 +51,9 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
         CommandComponent::Executable(name, args) => match name.to_ascii_uppercase().as_str() {
             "CD" | "CHDIR" => cd(env, args),
             "CLS" => cls(env),
+            "COLOR" => color(env, args),
             "DIR" => dir(env, args),
+            "PROMPT" => prompt(env, args),
             //"DRIVES" => drives(env),
             "TYPE" => type_file(env, args),
             _ => {
@@ -75,6 +77,134 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
 fn cls(env: &Environment) {
     // ESC[2J clears the screen, ESC[H moves cursor to top-left
     let _ = write_sync(env.stdout, b"\x1b[2J\x1b[H", 0);
+}
+
+fn color(env: &Environment, args: &Vec<String>) {
+    if args.is_empty() {
+        // Reset to defaults (light gray on black)
+        let _ = write_sync(env.stdout, b"\x1b[0m\x1b[2J\x1b[H", 0);
+        return;
+    }
+
+    let arg = args[0].as_bytes();
+    if arg.len() != 2 {
+        let _ = write_sync(env.stdout, b"Usage: COLOR [bg_fg]\n  Two hex digits (0-F): background, foreground\n  Example: COLOR 0A (green on black)\n", 0);
+        return;
+    }
+
+    let bg = match hex_digit(arg[0]) {
+        Some(v) => v,
+        None => {
+            let _ = write_sync(env.stdout, b"Invalid hex digit\n", 0);
+            return;
+        }
+    };
+    let fg = match hex_digit(arg[1]) {
+        Some(v) => v,
+        None => {
+            let _ = write_sync(env.stdout, b"Invalid hex digit\n", 0);
+            return;
+        }
+    };
+
+    if fg == bg {
+        let _ = write_sync(env.stdout, b"Foreground and background cannot be the same\n", 0);
+        return;
+    }
+
+    // Map CGA color index to ANSI SGR codes
+    // CGA indices 0-7 map to normal, 8-15 map to bright
+    let mut buf = [0u8; 32];
+    let mut len = 0;
+
+    // Reset first
+    buf[len..len + 4].copy_from_slice(b"\x1b[0m");
+    len += 4;
+
+    // Foreground
+    len += write_sgr_fg(&mut buf[len..], fg);
+
+    // Background
+    len += write_sgr_bg(&mut buf[len..], bg);
+
+    // Clear screen with new colors
+    buf[len..len + 7].copy_from_slice(b"\x1b[2J\x1b[H");
+    len += 7;
+
+    let _ = write_sync(env.stdout, &buf[..len], 0);
+}
+
+/// CGA index to ANSI color code offset. CGA and ANSI have different orderings
+/// for blue/red, cyan/yellow, etc.
+const CGA_TO_ANSI: [u8; 8] = [0, 4, 2, 6, 1, 5, 3, 7];
+
+fn write_sgr_fg(buf: &mut [u8], cga: u8) -> usize {
+    let base = CGA_TO_ANSI[(cga & 7) as usize];
+    if cga >= 8 {
+        // Bright: ESC[9Xm
+        buf[0..2].copy_from_slice(b"\x1b[");
+        buf[2] = b'9';
+        buf[3] = b'0' + base;
+        buf[4] = b'm';
+        5
+    } else {
+        // Normal: ESC[3Xm
+        buf[0..2].copy_from_slice(b"\x1b[");
+        buf[2] = b'3';
+        buf[3] = b'0' + base;
+        buf[4] = b'm';
+        5
+    }
+}
+
+fn write_sgr_bg(buf: &mut [u8], cga: u8) -> usize {
+    let base = CGA_TO_ANSI[(cga & 7) as usize];
+    if cga >= 8 {
+        // Bright: ESC[10Xm
+        buf[0..3].copy_from_slice(b"\x1b[1");
+        buf[3] = b'0';
+        buf[4] = b'0' + base;
+        buf[5] = b'm';
+        6
+    } else {
+        // Normal: ESC[4Xm
+        buf[0..2].copy_from_slice(b"\x1b[");
+        buf[2] = b'4';
+        buf[3] = b'0' + base;
+        buf[4] = b'm';
+        5
+    }
+}
+
+fn prompt(env: &mut Environment, args: &Vec<String>) {
+    if args.is_empty() {
+        // No argument resets to default
+        env.set_prompt(b"$P$G");
+        return;
+    }
+    // Rejoin args with spaces to reconstruct the format string
+    let mut buf = [0u8; 128];
+    let mut len = 0;
+    for (i, arg) in args.iter().enumerate() {
+        if i > 0 && len < buf.len() {
+            buf[len] = b' ';
+            len += 1;
+        }
+        let bytes = arg.as_bytes();
+        let n = bytes.len().min(buf.len() - len);
+        buf[len..len + n].copy_from_slice(&bytes[..n]);
+        len += n;
+    }
+    env.set_prompt(&buf[..len]);
+}
+
+fn hex_digit(ch: u8) -> Option<u8> {
+    match ch {
+        b'0'..=b'9' => Some(ch - b'0'),
+        b'A'..=b'F' => Some(ch - b'A' + 10),
+        b'a'..=b'f' => Some(ch - b'a' + 10),
+        _ => None,
+    }
 }
 
 fn is_drive(name: &[u8]) -> bool {

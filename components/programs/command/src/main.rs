@@ -23,9 +23,7 @@ pub extern "C" fn main() {
     loop {
         idos_sdk::allocator::reset();
 
-        prompt_len = env.put_cwd(&mut prompt);
-        prompt[prompt_len] = b'>';
-        prompt_len += 1;
+        prompt_len = env.expand_prompt(&mut prompt);
 
         let _ = write_sync(env.stdout, &prompt[..prompt_len], 0);
         match read_sync(env.stdin, &mut input_buffer, 0) {
