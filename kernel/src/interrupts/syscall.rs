@@ -141,6 +141,7 @@ fn log_syscall(registers: &FullSavedRegisters) {
         0x2b => "dup handle",
         0x30 => "map memory",
         0x31 => "map file",
+        0x40 => "get monotonic ms",
         0xffff => "internal debug",
         _ => "unknown",
     };
@@ -420,6 +421,15 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
                     registers.eax = 0xffff_ffff;
                 }
             }
+        }
+
+        // time
+        0x40 => {
+            // get monotonic ms
+            // Returns a u64 millisecond counter split across eax (low) and ebx (high)
+            let ms = crate::time::system::get_monotonic_ms();
+            registers.eax = ms as u32;
+            registers.ebx = (ms >> 32) as u32;
         }
 
         0xffff => {

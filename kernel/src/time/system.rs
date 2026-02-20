@@ -5,9 +5,13 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use spin::Mutex;
 
 use super::date::DateTime;
+use crate::hardware::pit::{PIT, PIT_BASE_FREQ, PIT_DIVIDER};
 
-// The system timer ticks at ~100Hz
-pub const HUNDRED_NS_PER_TICK: u64 = 100002;
+// Derive tick timing from the PIT configuration.
+// With a divider of 11932 and base freq of 1,193,182 Hz, each tick is
+// approximately 10.0002 ms, or 100,002 units of 100ns.
+pub const HUNDRED_NS_PER_TICK: u64 =
+    (PIT_DIVIDER as u64 * 10_000_000) / PIT_BASE_FREQ as u64;
 pub const MS_PER_TICK: u32 = (HUNDRED_NS_PER_TICK / 10000) as u32;
 
 /// Stores the number of clock ticks since the kernel began execution. This is
@@ -28,6 +32,37 @@ pub fn tick() {
 
 pub fn get_system_ticks() -> u32 {
     SYSTEM_TICKS.load(Ordering::SeqCst)
+}
+
+/// Get the number of milliseconds since the kernel started, with sub-tick
+/// precision. This reads the PIT's current countdown value to interpolate
+/// within the current tick period, giving ~microsecond precision without
+/// needing a higher interrupt rate.
+pub fn get_monotonic_ms() -> u64 {
+    // We need to read the tick counter and PIT counter atomically with
+    // respect to the timer interrupt. Disable interrupts briefly to prevent
+    // reading a stale tick count right as the PIT wraps around.
+    let (ticks, remaining) = unsafe {
+        let flags: u32;
+        core::arch::asm!("pushfd; pop {0}; cli", out(reg) flags);
+        let ticks = SYSTEM_TICKS.load(Ordering::SeqCst);
+        let remaining = PIT::new().read_counter();
+        // Restore interrupt flag if it was set
+        if flags & 0x200 != 0 {
+            core::arch::asm!("sti");
+        }
+        (ticks, remaining)
+    };
+
+    let base_ms = ticks as u64 * MS_PER_TICK as u64;
+    // The PIT counts down from PIT_DIVIDER to 0. The elapsed portion of
+    // the current tick is (PIT_DIVIDER - remaining) / PIT_DIVIDER.
+    // In Mode 3 (square wave), the counter decrements by 2 each cycle,
+    // so the effective range is 0..PIT_DIVIDER.
+    let elapsed = (PIT_DIVIDER as u64).saturating_sub(remaining as u64);
+    let sub_ms = (elapsed * MS_PER_TICK as u64) / PIT_DIVIDER as u64;
+
+    base_ms + sub_ms
 }
 
 /// High-resolution 64-bit timestamp representing the number of 100ns

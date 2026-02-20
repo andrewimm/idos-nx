@@ -30,24 +30,10 @@ static mut TM_BUF: tm = tm {
     tm_isdst: 0,
 };
 
-/// Kernel system ticks (approximately 100 Hz).
-fn get_ticks() -> u32 {
-    // Use sleep(0) + yield to get approximate time, or we can read
-    // a memory-mapped tick counter if available.
-    // For now, use a simple syscall-based approach.
-    // The kernel doesn't have a direct "get time" syscall currently.
-    // We'll use a counter incremented by our timer code.
-    unsafe { TICK_COUNTER }
-}
-
-static mut TICK_COUNTER: u32 = 0;
-static mut BASE_TIME: u32 = 0;
-
 #[no_mangle]
 pub unsafe extern "C" fn time(tloc: *mut time_t) -> time_t {
-    // Approximate: return seconds since some epoch based on ticks
-    // The kernel runs at ~100 Hz
-    let t = (TICK_COUNTER / 100) as time_t;
+    let ms = idos_api::syscall::time::get_monotonic_ms();
+    let t = (ms / 1000) as time_t;
     if !tloc.is_null() {
         *tloc = t;
     }
@@ -57,8 +43,8 @@ pub unsafe extern "C" fn time(tloc: *mut time_t) -> time_t {
 #[no_mangle]
 pub unsafe extern "C" fn clock() -> clock_t {
     // CLOCKS_PER_SEC is typically 1000000 on POSIX
-    // We'll approximate from ticks
-    (TICK_COUNTER as u64 * 10000) as clock_t
+    let ms = idos_api::syscall::time::get_monotonic_ms();
+    (ms * 1000) as clock_t
 }
 
 #[no_mangle]

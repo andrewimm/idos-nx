@@ -78,7 +78,7 @@ pub unsafe fn init_memory() {
 pub fn init_hardware() {
     PIC::new().init();
     // set the PIT interrupt to approximately 100Hz
-    PIT::new().set_divider(11932);
+    PIT::new().set_divider(crate::hardware::pit::PIT_DIVIDER);
 
     crate::hardware::pci::get_bus_devices();
 

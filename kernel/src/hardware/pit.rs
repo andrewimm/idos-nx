@@ -1,5 +1,12 @@
 use crate::arch::port::Port;
 
+/// The PIT's base oscillator frequency in Hz
+pub const PIT_BASE_FREQ: u32 = 1_193_182;
+
+/// The divider value used to configure channel 0's interrupt rate.
+/// 11932 gives approximately 100 Hz (1,193,182 / 11932 ≈ 99.998 Hz).
+pub const PIT_DIVIDER: u16 = 11932;
+
 /// The Programmable Interval Timer provides a number of configurable timers to
 /// produce regular interrupts, update other connected hardware, or send a
 /// signal to the PC Speaker.
@@ -26,6 +33,20 @@ impl PIT {
         // high byte
         self.channel_0.write_u8((div & 0xff) as u8);
         self.channel_0.write_u8((div >> 8) as u8);
+    }
+
+    /// Read the current countdown value from channel 0.
+    /// The PIT counts down from the divider value to 0, then reloads.
+    /// By latching the counter, we can read its current value without
+    /// disturbing the counting process.
+    pub fn read_counter(&self) -> u16 {
+        // Latch command for channel 0: channel 0 (bits 7:6 = 00),
+        // latch count (bits 5:4 = 00)
+        self.command_register.write_u8(0x00);
+        // Read low byte then high byte
+        let lo = self.channel_0.read_u8() as u16;
+        let hi = self.channel_0.read_u8() as u16;
+        (hi << 8) | lo
     }
 }
 
