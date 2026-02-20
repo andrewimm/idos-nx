@@ -85,18 +85,22 @@ pub fn switch_to(id: TaskID) {
     LAST_SWITCH.store(current_tsc, Ordering::SeqCst);
     LAST_SWITCH_DELTA.store(switch_delta, Ordering::SeqCst);
 
-    let current_sp_addr: u32 = {
+    let (current_sp_addr, current_fpu_ptr): (u32, u32) = {
         let current_lock = get_current_task();
         let current = current_lock.read();
-        &(current.stack_pointer) as *const usize as u32
+        (
+            &(current.stack_pointer) as *const usize as u32,
+            current.fpu_state.data.as_ptr() as u32,
+        )
     };
     let next_task_lock = get_task(id).expect("Switching to task that does not exist");
-    let (next_sp, pagedir_addr, stack_top) = {
+    let (next_sp, pagedir_addr, stack_top, next_fpu_ptr) = {
         let next = next_task_lock.read();
         (
             next.stack_pointer as u32,
             next.page_directory.as_u32(),
             next.get_stack_top(),
+            next.fpu_state.data.as_ptr() as u32,
         )
     };
     let next_task_state = next_task_lock.read().state;
@@ -104,6 +108,12 @@ pub fn switch_to(id: TaskID) {
     crate::arch::gdt::set_tss_stack_pointer(stack_top as u32);
 
     let _ = CURRENT_ID.swap(id, core::sync::atomic::Ordering::SeqCst);
+
+    // Save outgoing task's FPU state, restore incoming task's
+    unsafe {
+        asm!("fxsave [{}]", in(reg) current_fpu_ptr, options(nostack));
+        asm!("fxrstor [{}]", in(reg) next_fpu_ptr, options(nostack));
+    }
 
     if let RunState::Initialized = next_task_state {
         {

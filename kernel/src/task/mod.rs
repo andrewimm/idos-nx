@@ -41,6 +41,76 @@ mod tests {
     }
 
     #[test_case]
+    fn fpu_state_preserved_across_switch() {
+        use super::actions::handle::create_kernel_task;
+        use super::actions::io::read_sync;
+        use super::actions::lifecycle::terminate;
+        use super::actions::yield_coop;
+        use core::arch::asm;
+
+        // Child task loads a known value into the x87 FPU stack, yields
+        // several times, then checks that it survived context switches.
+        fn child_task() -> ! {
+            let mut result: f64 = 0.0;
+            unsafe {
+                // Push 1234.5 onto the FPU stack
+                asm!(
+                    "fld qword ptr [{val}]",
+                    val = in(reg) &1234.5f64,
+                    options(nostack),
+                );
+            }
+
+            // Yield multiple times to let the parent run and clobber FPU
+            for _ in 0..5 {
+                yield_coop();
+            }
+
+            unsafe {
+                // Pop the value back — should still be 1234.5
+                asm!(
+                    "fstp qword ptr [{out}]",
+                    out = in(reg) &mut result,
+                    options(nostack),
+                );
+            }
+
+            assert_eq!(result, 1234.5);
+            terminate(0);
+        }
+
+        // Parent: push a different value onto the FPU stack
+        unsafe {
+            asm!(
+                "fld qword ptr [{val}]",
+                val = in(reg) &9999.0f64,
+                options(nostack),
+            );
+        }
+
+        let (child_handle, _child_task) = create_kernel_task(child_task, Some("FPU_CHILD"));
+
+        // Yield multiple times so the child runs with our FPU value on the stack
+        for _ in 0..5 {
+            yield_coop();
+        }
+
+        // Verify our own FPU value survived
+        let mut parent_result: f64 = 0.0;
+        unsafe {
+            asm!(
+                "fstp qword ptr [{out}]",
+                out = in(reg) &mut parent_result,
+                options(nostack),
+            );
+        }
+        assert_eq!(parent_result, 9999.0);
+
+        // Wait for child to finish
+        let _ = read_sync(child_handle, &mut [], 0);
+    }
+
+    #[test_case]
     fn sharing_memory() {
         use super::actions::handle::{create_kernel_task, open_message_queue};
         use super::actions::io::read_struct_sync;

@@ -58,7 +58,7 @@ pub extern "x86-interrupt" fn invalid_opcode(stack_frame: StackFrame) {
 
 #[no_mangle]
 pub extern "x86-interrupt" fn fpu_not_available(_stack_frame: StackFrame) {
-    panic!("FPU not available");
+    panic!("FPU not available — CR0.EM is set or no FPU present");
 }
 
 #[no_mangle]

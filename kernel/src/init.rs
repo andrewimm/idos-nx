@@ -80,9 +80,34 @@ pub fn init_hardware() {
     // set the PIT interrupt to approximately 100Hz
     PIT::new().set_divider(crate::hardware::pit::PIT_DIVIDER);
 
+    init_fpu();
+
     crate::hardware::pci::get_bus_devices();
 
     crate::time::system::initialize_time_from_rtc();
+}
+
+/// Set up the FPU and enable FXSAVE/FXRSTOR and SSE instructions.
+fn init_fpu() {
+    unsafe {
+        core::arch::asm!(
+            // CR0: clear EM (bit 2), set MP (bit 1) + NE (bit 5)
+            "mov eax, cr0",
+            "and eax, 0xFFFFFFFB", // clear EM
+            "or eax, 0x00000022",  // set MP + NE
+            "mov cr0, eax",
+
+            // CR4: set OSFXSR (bit 9) + OSXMMEXCPT (bit 10)
+            "mov eax, cr4",
+            "or eax, 0x00000600",
+            "mov cr4, eax",
+
+            // Initialize the FPU to a known state
+            "fninit",
+
+            out("eax") _,
+        );
+    }
 }
 
 /// Populate the DEV: FS with drivers for the devices detected on this PC

@@ -16,6 +16,45 @@ use super::memory::MappedMemory;
 use super::messaging::{MessagePacket, MessageQueue};
 use super::stack::free_stack;
 
+/// Stored FPU/SSE state for a task, saved and restored by FXSAVE/FXRSTOR.
+/// Must be 16-byte aligned per the x86 FXSAVE requirement.
+#[repr(C, align(16))]
+pub struct FxState {
+    pub data: [u8; 512],
+}
+
+impl FxState {
+    /// Create a properly initialized FPU state, equivalent to what FINIT +
+    /// LDMXCSR would produce: all exceptions masked, 64-bit precision,
+    /// round-to-nearest.
+    pub fn new() -> Self {
+        let mut state = Self { data: [0u8; 512] };
+        // FCW: 0x037F — all x87 exceptions masked, extended (64-bit) precision
+        state.data[0] = 0x7F;
+        state.data[1] = 0x03;
+        // MXCSR: 0x1F80 — all SSE exceptions masked
+        state.data[24] = 0x80;
+        state.data[25] = 0x1F;
+        state
+    }
+
+    pub unsafe fn save(&mut self) {
+        core::arch::asm!(
+            "fxsave [{}]",
+            in(reg) self.data.as_mut_ptr(),
+            options(nostack),
+        );
+    }
+
+    pub unsafe fn restore(&self) {
+        core::arch::asm!(
+            "fxrstor [{}]",
+            in(reg) self.data.as_ptr(),
+            options(nostack),
+        );
+    }
+}
+
 pub struct Task {
     /// The unique identifier for this Task
     pub id: TaskID,
@@ -63,6 +102,9 @@ pub struct Task {
 
     /// Storage for the task's registers when it enters VM86 mode
     pub vm86_registers: Option<FullSavedRegisters>,
+
+    /// FPU/SSE register state, saved and restored on every context switch
+    pub fpu_state: FxState,
 }
 
 impl Task {
@@ -85,6 +127,7 @@ impl Task {
             async_io_table: AsyncIOTable::new(),
             last_map_result: None,
             vm86_registers: None,
+            fpu_state: FxState::new(),
         }
     }
 
