@@ -214,6 +214,19 @@ impl FloppyDeviceDriver {
         self.dma(Command::ReadData, drive_number, chs).await
     }
 
+    async fn dma_write(
+        &mut self,
+        drive: DriveSelect,
+        chs: ChsGeometry,
+    ) -> Result<(), ControllerError> {
+        self.select_drive(drive).await;
+        let drive_number = match drive {
+            DriveSelect::Primary => 0,
+            DriveSelect::Secondary => 1,
+        };
+        self.dma(Command::WriteData, drive_number, chs).await
+    }
+
     fn get_dma_buffer(&self) -> &mut [u8] {
         unsafe {
             let buffer_ptr = self.dma_vaddr.as_ptr_mut::<u8>();
@@ -274,6 +287,42 @@ impl FloppyDeviceDriver {
         let bytes_read = buffer.len() as u32;
 
         Ok(bytes_read)
+    }
+
+    pub async fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
+        let position = offset as usize;
+        let drive_select = match self.open_instances.get(&instance) {
+            Some(file) => file.drive,
+            None => return Err(IoError::FileHandleInvalid),
+        };
+
+        let first_sector = position / super::geometry::SECTOR_SIZE;
+        let write_offset = position % super::geometry::SECTOR_SIZE;
+        let last_sector = (position + buffer.len() - 1) / super::geometry::SECTOR_SIZE;
+        let sector_count = last_sector - first_sector + 1;
+
+        // If writing a partial sector, read-modify-write: read existing data first
+        if write_offset != 0 || buffer.len() % super::geometry::SECTOR_SIZE != 0 {
+            self.dma_prepare(sector_count, 0x56);
+            let chs = ChsGeometry::from_lba(first_sector);
+            self.dma_read(drive_select, chs)
+                .await
+                .map_err(|_| IoError::FileSystemError)?;
+        }
+
+        let dma_buffer = self.get_dma_buffer();
+        for i in 0..buffer.len() {
+            dma_buffer[write_offset + i] = buffer[i];
+        }
+
+        // DMA mode 0x5A = channel 2, single transfer, memory→peripheral
+        self.dma_prepare(sector_count, 0x5A);
+        let chs = ChsGeometry::from_lba(first_sector);
+        self.dma_write(drive_select, chs)
+            .await
+            .map_err(|_| IoError::FileSystemError)?;
+
+        Ok(buffer.len() as u32)
     }
 
     pub fn close(&mut self, instance: u32) -> IoResult {
@@ -456,6 +505,15 @@ async fn handle_driver_request(driver_ref: Arc<RefCell<FloppyDeviceDriver>>, mes
             let offset = message.args[3];
             let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_len) };
             let result = driver_ref.borrow_mut().read(instance, buffer, offset).await;
+            driver_io_complete(message.unique_id, result);
+        }
+        DriverCommand::Write => {
+            let instance = message.args[0];
+            let buffer_ptr = message.args[1] as *const u8;
+            let buffer_len = message.args[2] as usize;
+            let offset = message.args[3];
+            let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_len) };
+            let result = driver_ref.borrow_mut().write(instance, buffer, offset).await;
             driver_io_complete(message.unique_id, result);
         }
         _ => driver_io_complete(message.unique_id, Err(IoError::UnsupportedOperation)),

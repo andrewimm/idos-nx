@@ -88,8 +88,29 @@ impl AsyncDriver for FatDriver {
         Ok(written)
     }
 
+    fn write(
+        &mut self,
+        file_ref: DriverFileReference,
+        buffer: &[u8],
+        offset: u32,
+    ) -> Result<u32, IoError> {
+        let table = self.get_table();
+        let handle = self
+            .open_handle_map
+            .get_mut(*file_ref as usize)
+            .ok_or(IoError::FileHandleInvalid)?;
+        let mut fs = self.fs.borrow_mut();
+        let written = match &mut handle.handle_entity {
+            Entity::File(f) => f.write(buffer, offset, table, &mut fs.disk),
+            Entity::Dir(_) => return Err(IoError::UnsupportedOperation),
+        };
+        handle.cursor += written;
+        Ok(written)
+    }
+
     fn close(&mut self, file_ref: DriverFileReference) -> Result<u32, IoError> {
         if self.open_handle_map.remove(*file_ref as usize).is_some() {
+            self.fs.borrow_mut().disk.flush_all();
             Ok(0)
         } else {
             Err(IoError::FileHandleInvalid)

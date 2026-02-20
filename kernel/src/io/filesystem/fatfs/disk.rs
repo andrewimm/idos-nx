@@ -1,7 +1,7 @@
 use crate::io::handle::Handle;
 use crate::memory::address::VirtualAddress;
 use crate::task::actions::handle::create_file_handle;
-use crate::task::actions::io::{open_sync, read_sync};
+use crate::task::actions::io::{open_sync, read_sync, write_sync};
 use crate::task::actions::memory::map_memory;
 use crate::task::memory::MemoryBacking;
 use alloc::vec::Vec;
@@ -83,7 +83,7 @@ impl DiskAccess {
                 entry.age += 1;
             }
             let index = self.cache_entries.len();
-            self.cache_entries.push(CacheEntry { lba, age: 0 });
+            self.cache_entries.push(CacheEntry { lba, age: 0, dirty: false });
             index
         } else {
             // need to evict an entry
@@ -95,10 +95,19 @@ impl DiskAccess {
                     oldest.1 = entry.age;
                 }
             }
+            // flush dirty sector before evicting
+            if self.cache_entries[oldest.0].dirty {
+                let evict_lba = self.cache_entries[oldest.0].lba;
+                let sector_data = self.get_buffer_sector(oldest.0);
+                let mut flush_buf = [0u8; 512];
+                flush_buf.copy_from_slice(sector_data);
+                write_sync(self.mount_handle, &flush_buf, evict_lba * 512).unwrap();
+            }
             for (index, entry) in self.cache_entries.iter_mut().enumerate() {
                 if index == oldest.0 {
                     entry.age = 0;
                     entry.lba = lba;
+                    entry.dirty = false;
                     break;
                 }
             }
@@ -138,11 +147,53 @@ impl DiskAccess {
         let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, buffer_size) };
         self.read_bytes_from_disk(offset, buffer);
     }
+
+    pub fn write_bytes_to_disk(&mut self, offset: u32, data: &[u8]) {
+        let sectors = sectors_for_byte_range(offset, data.len());
+        let mut sector_offset = offset % 512;
+        let mut written = 0usize;
+        for sector in sectors {
+            let index = self.cache_sector(sector);
+            self.cache_entries[index].dirty = true;
+            let disk_buffer = self.get_buffer_sector(index);
+            let bytes_remaining_in_sector = 512 - sector_offset;
+            let to_write = (data.len() - written).min(bytes_remaining_in_sector as usize);
+            for i in 0..to_write {
+                disk_buffer[(sector_offset as usize) + i] = data[written + i];
+            }
+            written += to_write;
+            sector_offset = 0;
+        }
+    }
+
+    pub fn write_struct_to_disk<S: Sized>(&mut self, offset: u32, s: &S) {
+        let buffer_ptr = s as *const S as *const u8;
+        let buffer_size = core::mem::size_of::<S>();
+        let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_size) };
+        self.write_bytes_to_disk(offset, buffer);
+    }
+
+    pub fn flush_all(&mut self) {
+        for (index, entry) in self.cache_entries.iter_mut().enumerate() {
+            if entry.dirty {
+                let lba = entry.lba;
+                let sector_data = unsafe {
+                    let base = self.buffer_location.as_u32() as *const u8;
+                    core::slice::from_raw_parts(base.add(index * 512), 512)
+                };
+                let mut flush_buf = [0u8; 512];
+                flush_buf.copy_from_slice(sector_data);
+                write_sync(self.mount_handle, &flush_buf, lba * 512).unwrap();
+                entry.dirty = false;
+            }
+        }
+    }
 }
 
 pub struct CacheEntry {
     lba: u32,
     age: u32,
+    dirty: bool,
 }
 
 fn sectors_for_byte_range(offset: u32, length: usize) -> Vec<u32> {

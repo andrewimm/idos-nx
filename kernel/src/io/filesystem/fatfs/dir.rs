@@ -112,6 +112,14 @@ impl DirEntry {
         self.attributes & 0x10 != 0
     }
 
+    pub fn set_size(&mut self, size: u32) {
+        self.byte_size = size;
+    }
+
+    pub fn set_first_cluster(&mut self, cluster: u16) {
+        self.first_file_cluster = cluster;
+    }
+
     pub fn matches_name(&self, filename: &[u8; 8], ext: &[u8; 3]) -> bool {
         // TODO: make case sensitivity configurable
         for i in 0..8 {
@@ -231,12 +239,12 @@ impl RootDirectory {
         short_filename[..filename_len].copy_from_slice(&filename.as_bytes()[..filename_len]);
         short_ext[..ext_len].copy_from_slice(&ext.as_bytes()[..ext_len]);
 
-        for entry in self.iter(disk) {
+        for (entry, disk_offset) in self.iter(disk) {
             if entry.matches_name(&short_filename, &short_ext) {
                 if entry.is_directory() {
                     return Some(Entity::Dir(Directory::from_dir_entry(entry)));
                 } else {
-                    return Some(Entity::File(File::from_dir_entry(entry)));
+                    return Some(Entity::File(File::from_dir_entry(entry, disk_offset)));
                 }
             }
         }
@@ -252,8 +260,15 @@ pub struct RootDirectoryIter<'disk> {
     current: DirEntry,
 }
 
+impl RootDirectoryIter<'_> {
+    /// Returns the disk offset of the entry that will be returned by the next call to `next()`.
+    fn current_entry_offset(&self) -> u32 {
+        self.dir_offset + self.current_index * core::mem::size_of::<DirEntry>() as u32
+    }
+}
+
 impl Iterator for RootDirectoryIter<'_> {
-    type Item = DirEntry;
+    type Item = (DirEntry, u32);
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.current.is_empty() {
@@ -265,11 +280,12 @@ impl Iterator for RootDirectoryIter<'_> {
         }
 
         let entry = self.current.clone();
+        let entry_offset = self.current_entry_offset();
         self.current_index += 1;
         let offset = self.dir_offset + self.current_index * core::mem::size_of::<DirEntry>() as u32;
         self.disk.read_struct_from_disk(offset, &mut self.current);
 
-        Some(entry)
+        Some((entry, entry_offset))
     }
 }
 
@@ -318,7 +334,7 @@ impl Directory {
             // entries it contains
             match &self.dir_type {
                 DirectoryType::Root(root) => {
-                    for entry in root.iter(disk) {
+                    for (entry, _offset) in root.iter(disk) {
                         let name = entry.get_full_name();
                         self.entries.extend_from_slice(name.as_bytes());
                         self.entries.push(0);
@@ -347,13 +363,15 @@ impl Directory {
 #[derive(Clone)]
 pub struct File {
     dir_entry: DirEntry,
+    dir_entry_disk_offset: u32,
     cluster_cache: Vec<u32>,
 }
 
 impl File {
-    pub fn from_dir_entry(dir_entry: DirEntry) -> Self {
+    pub fn from_dir_entry(dir_entry: DirEntry, disk_offset: u32) -> Self {
         Self {
             dir_entry,
+            dir_entry_disk_offset: disk_offset,
             cluster_cache: Vec::new(),
         }
     }
@@ -367,6 +385,22 @@ impl File {
 
     pub fn byte_size(&self) -> u32 {
         self.dir_entry.byte_size
+    }
+
+    pub fn first_cluster(&self) -> u16 {
+        self.dir_entry.first_file_cluster
+    }
+
+    pub fn dir_entry_disk_offset(&self) -> u32 {
+        self.dir_entry_disk_offset
+    }
+
+    pub fn dir_entry_mut(&mut self) -> &mut DirEntry {
+        &mut self.dir_entry
+    }
+
+    pub fn invalidate_cluster_cache(&mut self) {
+        self.cluster_cache.clear();
     }
 
     pub fn get_modification_time(&self) -> u32 {
@@ -388,6 +422,78 @@ impl File {
                 None => return,
             }
         }
+    }
+
+    pub fn write(
+        &mut self,
+        data: &[u8],
+        initial_offset: u32,
+        table: AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> u32 {
+        let mut offset = initial_offset;
+        let mut bytes_written = 0usize;
+
+        // Ensure cluster chain is cached
+        if self.cluster_cache.is_empty() && self.dir_entry.first_file_cluster != 0 {
+            self.cache_cluster_chain(table, self.dir_entry.first_file_cluster as u32, disk);
+        }
+
+        // If file has no clusters yet, allocate the first one
+        if self.cluster_cache.is_empty() {
+            if let Some(cluster) = table.allocate_cluster(disk) {
+                self.dir_entry.first_file_cluster = cluster as u16;
+                self.cluster_cache.push(cluster);
+            } else {
+                return 0;
+            }
+        }
+
+        loop {
+            if bytes_written >= data.len() {
+                break;
+            }
+
+            let current_relative_cluster = offset / table.bytes_per_cluster();
+            let cluster_offset = offset % table.bytes_per_cluster();
+
+            // Extend chain if needed
+            while current_relative_cluster as usize >= self.cluster_cache.len() {
+                let prev_cluster = *self.cluster_cache.last().unwrap();
+                if let Some(new_cluster) = table.allocate_cluster(disk) {
+                    // Link previous cluster to new one
+                    table.set_cluster_entry(prev_cluster, new_cluster, disk);
+                    self.cluster_cache.push(new_cluster);
+                } else {
+                    // Disk full
+                    return bytes_written as u32;
+                }
+            }
+
+            let current_cluster = self.cluster_cache[current_relative_cluster as usize];
+            let cluster_location = table.get_cluster_location(current_cluster);
+
+            let bytes_remaining_in_cluster = table.bytes_per_cluster() - cluster_offset;
+            let bytes_to_write = (data.len() - bytes_written).min(bytes_remaining_in_cluster as usize);
+
+            disk.write_bytes_to_disk(
+                cluster_location + cluster_offset,
+                &data[bytes_written..bytes_written + bytes_to_write],
+            );
+
+            bytes_written += bytes_to_write;
+            offset += bytes_to_write as u32;
+        }
+
+        // Update file size if we wrote beyond the end
+        let new_end = initial_offset + bytes_written as u32;
+        if new_end > self.dir_entry.byte_size {
+            self.dir_entry.byte_size = new_end;
+            // Write updated dir entry back to disk
+            disk.write_struct_to_disk(self.dir_entry_disk_offset, &self.dir_entry);
+        }
+
+        bytes_written as u32
     }
 
     pub fn read(

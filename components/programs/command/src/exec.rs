@@ -62,6 +62,7 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
             "CLS" => cls(env),
             "COLOR" => color(env, args),
             "DIR" => dir(env, args),
+            "APPEND" => append(env, args),
             "ECHO" => echo(env, args),
             "PROMPT" => prompt(env, args),
             //"DRIVES" => drives(env),
@@ -107,6 +108,64 @@ fn echo(env: &Environment, args: &Vec<String>) {
         len += 1;
     }
     let _ = write_sync(env.stdout, &buf[..len], 0);
+}
+
+fn append(env: &Environment, args: &Vec<String>) {
+    if args.len() < 2 {
+        let _ = write_sync(env.stdout, b"Usage: APPEND <filename> <text>\n", 0);
+        return;
+    }
+
+    let file_path = env.full_file_path(&args[0]);
+
+    // Rejoin remaining args as the text to append
+    let mut text_buf = [0u8; 256];
+    let mut text_len = 0;
+    for (i, arg) in args[1..].iter().enumerate() {
+        if i > 0 && text_len < text_buf.len() {
+            text_buf[text_len] = b' ';
+            text_len += 1;
+        }
+        let bytes = arg.as_bytes();
+        let n = bytes.len().min(text_buf.len() - text_len);
+        text_buf[text_len..text_len + n].copy_from_slice(&bytes[..n]);
+        text_len += n;
+    }
+
+    let handle = create_file_handle();
+    match open_sync(handle, file_path.as_str()) {
+        Ok(_) => {}
+        Err(_) => {
+            let _ = write_sync(env.stdout, b"Failed to open file\n", 0);
+            return;
+        }
+    }
+
+    // Get file size via STAT so we know where to append
+    let mut file_status = FileStatus::new();
+    let file_status_ptr = &mut file_status as *mut FileStatus;
+    let _ = io_sync(
+        handle,
+        FILE_OP_STAT,
+        file_status_ptr as u32,
+        core::mem::size_of::<FileStatus>() as u32,
+        0,
+    );
+
+    match write_sync(handle, &text_buf[..text_len], file_status.byte_size) {
+        Ok(n) => {
+            let mut msg = [0u8; 48];
+            let s = alloc::format!("Appended {} bytes\n", n);
+            let len = s.len().min(msg.len());
+            msg[..len].copy_from_slice(&s.as_bytes()[..len]);
+            let _ = write_sync(env.stdout, &msg[..len], 0);
+        }
+        Err(_) => {
+            let _ = write_sync(env.stdout, b"Write failed\n", 0);
+        }
+    }
+
+    let _ = close_sync(handle);
 }
 
 fn ver(env: &Environment) {
