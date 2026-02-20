@@ -1,6 +1,6 @@
 use crate::{
     env::Environment,
-    parser::{CommandComponent, CommandTree},
+    parser::{CommandComponent, CommandTree, RedirectOutput},
 };
 
 use core::sync::atomic::{AtomicPtr, Ordering};
@@ -57,37 +57,117 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
     };
 
     match root {
-        CommandComponent::Executable(name, args) => match name.to_ascii_uppercase().as_str() {
-            "CD" | "CHDIR" => cd(env, args),
-            "CLS" => cls(env),
-            "COLOR" => color(env, args),
-            "DIR" => dir(env, args),
-            "APPEND" => append(env, args),
-            "ECHO" => echo(env, args),
-            "PROMPT" => prompt(env, args),
-            //"DRIVES" => drives(env),
-            "TYPE" => type_file(env, args),
-            "VER" => ver(env),
-            _ => {
-                if is_drive(name.as_bytes()) {
-                    let mut cd_args = Vec::new();
-                    cd_args.push(String::from(name));
-                    cd(env, &cd_args);
-                } else if !try_external(env, name, args) {
-                    let _ = write_sync(env.stdout, "Unknown command!\n".as_bytes(), 0);
+        CommandComponent::Executable(name, args, redirect) => {
+            // Check if this is a builtin that supports redirect
+            let is_builtin = matches!(
+                name.to_ascii_uppercase().as_str(),
+                "CD" | "CHDIR" | "CLS" | "COLOR" | "DIR" | "APPEND" | "ECHO" | "PROMPT" | "TYPE" | "VER"
+            );
+
+            // Set up redirect if present
+            let saved = setup_redirect(env, redirect, is_builtin, name);
+
+            match name.to_ascii_uppercase().as_str() {
+                "CD" | "CHDIR" => cd(env, args),
+                "CLS" => cls(env),
+                "COLOR" => color(env, args),
+                "DIR" => dir(env, args),
+                "APPEND" => append(env, args),
+                "ECHO" => echo(env, args),
+                "PROMPT" => prompt(env, args),
+                //"DRIVES" => drives(env),
+                "TYPE" => type_file(env, args),
+                "VER" => ver(env),
+                _ => {
+                    if is_drive(name.as_bytes()) {
+                        let mut cd_args = Vec::new();
+                        cd_args.push(String::from(name));
+                        cd(env, &cd_args);
+                    } else if !try_external(env, name, args) {
+                        env.write(b"Unknown command!\n");
+                    }
                 }
             }
+
+            // Restore redirect
+            teardown_redirect(env, saved);
         },
         _ => {
-            let _ = write_sync(env.stdout, "Unsupported syntax!\n".as_bytes(), 0);
+            env.write(b"Unsupported syntax!\n");
         }
     }
 }
 
-fn echo(env: &Environment, args: &Vec<String>) {
+struct SavedRedirect {
+    stdout: idos_api::io::handle::Handle,
+    write_offset: u32,
+    file_handle: Option<idos_api::io::handle::Handle>,
+}
+
+fn setup_redirect(env: &mut Environment, redirect: &RedirectOutput, is_builtin: bool, name: &str) -> Option<SavedRedirect> {
+    match redirect {
+        RedirectOutput::None => None,
+        _ if !is_builtin && !is_drive(name.as_bytes()) => {
+            env.write(b"Redirect not supported for external commands\n");
+            None
+        }
+        RedirectOutput::Overwrite(filename) | RedirectOutput::Append(filename) => {
+            let file_path = env.full_file_path(&String::from(filename.as_str()));
+            let handle = create_file_handle();
+            match open_sync(handle, file_path.as_str()) {
+                Ok(_) => {}
+                Err(_) => {
+                    env.write(b"Failed to open file for redirect\n");
+                    return None;
+                }
+            }
+
+            let saved = SavedRedirect {
+                stdout: env.stdout,
+                write_offset: env.write_offset,
+                file_handle: Some(handle),
+            };
+
+            env.stdout = handle;
+
+            match redirect {
+                RedirectOutput::Append(_) => {
+                    // STAT to get file size
+                    let mut file_status = FileStatus::new();
+                    let file_status_ptr = &mut file_status as *mut FileStatus;
+                    let _ = io_sync(
+                        handle,
+                        FILE_OP_STAT,
+                        file_status_ptr as u32,
+                        core::mem::size_of::<FileStatus>() as u32,
+                        0,
+                    );
+                    env.write_offset = file_status.byte_size;
+                }
+                _ => {
+                    env.write_offset = 0;
+                }
+            }
+
+            Some(saved)
+        }
+    }
+}
+
+fn teardown_redirect(env: &mut Environment, saved: Option<SavedRedirect>) {
+    if let Some(saved) = saved {
+        if let Some(file_handle) = saved.file_handle {
+            let _ = close_sync(file_handle);
+        }
+        env.stdout = saved.stdout;
+        env.write_offset = saved.write_offset;
+    }
+}
+
+fn echo(env: &mut Environment, args: &Vec<String>) {
     // ECHO with no args could toggle echo state, but for now just print a blank line
     if args.is_empty() {
-        let _ = write_sync(env.stdout, b"\n", 0);
+        env.write(b"\n");
         return;
     }
     // Rejoin args with spaces
@@ -107,12 +187,12 @@ fn echo(env: &Environment, args: &Vec<String>) {
         buf[len] = b'\n';
         len += 1;
     }
-    let _ = write_sync(env.stdout, &buf[..len], 0);
+    env.write(&buf[..len]);
 }
 
-fn append(env: &Environment, args: &Vec<String>) {
+fn append(env: &mut Environment, args: &Vec<String>) {
     if args.len() < 2 {
-        let _ = write_sync(env.stdout, b"Usage: APPEND <filename> <text>\n", 0);
+        env.write(b"Usage: APPEND <filename> <text>\n");
         return;
     }
 
@@ -136,7 +216,7 @@ fn append(env: &Environment, args: &Vec<String>) {
     match open_sync(handle, file_path.as_str()) {
         Ok(_) => {}
         Err(_) => {
-            let _ = write_sync(env.stdout, b"Failed to open file\n", 0);
+            env.write(b"Failed to open file\n");
             return;
         }
     }
@@ -154,59 +234,56 @@ fn append(env: &Environment, args: &Vec<String>) {
 
     match write_sync(handle, &text_buf[..text_len], file_status.byte_size) {
         Ok(n) => {
-            let mut msg = [0u8; 48];
             let s = alloc::format!("Appended {} bytes\n", n);
-            let len = s.len().min(msg.len());
-            msg[..len].copy_from_slice(&s.as_bytes()[..len]);
-            let _ = write_sync(env.stdout, &msg[..len], 0);
+            env.write(s.as_bytes());
         }
         Err(_) => {
-            let _ = write_sync(env.stdout, b"Write failed\n", 0);
+            env.write(b"Write failed\n");
         }
     }
 
     let _ = close_sync(handle);
 }
 
-fn ver(env: &Environment) {
-    let _ = write_sync(env.stdout, b"\nIDOS-NX Version 0.1\n\n", 0);
+fn ver(env: &mut Environment) {
+    env.write(b"\nIDOS-NX Version 0.1\n\n");
 }
 
-fn cls(env: &Environment) {
+fn cls(env: &mut Environment) {
     // ESC[2J clears the screen, ESC[H moves cursor to top-left
-    let _ = write_sync(env.stdout, b"\x1b[2J\x1b[H", 0);
+    env.write(b"\x1b[2J\x1b[H");
 }
 
-fn color(env: &Environment, args: &Vec<String>) {
+fn color(env: &mut Environment, args: &Vec<String>) {
     if args.is_empty() {
         // Reset to defaults (light gray on black)
-        let _ = write_sync(env.stdout, b"\x1b[0m\x1b[2J\x1b[H", 0);
+        env.write(b"\x1b[0m\x1b[2J\x1b[H");
         return;
     }
 
     let arg = args[0].as_bytes();
     if arg.len() != 2 {
-        let _ = write_sync(env.stdout, b"Usage: COLOR [bg_fg]\n  Two hex digits (0-F): background, foreground\n  Example: COLOR 0A (green on black)\n", 0);
+        env.write(b"Usage: COLOR [bg_fg]\n  Two hex digits (0-F): background, foreground\n  Example: COLOR 0A (green on black)\n");
         return;
     }
 
     let bg = match hex_digit(arg[0]) {
         Some(v) => v,
         None => {
-            let _ = write_sync(env.stdout, b"Invalid hex digit\n", 0);
+            env.write(b"Invalid hex digit\n");
             return;
         }
     };
     let fg = match hex_digit(arg[1]) {
         Some(v) => v,
         None => {
-            let _ = write_sync(env.stdout, b"Invalid hex digit\n", 0);
+            env.write(b"Invalid hex digit\n");
             return;
         }
     };
 
     if fg == bg {
-        let _ = write_sync(env.stdout, b"Foreground and background cannot be the same\n", 0);
+        env.write(b"Foreground and background cannot be the same\n");
         return;
     }
 
@@ -229,7 +306,7 @@ fn color(env: &Environment, args: &Vec<String>) {
     buf[len..len + 7].copy_from_slice(b"\x1b[2J\x1b[H");
     len += 7;
 
-    let _ = write_sync(env.stdout, &buf[..len], 0);
+    env.write(&buf[..len]);
 }
 
 /// CGA index to ANSI color code offset. CGA and ANSI have different orderings
@@ -361,7 +438,7 @@ struct DirEntry {
     is_dir: bool,
 }
 
-fn dir(env: &Environment, args: &Vec<String>) {
+fn dir(env: &mut Environment, args: &Vec<String>) {
     let file_read_buffer = get_io_buffer();
 
     let mut output = String::from(
@@ -369,13 +446,13 @@ fn dir(env: &Environment, args: &Vec<String>) {
     );
     output.push_str(env.cwd_string());
     output.push_str("\n\n");
-    let _ = write_sync(env.stdout, output.as_bytes(), 0);
+    env.write(output.as_bytes());
 
     let dir_handle = create_file_handle();
     match open_sync(dir_handle, env.cwd_string()) {
         Ok(_) => (),
         Err(_) => {
-            let _ = write_sync(env.stdout, "Failed to open directory...\n".as_bytes(), 0);
+            env.write(b"Failed to open directory...\n");
             return;
         }
     }
@@ -455,7 +532,7 @@ fn dir(env: &Environment, args: &Vec<String>) {
         ));
         row.push('\n');
 
-        let _ = write_sync(env.stdout, row.as_bytes(), 0);
+        env.write(row.as_bytes());
     }
 
     let mut summary = String::new();
@@ -463,12 +540,12 @@ fn dir(env: &Environment, args: &Vec<String>) {
         summary.push(' ');
     }
     summary.push_str(&alloc::format!("{} file(s)\n", entries.len()));
-    let _ = write_sync(env.stdout, summary.as_bytes(), 0);
+    env.write(summary.as_bytes());
 }
 
-fn type_file(env: &Environment, args: &Vec<String>) {
+fn type_file(env: &mut Environment, args: &Vec<String>) {
     if args.is_empty() {
-        let _ = write_sync(env.stdout, "No file specified!\n".as_bytes(), 0);
+        env.write(b"No file specified!\n");
         return;
     }
     for arg in args {
@@ -476,7 +553,7 @@ fn type_file(env: &Environment, args: &Vec<String>) {
     }
 }
 
-fn type_file_inner(env: &Environment, arg: &String) -> Result<(), ()> {
+fn type_file_inner(env: &mut Environment, arg: &String) -> Result<(), ()> {
     let handle = create_file_handle();
     let file_path = env.full_file_path(arg);
     let _ = open_sync(handle, file_path.as_str()).map_err(|_| ());
@@ -487,12 +564,12 @@ fn type_file_inner(env: &Environment, arg: &String) -> Result<(), ()> {
         let len = match read_sync(handle, buffer, read_offset) {
             Ok(len) => len as usize,
             Err(_) => {
-                let _ = write_sync(env.stdout, "Error reading file\n".as_bytes(), 0);
+                env.write(b"Error reading file\n");
                 return Err(());
             }
         };
         read_offset += len as u32;
-        let _ = write_sync(env.stdout, &buffer[..len], 0);
+        env.write(&buffer[..len]);
 
         if len < buffer.len() {
             break;

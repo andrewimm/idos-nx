@@ -64,7 +64,32 @@ impl<'input> Parser<'input> {
                 self.advance_token();
                 let arguments = self.parse_argument_string();
 
-                CommandComponent::Executable(name, arguments)
+                // Check for output redirect
+                let redirect = match &self.current {
+                    Token::RedirectOutputOverwrite => {
+                        self.advance_token();
+                        if let Token::Argument(filename_bytes) = &self.current {
+                            let filename = String::from(core::str::from_utf8(filename_bytes).unwrap());
+                            self.advance_token();
+                            RedirectOutput::Overwrite(filename)
+                        } else {
+                            RedirectOutput::None
+                        }
+                    }
+                    Token::RedirectOutputAppend => {
+                        self.advance_token();
+                        if let Token::Argument(filename_bytes) = &self.current {
+                            let filename = String::from(core::str::from_utf8(filename_bytes).unwrap());
+                            self.advance_token();
+                            RedirectOutput::Append(filename)
+                        } else {
+                            RedirectOutput::None
+                        }
+                    }
+                    _ => RedirectOutput::None,
+                };
+
+                CommandComponent::Executable(name, arguments, redirect)
             }
             _ => unimplemented!(),
         }
@@ -92,9 +117,15 @@ impl<'input> Parser<'input> {
     }
 }
 
+pub enum RedirectOutput {
+    None,
+    Overwrite(String),
+    Append(String),
+}
+
 pub enum CommandComponent {
     ChangeDrive(String),
-    Executable(String, Vec<String>),
+    Executable(String, Vec<String>, RedirectOutput),
     Filename(String),
 }
 

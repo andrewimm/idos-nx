@@ -1,4 +1,5 @@
 use idos_api::io::handle::Handle;
+use idos_api::io::sync::write_sync;
 
 use alloc::string::String;
 
@@ -7,6 +8,7 @@ pub struct Environment {
     cwd_length: usize,
     pub stdin: Handle,
     pub stdout: Handle,
+    pub write_offset: u32,
     prompt_fmt: [u8; 128],
     prompt_fmt_len: usize,
 }
@@ -24,6 +26,7 @@ impl Environment {
             cwd_length: drive_bytes.len() + 1,
             stdin: Handle::new(0),
             stdout: Handle::new(1),
+            write_offset: 0,
             prompt_fmt,
             prompt_fmt_len: 4,
         }
@@ -145,7 +148,16 @@ impl Environment {
     }
 
     pub fn full_file_path(&self, file: &String) -> String {
-        // TODO: check if `file` is absolute, if so, return it as is
+        // If the path is absolute (e.g. A:\HELLO.TXT or DISK:\FILE), return as-is
+        let bytes = file.as_bytes();
+        if let Some(colon_pos) = bytes.iter().position(|&b| b == b':') {
+            if colon_pos > 0
+                && bytes[..colon_pos].iter().all(|b| b.is_ascii_alphabetic())
+                && bytes.get(colon_pos + 1) == Some(&b'\\')
+            {
+                return String::from(file.as_str());
+            }
+        }
 
         let mut full_path = String::from(self.cwd_string());
         let mut split_iter = file.split('\\').peekable();
@@ -178,5 +190,15 @@ impl Environment {
             }
         }
         full_path
+    }
+
+    /// Write data to stdout at the current write_offset, advancing offset.
+    pub fn write(&mut self, data: &[u8]) {
+        match write_sync(self.stdout, data, self.write_offset) {
+            Ok(n) => {
+                self.write_offset += n as u32;
+            }
+            Err(_) => {}
+        }
     }
 }

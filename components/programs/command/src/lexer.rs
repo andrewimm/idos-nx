@@ -40,6 +40,7 @@ impl<'input> Lexer<'input> {
             b'>' => {
                 self.current_pos += 1;
                 if self.peek_next_char() == Some(b'>') {
+                    self.current_pos += 1;
                     return Token::RedirectOutputAppend;
                 } else {
                     return Token::RedirectOutputOverwrite;
@@ -64,7 +65,7 @@ impl<'input> Lexer<'input> {
     pub fn get_argument(&mut self) -> Token {
         let mut bytes = Vec::new();
         while let Some(cur) = self.peek_next_char() {
-            if is_whitespace(cur) {
+            if is_whitespace(cur) || cur == b'>' || cur == b'<' || cur == b'|' {
                 break;
             }
             bytes.push(cur);
