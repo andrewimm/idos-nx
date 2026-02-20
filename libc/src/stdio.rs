@@ -109,7 +109,7 @@ pub unsafe fn init_std_pointers() {
 
 // ---- Internal helpers ----
 
-fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) -> Result<u32, u32> {
+pub(crate) fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) -> Result<u32, u32> {
     let async_op = AsyncOp::new(op_code, arg0, arg1, arg2);
     append_io_op(handle, &async_op, None);
 
