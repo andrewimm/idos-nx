@@ -61,7 +61,7 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
             // Check if this is a builtin that supports redirect
             let is_builtin = matches!(
                 name.to_ascii_uppercase().as_str(),
-                "CD" | "CHDIR" | "CLS" | "COLOR" | "DIR" | "APPEND" | "ECHO" | "PROMPT" | "TYPE" | "VER"
+                "CD" | "CHDIR" | "CLS" | "COLOR" | "DIR" | "DRIVES" | "APPEND" | "ECHO" | "PROMPT" | "TYPE" | "VER"
             );
 
             // Set up redirect if present
@@ -75,7 +75,7 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
                 "APPEND" => append(env, args),
                 "ECHO" => echo(env, args),
                 "PROMPT" => prompt(env, args),
-                //"DRIVES" => drives(env),
+                "DRIVES" => drives(env),
                 "TYPE" => type_file(env, args),
                 "VER" => ver(env),
                 _ => {
@@ -245,8 +245,59 @@ fn append(env: &mut Environment, args: &Vec<String>) {
     let _ = close_sync(handle);
 }
 
+fn drives(env: &mut Environment) {
+    let handle = create_file_handle();
+    match open_sync(handle, "SYS:\\DRIVES") {
+        Ok(_) => {}
+        Err(_) => {
+            env.write(b"Failed to read drive list\n");
+            return;
+        }
+    }
+    let buffer = get_io_buffer();
+    let mut read_offset = 0;
+    loop {
+        let len = match read_sync(handle, buffer, read_offset) {
+            Ok(len) => len as usize,
+            Err(_) => {
+                env.write(b"Error reading drive list\n");
+                break;
+            }
+        };
+        read_offset += len as u32;
+        env.write(&buffer[..len]);
+        if len < buffer.len() {
+            break;
+        }
+    }
+    let _ = close_sync(handle);
+}
+
 fn ver(env: &mut Environment) {
-    env.write(b"\nIDOS-NX Version 0.1\n\n");
+    env.write(b"\n");
+    let handle = create_file_handle();
+    match open_sync(handle, "SYS:\\KERNINFO") {
+        Ok(_) => {
+            let buffer = get_io_buffer();
+            let mut read_offset = 0;
+            loop {
+                let len = match read_sync(handle, buffer, read_offset) {
+                    Ok(len) => len as usize,
+                    Err(_) => break,
+                };
+                read_offset += len as u32;
+                env.write(&buffer[..len]);
+                if len < buffer.len() {
+                    break;
+                }
+            }
+            let _ = close_sync(handle);
+        }
+        Err(_) => {
+            env.write(b"IDOS-NX Version Unknown\n");
+        }
+    }
+    env.write(b"\n");
 }
 
 fn cls(env: &mut Environment) {

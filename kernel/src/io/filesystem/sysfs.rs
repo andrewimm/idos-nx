@@ -17,6 +17,7 @@ enum ListingType {
     RootDir,
     CPU,
     Drives,
+    KernInfo,
     Memory,
 }
 
@@ -25,13 +26,14 @@ impl ListingType {
         match s.to_uppercase().as_str() {
             "CPU" => Some(Self::CPU),
             "DRIVES" => Some(Self::Drives),
+            "KERNINFO" => Some(Self::KernInfo),
             "MEMORY" => Some(Self::Memory),
             _ => None,
         }
     }
 }
 
-const ROOT_LISTING: &str = "CPU\0DRIVES\0MEMORY\0";
+const ROOT_LISTING: &str = "CPU\0DRIVES\0KERNINFO\0MEMORY\0";
 
 pub struct SysFS {
     open_files: RwLock<SlotList<OpenFile>>,
@@ -69,6 +71,7 @@ impl SysFS {
             ListingType::RootDir => String::from(ROOT_LISTING),
             ListingType::CPU => Self::generate_cpu_content(),
             ListingType::Drives => Self::generate_drives_content(),
+            ListingType::KernInfo => Self::generate_kerninfo_content(),
             ListingType::Memory => Self::generate_memory_content(),
         };
         let content_bytes = content_string.as_bytes();
@@ -103,6 +106,10 @@ impl SysFS {
         names.sort();
 
         names.join("\n")
+    }
+
+    fn generate_kerninfo_content() -> String {
+        String::from("IDOS-NX Version 0.1\n")
     }
 
     fn generate_memory_content() -> String {
