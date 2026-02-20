@@ -6,6 +6,7 @@ kernel := build/kernel.bin
 
 colordemo := target/i386-idos/release/colordemo
 command := target/i386-idos/release/command
+diskchk := target/i386-idos/release/diskchk
 doslayer := target/i386-idos/release/doslayer
 elfload := target/i386-idos/release/elfload
 gfx := target/i386-idos/release/gfx
@@ -38,13 +39,14 @@ $(userdata): $(colordemo)
 	@mcopy -D o -i $(userdata) userdata/static/*.* ::
 	@mcopy -D o -i $(userdata) $(colordemo) ::COLORS.ELF
 
-bootdisk: $(command) $(doslayer) $(elfload) $(gfx) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
+bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(gfx) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
 	@mcopy -D o -i $(diskimage) $(bootbin) ::BOOT.BIN
 	@mcopy -D o -i $(diskimage) $(kernel) ::KERNEL.BIN
 	@mcopy -D o -i $(diskimage) $(command) ::COMMAND.ELF
 	@mcopy -D o -i $(diskimage) $(doslayer) ::DOSLAYER.ELF
 	@mcopy -D o -i $(diskimage) $(elfload) ::ELFLOAD.ELF
+	@mcopy -D o -i $(diskimage) $(diskchk) ::DISKCHK.ELF
 	@mcopy -D o -i $(diskimage) $(gfx) ::GFX.ELF
 	@mcopy -D o -i $(diskimage) resources/ter-i14n.psf ::TERM14.PSF
 
@@ -89,6 +91,10 @@ $(elfload):
 
 $(colordemo):
 	@cd components/programs/colordemo && \
+	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
+
+$(diskchk):
+	@cd components/programs/diskchk && \
 	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
 
 $(gfx):

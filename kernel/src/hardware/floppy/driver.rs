@@ -260,17 +260,26 @@ impl FloppyDeviceDriver {
     }
 
     pub async fn read(&mut self, instance: u32, buffer: &mut [u8], offset: u32) -> IoResult {
-        // TODO: constrain the offset to reasonable bounds
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+
         let position = offset as usize;
         let drive_select = match self.open_instances.get(&instance) {
             Some(file) => file.drive,
             None => return Err(IoError::FileHandleInvalid),
         };
 
+        let dma_buf_size = 0x1000;
         let first_sector = position / super::geometry::SECTOR_SIZE;
         let read_offset = position % super::geometry::SECTOR_SIZE;
-        let last_sector = (position + buffer.len()) / super::geometry::SECTOR_SIZE;
+        let last_sector = (position + buffer.len() - 1) / super::geometry::SECTOR_SIZE;
         let sector_count = last_sector - first_sector + 1;
+
+        // Clamp to what fits in the DMA buffer
+        if sector_count * super::geometry::SECTOR_SIZE > dma_buf_size {
+            return Err(IoError::InvalidArgument);
+        }
 
         self.dma_prepare(sector_count, 0x56);
         let chs = ChsGeometry::from_lba(first_sector);
@@ -279,14 +288,13 @@ impl FloppyDeviceDriver {
             .map_err(|_| IoError::FileSystemError)?;
 
         let dma_buffer = self.get_dma_buffer();
+        let copy_len = buffer.len().min(dma_buf_size - read_offset);
 
-        for i in 0..buffer.len() {
+        for i in 0..copy_len {
             buffer[i] = dma_buffer[read_offset + i];
         }
 
-        let bytes_read = buffer.len() as u32;
-
-        Ok(bytes_read)
+        Ok(copy_len as u32)
     }
 
     pub async fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
@@ -296,10 +304,16 @@ impl FloppyDeviceDriver {
             None => return Err(IoError::FileHandleInvalid),
         };
 
+        let dma_buf_size = 0x1000;
         let first_sector = position / super::geometry::SECTOR_SIZE;
         let write_offset = position % super::geometry::SECTOR_SIZE;
         let last_sector = (position + buffer.len() - 1) / super::geometry::SECTOR_SIZE;
         let sector_count = last_sector - first_sector + 1;
+
+        // Clamp to what fits in the DMA buffer
+        if sector_count * super::geometry::SECTOR_SIZE > dma_buf_size {
+            return Err(IoError::InvalidArgument);
+        }
 
         // If writing a partial sector, read-modify-write: read existing data first
         if write_offset != 0 || buffer.len() % super::geometry::SECTOR_SIZE != 0 {
@@ -311,7 +325,8 @@ impl FloppyDeviceDriver {
         }
 
         let dma_buffer = self.get_dma_buffer();
-        for i in 0..buffer.len() {
+        let copy_len = buffer.len().min(dma_buf_size - write_offset);
+        for i in 0..copy_len {
             dma_buffer[write_offset + i] = buffer[i];
         }
 
@@ -322,7 +337,7 @@ impl FloppyDeviceDriver {
             .await
             .map_err(|_| IoError::FileSystemError)?;
 
-        Ok(buffer.len() as u32)
+        Ok(copy_len as u32)
     }
 
     pub fn close(&mut self, instance: u32) -> IoResult {
