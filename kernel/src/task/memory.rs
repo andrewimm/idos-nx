@@ -392,7 +392,10 @@ impl<const U: u32> MappedMemory<U> {
                     } else {
                         hint - place
                     };
-                    if dist < best_distance {
+                    // Prefer forward placement (>= hint) when distances tie
+                    if dist < best_distance
+                        || (dist == best_distance && place >= hint)
+                    {
                         best_distance = dist;
                         best = Some(place);
                     }
@@ -421,7 +424,9 @@ impl<const U: u32> MappedMemory<U> {
                 } else {
                     hint - place
                 };
-                if dist < best_distance {
+                if dist < best_distance
+                    || (dist == best_distance && place >= hint)
+                {
                     best = Some(place);
                 }
             }

@@ -6,14 +6,14 @@ use idos_api::syscall::syscall;
 
 #[no_mangle]
 pub unsafe extern "C" fn sleep(seconds: u32) -> u32 {
-    syscall(0x02, seconds * 1000, 0, 0);
+    idos_api::syscall::time::sleep_ms(seconds * 1000);
     0
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn usleep(usec: u32) -> c_int {
     let ms = if usec < 1000 { 1 } else { usec / 1000 };
-    syscall(0x02, ms, 0, 0);
+    idos_api::syscall::time::sleep_ms(ms);
     0
 }
 
