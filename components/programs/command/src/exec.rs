@@ -17,7 +17,10 @@ use idos_api::syscall::memory::map_memory;
 use idos_api::time::DateTime;
 use idos_api::{io::file::FileStatus, syscall::exec::create_task};
 use idos_api::{
-    io::{error::IoError, sync::io_sync, FILE_OP_STAT, OPEN_FLAG_CREATE},
+    io::{
+        error::IoError, sync::io_sync, FILE_OP_MKDIR, FILE_OP_RENAME, FILE_OP_RMDIR, FILE_OP_STAT,
+        FILE_OP_UNLINK, OPEN_FLAG_CREATE,
+    },
     syscall::exec::load_executable,
 };
 
@@ -61,7 +64,9 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
             // Check if this is a builtin that supports redirect
             let is_builtin = matches!(
                 name.to_ascii_uppercase().as_str(),
-                "CD" | "CHDIR" | "CLS" | "COLOR" | "DIR" | "DRIVES" | "APPEND" | "ECHO" | "PROMPT" | "TYPE" | "VER"
+                "CD" | "CHDIR" | "CLS" | "COLOR" | "COPY" | "DEL" | "DIR" | "DRIVES"
+                    | "APPEND" | "ECHO" | "ERASE" | "HELP" | "MD" | "MKDIR" | "MOVE"
+                    | "PROMPT" | "RD" | "RMDIR" | "REN" | "RENAME" | "TYPE" | "VER"
             );
 
             // Set up redirect if present
@@ -71,11 +76,18 @@ pub fn exec_command_tree(env: &mut Environment, tree: CommandTree) {
                 "CD" | "CHDIR" => cd(env, args),
                 "CLS" => cls(env),
                 "COLOR" => color(env, args),
+                "COPY" => copy(env, args),
+                "DEL" | "ERASE" => del(env, args),
                 "DIR" => dir(env, args),
+                "DRIVES" => drives(env),
                 "APPEND" => append(env, args),
                 "ECHO" => echo(env, args),
+                "HELP" => help(env),
+                "MD" | "MKDIR" => mkdir_cmd(env, args),
+                "MOVE" => move_cmd(env, args),
                 "PROMPT" => prompt(env, args),
-                "DRIVES" => drives(env),
+                "RD" | "RMDIR" => rmdir_cmd(env, args),
+                "REN" | "RENAME" => ren(env, args),
                 "TYPE" => type_file(env, args),
                 "VER" => ver(env),
                 _ => {
@@ -592,6 +604,254 @@ fn dir(env: &mut Environment, args: &Vec<String>) {
     }
     summary.push_str(&alloc::format!("{} file(s)\n", entries.len()));
     env.write(summary.as_bytes());
+}
+
+fn help(env: &mut Environment) {
+    env.write(b"\
+APPEND <file> <text>  Append text to a file
+CD/CHDIR [dir]        Change directory
+CLS                   Clear the screen
+COLOR [bg_fg]         Set console colors
+COPY <src> <dest>     Copy a file
+DEL/ERASE <file>      Delete a file
+DIR [dir]             List directory contents
+DRIVES                List available drives
+ECHO [text]           Display a message
+HELP                  Show this help
+MKDIR/MD <dir>        Create a directory
+MOVE <src> <dest>     Move a file (works across drives)
+PROMPT [format]       Change the command prompt
+REN/RENAME <old> <new>  Rename a file or directory
+RMDIR/RD <dir>        Remove an empty directory
+TYPE <file>           Display file contents
+VER                   Display version info
+");
+}
+
+fn del(env: &mut Environment, args: &Vec<String>) {
+    if args.is_empty() {
+        env.write(b"Usage: DEL <filename>\n");
+        return;
+    }
+    let file_path = env.full_file_path(&args[0]);
+    let handle = create_file_handle();
+    let result = io_sync(
+        handle,
+        FILE_OP_UNLINK,
+        file_path.as_ptr() as u32,
+        file_path.len() as u32,
+        0,
+    );
+    let _ = close_sync(handle);
+    match result {
+        Ok(_) => {}
+        Err(IoError::NotFound) => env.write(b"File not found\n"),
+        Err(_) => env.write(b"Failed to delete file\n"),
+    }
+}
+
+fn mkdir_cmd(env: &mut Environment, args: &Vec<String>) {
+    if args.is_empty() {
+        env.write(b"Usage: MKDIR <dirname>\n");
+        return;
+    }
+    let dir_path = env.full_file_path(&args[0]);
+    let handle = create_file_handle();
+    let result = io_sync(
+        handle,
+        FILE_OP_MKDIR,
+        dir_path.as_ptr() as u32,
+        dir_path.len() as u32,
+        0,
+    );
+    let _ = close_sync(handle);
+    match result {
+        Ok(_) => {}
+        Err(_) => env.write(b"Failed to create directory\n"),
+    }
+}
+
+fn rmdir_cmd(env: &mut Environment, args: &Vec<String>) {
+    if args.is_empty() {
+        env.write(b"Usage: RMDIR <dirname>\n");
+        return;
+    }
+    let dir_path = env.full_file_path(&args[0]);
+    let handle = create_file_handle();
+    let result = io_sync(
+        handle,
+        FILE_OP_RMDIR,
+        dir_path.as_ptr() as u32,
+        dir_path.len() as u32,
+        0,
+    );
+    let _ = close_sync(handle);
+    match result {
+        Ok(_) => {}
+        Err(IoError::NotFound) => env.write(b"Directory not found\n"),
+        Err(IoError::ResourceInUse) => env.write(b"Directory is not empty\n"),
+        Err(_) => env.write(b"Failed to remove directory\n"),
+    }
+}
+
+fn do_rename(env: &mut Environment, src_path: &str, dest_path: &str) -> Result<(), IoError> {
+    let total_len = src_path.len() + dest_path.len();
+    let mut combined = [0u8; 512];
+    combined[..src_path.len()].copy_from_slice(src_path.as_bytes());
+    combined[src_path.len()..total_len].copy_from_slice(dest_path.as_bytes());
+    let packed_lens = (src_path.len() as u32) | ((dest_path.len() as u32) << 16);
+
+    let handle = create_file_handle();
+    let result = io_sync(
+        handle,
+        FILE_OP_RENAME,
+        combined.as_ptr() as u32,
+        total_len as u32,
+        packed_lens,
+    );
+    let _ = close_sync(handle);
+    result.map(|_| ())
+}
+
+fn ren(env: &mut Environment, args: &Vec<String>) {
+    if args.len() < 2 {
+        env.write(b"Usage: REN <old> <new>\n");
+        return;
+    }
+    let src_path = env.full_file_path(&args[0]);
+    let dest_path = env.full_file_path(&args[1]);
+    match do_rename(env, &src_path, &dest_path) {
+        Ok(_) => {}
+        Err(IoError::CrossDeviceLink) => {
+            env.write(b"Cannot rename across drives. Use MOVE instead.\n");
+        }
+        Err(IoError::NotFound) => env.write(b"File not found\n"),
+        Err(_) => env.write(b"Failed to rename\n"),
+    }
+}
+
+fn copy_file(env: &mut Environment, src_path: &str, dest_path: &str) -> Result<u32, ()> {
+    let src_handle = create_file_handle();
+    match open_sync(src_handle, src_path, 0) {
+        Ok(_) => {}
+        Err(_) => {
+            env.write(b"Failed to open source file\n");
+            return Err(());
+        }
+    }
+
+    let dest_handle = create_file_handle();
+    match open_sync(dest_handle, dest_path, OPEN_FLAG_CREATE) {
+        Ok(_) => {}
+        Err(_) => {
+            let _ = close_sync(src_handle);
+            env.write(b"Failed to create destination file\n");
+            return Err(());
+        }
+    }
+
+    let buffer = get_io_buffer();
+    let mut offset: u32 = 0;
+    loop {
+        let bytes_read = match read_sync(src_handle, buffer, offset) {
+            Ok(n) => n,
+            Err(_) => {
+                env.write(b"Error reading source file\n");
+                let _ = close_sync(src_handle);
+                let _ = close_sync(dest_handle);
+                return Err(());
+            }
+        };
+        if bytes_read == 0 {
+            break;
+        }
+        match write_sync(dest_handle, &buffer[..bytes_read as usize], offset) {
+            Ok(_) => {}
+            Err(_) => {
+                env.write(b"Error writing destination file\n");
+                let _ = close_sync(src_handle);
+                let _ = close_sync(dest_handle);
+                return Err(());
+            }
+        }
+        offset += bytes_read;
+        if (bytes_read as usize) < buffer.len() {
+            break;
+        }
+    }
+
+    let _ = close_sync(src_handle);
+    let _ = close_sync(dest_handle);
+    Ok(offset)
+}
+
+fn copy(env: &mut Environment, args: &Vec<String>) {
+    if args.len() < 2 {
+        env.write(b"Usage: COPY <source> <dest>\n");
+        return;
+    }
+    let src_path = env.full_file_path(&args[0]);
+    let dest_path = env.full_file_path(&args[1]);
+    match copy_file(env, &src_path, &dest_path) {
+        Ok(bytes) => {
+            let msg = alloc::format!("        {} file(s) copied ({} bytes)\n", 1, bytes);
+            env.write(msg.as_bytes());
+        }
+        Err(_) => {}
+    }
+}
+
+fn move_cmd(env: &mut Environment, args: &Vec<String>) {
+    if args.len() < 2 {
+        env.write(b"Usage: MOVE <source> <dest>\n");
+        return;
+    }
+    let src_path = env.full_file_path(&args[0]);
+    let dest_path = env.full_file_path(&args[1]);
+
+    // Try rename first (fast path, same filesystem)
+    match do_rename(env, &src_path, &dest_path) {
+        Ok(_) => {
+            env.write(b"        1 file(s) moved.\n");
+            return;
+        }
+        Err(IoError::CrossDeviceLink) => {
+            // Fall through to copy + delete
+        }
+        Err(IoError::NotFound) => {
+            env.write(b"File not found\n");
+            return;
+        }
+        Err(_) => {
+            env.write(b"Failed to move file\n");
+            return;
+        }
+    }
+
+    // Cross-filesystem move: copy then delete source
+    match copy_file(env, &src_path, &dest_path) {
+        Ok(_) => {
+            // Delete source
+            let handle = create_file_handle();
+            let result = io_sync(
+                handle,
+                FILE_OP_UNLINK,
+                src_path.as_ptr() as u32,
+                src_path.len() as u32,
+                0,
+            );
+            let _ = close_sync(handle);
+            match result {
+                Ok(_) => {
+                    env.write(b"        1 file(s) moved.\n");
+                }
+                Err(_) => {
+                    env.write(b"File copied but failed to delete source\n");
+                }
+            }
+        }
+        Err(_) => {}
+    }
 }
 
 fn type_file(env: &mut Environment, args: &Vec<String>) {

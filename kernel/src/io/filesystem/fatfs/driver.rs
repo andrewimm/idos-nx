@@ -199,7 +199,7 @@ impl AsyncDriver for FatDriver {
         }
 
         // Add entry to root directory (attribute 0x10 = directory)
-        let root = self.fs.borrow().get_root_directory();
+        let root = fs.get_root_directory();
         root.add_entry(&filename, &ext, 0x10, cluster as u16, &mut fs.disk)
             .ok_or(IoError::OperationFailed)?;
 
@@ -221,8 +221,8 @@ impl AsyncDriver for FatDriver {
         }
 
         let table = self.get_table();
-        let root = self.fs.borrow().get_root_directory();
         let mut fs = self.fs.borrow_mut();
+        let root = fs.get_root_directory();
 
         // Remove the directory entry
         let removed = root.remove_entry(&filename, &ext, &mut fs.disk)
@@ -264,8 +264,8 @@ impl AsyncDriver for FatDriver {
             return Err(IoError::InvalidArgument);
         }
 
-        let root = self.fs.borrow().get_root_directory();
         let mut fs = self.fs.borrow_mut();
+        let root = fs.get_root_directory();
 
         // Remove the directory entry
         root.remove_entry(&filename, &ext, &mut fs.disk)
@@ -299,8 +299,8 @@ impl AsyncDriver for FatDriver {
         let (old_filename, old_ext) = parse_short_name(old_path);
         let (new_filename, new_ext) = parse_short_name(new_path);
 
-        let root = self.fs.borrow().get_root_directory();
         let mut fs = self.fs.borrow_mut();
+        let root = fs.get_root_directory();
 
         // Remove the old entry (marks it as deleted, returns the DirEntry data)
         let mut entry = root.remove_entry(&old_filename, &old_ext, &mut fs.disk)
@@ -310,7 +310,7 @@ impl AsyncDriver for FatDriver {
         entry.set_filename(&new_filename, &new_ext);
 
         // Write the entry into a free slot with the new name
-        let root = self.fs.borrow().get_root_directory();
+        let root = fs.get_root_directory();
         root.write_entry(&entry, &mut fs.disk)
             .ok_or(IoError::OperationFailed)?;
 
