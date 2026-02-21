@@ -4,10 +4,10 @@ use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
 use crate::{
     files::path::Path,
     io::{
-        async_io::{AsyncOpID, FILE_OP_IOCTL, FILE_OP_MKDIR, FILE_OP_RMDIR, FILE_OP_STAT, FILE_OP_UNLINK},
+        async_io::{AsyncOpID, FILE_OP_IOCTL, FILE_OP_MKDIR, FILE_OP_RENAME, FILE_OP_RMDIR, FILE_OP_STAT, FILE_OP_UNLINK},
         filesystem::{
             driver::DriverID, driver_close, driver_ioctl, driver_mkdir, driver_open, driver_read,
-            driver_rmdir, driver_share, driver_stat, driver_unlink, driver_write,
+            driver_rename, driver_rmdir, driver_share, driver_stat, driver_unlink, driver_write,
             get_driver_id_by_name,
         },
         handle::Handle,
@@ -253,6 +253,41 @@ impl IOProvider for FileIOProvider {
                     FILE_OP_RMDIR => driver_rmdir(driver_id, path, io_cb),
                     _ => unreachable!(),
                 };
+            }
+            FILE_OP_RENAME => {
+                let buf_ptr = op.args[0] as *const u8;
+                let src_len = (op.args[2] & 0xffff) as usize;
+                let dest_len = (op.args[2] >> 16) as usize;
+                let total_len = src_len + dest_len;
+                if src_len == 0 || dest_len == 0 {
+                    return Some(Err(IoError::InvalidArgument));
+                }
+                let buf = unsafe { core::slice::from_raw_parts(buf_ptr, total_len) };
+                let old_str = unsafe {
+                    match core::str::from_utf8(&buf[..src_len]) {
+                        Ok(s) => s,
+                        Err(_) => return Some(Err(IoError::NotFound)),
+                    }
+                };
+                let new_str = unsafe {
+                    match core::str::from_utf8(&buf[src_len..]) {
+                        Ok(s) => s,
+                        Err(_) => return Some(Err(IoError::NotFound)),
+                    }
+                };
+                let (old_driver_id, old_path) = match prepare_file_path(old_str) {
+                    Ok(pair) => pair,
+                    Err(_) => return Some(Err(IoError::NotFound)),
+                };
+                let (new_driver_id, new_path) = match prepare_file_path(new_str) {
+                    Ok(pair) => pair,
+                    Err(_) => return Some(Err(IoError::NotFound)),
+                };
+                if old_driver_id != new_driver_id {
+                    return Some(Err(IoError::CrossDeviceLink));
+                }
+                let io_cb = (self.source_id.load(Ordering::SeqCst), provider_index, id);
+                return driver_rename(old_driver_id, old_path, new_path, io_cb);
             }
             _ => {}
         }

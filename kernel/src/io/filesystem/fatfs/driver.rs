@@ -280,6 +280,44 @@ impl AsyncDriver for FatDriver {
         Ok(0)
     }
 
+    fn rename(&mut self, old_path: &str, new_path: &str) -> Result<u32, IoError> {
+        super::LOGGER.log(format_args!("Rename \"{}\" -> \"{}\"", old_path, new_path));
+
+        let root = self.fs.borrow().get_root_directory();
+
+        // Check that the source entry exists
+        if root.find_entry(old_path, &mut self.fs.borrow_mut().disk).is_none() {
+            return Err(IoError::NotFound);
+        }
+
+        // Check that the destination does not already exist
+        let root = self.fs.borrow().get_root_directory();
+        if root.find_entry(new_path, &mut self.fs.borrow_mut().disk).is_some() {
+            return Err(IoError::AlreadyOpen);
+        }
+
+        let (old_filename, old_ext) = parse_short_name(old_path);
+        let (new_filename, new_ext) = parse_short_name(new_path);
+
+        let root = self.fs.borrow().get_root_directory();
+        let mut fs = self.fs.borrow_mut();
+
+        // Remove the old entry (marks it as deleted, returns the DirEntry data)
+        let mut entry = root.remove_entry(&old_filename, &old_ext, &mut fs.disk)
+            .ok_or(IoError::NotFound)?;
+
+        // Update the filename to the new name
+        entry.set_filename(&new_filename, &new_ext);
+
+        // Write the entry into a free slot with the new name
+        let root = self.fs.borrow().get_root_directory();
+        root.write_entry(&entry, &mut fs.disk)
+            .ok_or(IoError::OperationFailed)?;
+
+        fs.disk.flush_all();
+        Ok(0)
+    }
+
     fn create_mapping(&mut self, path: &str) -> Result<DriverMappingToken, IoError> {
         super::LOGGER.log(format_args!("CreateMapping \"{}\"", path));
 

@@ -4,7 +4,7 @@ use core::ffi::{c_char, c_int, c_void, VaList};
 use core::ptr;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use idos_api::io::{AsyncOp, Handle, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE, FILE_OP_STAT, FILE_OP_IOCTL, OPEN_FLAG_CREATE, OPEN_FLAG_EXCLUSIVE};
+use idos_api::io::{AsyncOp, Handle, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE, FILE_OP_STAT, FILE_OP_IOCTL, FILE_OP_RENAME, OPEN_FLAG_CREATE, OPEN_FLAG_EXCLUSIVE};
 use idos_api::syscall::exec::futex_wait_u32;
 use idos_api::syscall::io::{append_io_op, create_file_handle};
 
@@ -1153,8 +1153,81 @@ pub unsafe extern "C" fn remove(path: *const c_char) -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn rename(_old: *const c_char, _new: *const c_char) -> c_int {
-    -1 // stub
+pub unsafe extern "C" fn rename(old: *const c_char, new: *const c_char) -> c_int {
+    if old.is_null() || new.is_null() {
+        return -1;
+    }
+
+    // Translate both paths into a single buffer, concatenated
+    let mut old_buf = [0u8; 256];
+    let old_len = translate_path_raw(old, &mut old_buf);
+    let mut new_buf = [0u8; 256];
+    let new_len = translate_path_raw(new, &mut new_buf);
+
+    // Pack both paths into one contiguous buffer
+    let total_len = old_len + new_len;
+    let mut combined = [0u8; 512];
+    combined[..old_len].copy_from_slice(&old_buf[..old_len]);
+    combined[old_len..total_len].copy_from_slice(&new_buf[..new_len]);
+
+    let packed_lens = (old_len as u32) | ((new_len as u32) << 16);
+
+    let handle = create_file_handle();
+    let result = io_sync(
+        handle,
+        FILE_OP_RENAME,
+        combined.as_ptr() as u32,
+        total_len as u32,
+        packed_lens,
+    );
+    io_sync(handle, ASYNC_OP_CLOSE, 0, 0, 0).ok();
+
+    match result {
+        Ok(_) => 0,
+        Err(err_code) => {
+            // CrossDeviceLink = 13: fall back to copy + delete
+            if err_code == 13 {
+                return rename_cross_device(old, new);
+            }
+            -1
+        }
+    }
+}
+
+unsafe fn rename_cross_device(old: *const c_char, new: *const c_char) -> c_int {
+    // Open source for reading
+    let src = fopen(old, c"r".as_ptr());
+    if src.is_null() {
+        return -1;
+    }
+
+    // Open destination for writing (create)
+    let dst = fopen(new, c"w".as_ptr());
+    if dst.is_null() {
+        fclose(src);
+        return -1;
+    }
+
+    // Copy contents
+    let mut buf = [0u8; 512];
+    loop {
+        let n = fread(buf.as_mut_ptr() as *mut c_void, 1, buf.len(), src);
+        if n == 0 {
+            break;
+        }
+        let written = fwrite(buf.as_ptr() as *const c_void, 1, n, dst);
+        if written < n {
+            fclose(src);
+            fclose(dst);
+            return -1;
+        }
+    }
+
+    fclose(src);
+    fclose(dst);
+
+    // Delete the original
+    crate::unistd::unlink(old)
 }
 
 // ---- tmpfile ----

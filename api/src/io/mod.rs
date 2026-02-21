@@ -22,6 +22,7 @@ pub const FILE_OP_IOCTL: u32 = 0x11;
 pub const FILE_OP_MKDIR: u32 = 0x12;
 pub const FILE_OP_RMDIR: u32 = 0x13;
 pub const FILE_OP_UNLINK: u32 = 0x14;
+pub const FILE_OP_RENAME: u32 = 0x15;
 
 pub const OPEN_FLAG_CREATE: u32 = 0x1;
 pub const OPEN_FLAG_EXCLUSIVE: u32 = 0x2;

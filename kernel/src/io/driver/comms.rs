@@ -81,6 +81,13 @@ pub enum DriverIoAction {
         path_str_vaddr: VirtualAddress,
         path_str_len: usize,
     },
+    /// Rename or move a file/directory within the same filesystem.
+    /// Both paths are concatenated in a single shared buffer.
+    Rename {
+        path_str_vaddr: VirtualAddress,
+        src_len: usize,
+        dest_len: usize,
+    },
     /// Copy file contents into memory frame
     PageInFileMapping {
         mapping_token: u32,
@@ -226,6 +233,15 @@ impl DriverIoAction {
                 message_type: DriverCommand::Rmdir as u32,
                 unique_id: request_id,
                 args: [path_str_vaddr.as_u32(), *path_str_len as u32, 0, 0, 0, 0],
+            },
+            Self::Rename {
+                path_str_vaddr,
+                src_len,
+                dest_len,
+            } => Message {
+                message_type: DriverCommand::Rename as u32,
+                unique_id: request_id,
+                args: [path_str_vaddr.as_u32(), *src_len as u32, *dest_len as u32, 0, 0, 0],
             },
             Self::CreateFileMapping {
                 path_str_vaddr,

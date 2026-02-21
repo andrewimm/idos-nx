@@ -26,6 +26,8 @@ pub enum IoError {
     ResourceInUse,
     /// Maxed out a resource limit, like the number of open files or sockets
     ResourceLimitExceeded,
+    /// Attempted to rename/move across different filesystems
+    CrossDeviceLink,
 
     Unknown = 0xffffffff,
 }
@@ -45,6 +47,9 @@ impl TryFrom<u32> for IoError {
             8 => Ok(Self::AlreadyOpen),
             9 => Ok(Self::WriteToClosedIO),
             10 => Ok(Self::InvalidArgument),
+            11 => Ok(Self::ResourceInUse),
+            12 => Ok(Self::ResourceLimitExceeded),
+            13 => Ok(Self::CrossDeviceLink),
             _ => Ok(Self::Unknown),
         }
     }

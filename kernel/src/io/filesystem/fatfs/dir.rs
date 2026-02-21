@@ -259,8 +259,31 @@ impl RootDirectory {
         }
     }
 
-    /// Add a new directory entry to the root directory.
+    /// Write a DirEntry into the first free slot in the root directory.
     /// Returns the disk offset of the newly written entry.
+    pub fn write_entry(
+        &self,
+        entry: &DirEntry,
+        disk: &mut DiskAccess,
+    ) -> Option<u32> {
+        let dir_offset = self.first_sector * 512;
+        let entry_size = core::mem::size_of::<DirEntry>() as u32;
+
+        for i in 0..self.max_entries {
+            let offset = dir_offset + i * entry_size;
+            let mut slot = DirEntry::new();
+            disk.read_struct_from_disk(offset, &mut slot);
+
+            if slot.file_name[0] == 0x00 || slot.file_name[0] == 0xE5 {
+                disk.write_struct_to_disk(offset, entry);
+                return Some(offset);
+            }
+        }
+        None
+    }
+
+    /// Create a new directory entry with fresh timestamps and write it to
+    /// the first free slot. Returns the disk offset of the newly written entry.
     pub fn add_entry(
         &self,
         filename: &[u8; 8],
@@ -269,36 +292,21 @@ impl RootDirectory {
         first_cluster: u16,
         disk: &mut DiskAccess,
     ) -> Option<u32> {
-        let dir_offset = self.first_sector * 512;
-        let entry_size = core::mem::size_of::<DirEntry>() as u32;
+        let mut new_entry = DirEntry::new();
+        new_entry.set_filename(filename, ext);
+        new_entry.set_attributes(attributes);
+        new_entry.set_first_cluster(first_cluster);
 
-        for i in 0..self.max_entries {
-            let offset = dir_offset + i * entry_size;
-            let mut entry = DirEntry::new();
-            disk.read_struct_from_disk(offset, &mut entry);
+        let now = crate::time::system::Timestamp::now().to_datetime();
+        let fat_date = FileDate::from_system_date(&now.date);
+        let fat_time = FileTime::from_system_time(&now.time);
+        new_entry.creation_date = fat_date;
+        new_entry.creation_time = fat_time;
+        new_entry.last_modify_date = fat_date;
+        new_entry.last_modify_time = fat_time;
+        new_entry.access_date = fat_date;
 
-            // A slot is free if first byte is 0x00 (end of directory) or 0xE5 (deleted)
-            if entry.file_name[0] == 0x00 || entry.file_name[0] == 0xE5 {
-                let mut new_entry = DirEntry::new();
-                new_entry.set_filename(filename, ext);
-                new_entry.set_attributes(attributes);
-                new_entry.set_first_cluster(first_cluster);
-
-                // Set creation and modification timestamps
-                let now = crate::time::system::Timestamp::now().to_datetime();
-                let fat_date = FileDate::from_system_date(&now.date);
-                let fat_time = FileTime::from_system_time(&now.time);
-                new_entry.creation_date = fat_date;
-                new_entry.creation_time = fat_time;
-                new_entry.last_modify_date = fat_date;
-                new_entry.last_modify_time = fat_time;
-                new_entry.access_date = fat_date;
-
-                disk.write_struct_to_disk(offset, &new_entry);
-                return Some(offset);
-            }
-        }
-        None // no free slots
+        self.write_entry(&new_entry, disk)
     }
 
     /// Remove a directory entry by name. Sets the first byte to 0xE5 (deleted marker).

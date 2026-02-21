@@ -281,6 +281,51 @@ pub fn driver_rmdir(
     )
 }
 
+pub fn driver_rename(
+    driver_id: DriverID,
+    old_path: Path,
+    new_path: Path,
+    io_callback: AsyncIOCallback,
+) -> Option<IoResult> {
+    let old_len = old_path.as_str().len();
+    let new_len = new_path.as_str().len();
+    if old_len == 0 || new_len == 0 {
+        return Some(Err(IoError::InvalidArgument));
+    }
+
+    with_driver(driver_id, |driver| {
+        match driver {
+            DriverType::KernelFilesystem(fs) => {
+                return fs.rename(old_path.as_str(), new_path.as_str(), io_callback);
+            }
+            DriverType::KernelDevice(_) | DriverType::TaskDevice(_, _) => {
+                return Some(Err(IoError::UnsupportedOperation));
+            }
+            DriverType::TaskFilesystem(task) => {
+                let total_len = old_len + new_len;
+                let page_start =
+                    map_memory(None, 0x1000, crate::task::memory::MemoryBacking::FreeMemory)
+                        .unwrap();
+                let buf = unsafe {
+                    core::slice::from_raw_parts_mut(page_start.as_ptr_mut::<u8>(), total_len)
+                };
+                buf[..old_len].copy_from_slice(old_path.as_str().as_bytes());
+                buf[old_len..].copy_from_slice(new_path.as_str().as_bytes());
+                let shared_vaddr = share_buffer(*task, page_start, total_len);
+                release_buffer(page_start, total_len);
+                let action = DriverIoAction::Rename {
+                    path_str_vaddr: shared_vaddr,
+                    src_len: old_len,
+                    dest_len: new_len,
+                };
+
+                send_async_request(*task, io_callback, action);
+                None
+            }
+        }
+    })
+}
+
 pub fn driver_close(id: DriverID, instance: u32, io_callback: AsyncIOCallback) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
         DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {

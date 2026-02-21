@@ -78,6 +78,10 @@ pub trait KernelDriver {
         Some(Err(IoError::UnsupportedOperation))
     }
 
+    fn rename(&self, old_path: &str, new_path: &str, io_callback: AsyncIOCallback) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
+    }
+
     fn create_mapping(&self, path: &str) -> Option<IoResult<DriverMappingToken>> {
         Some(Err(IoError::UnsupportedOperation))
     }

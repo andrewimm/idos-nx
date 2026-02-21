@@ -22,6 +22,7 @@ pub enum DriverCommand {
     Mkdir,
     Unlink,
     Rmdir,
+    Rename,
     // Every time a new command is added, modify the method below that decodes the command
     Invalid = 0xffffffff,
 }
@@ -43,6 +44,7 @@ impl DriverCommand {
             12 => DriverCommand::Mkdir,
             13 => DriverCommand::Unlink,
             14 => DriverCommand::Rmdir,
+            15 => DriverCommand::Rename,
             _ => DriverCommand::Invalid,
         }
     }
@@ -265,6 +267,21 @@ pub trait AsyncDriver {
                 self.release_buffer(path_ptr, path_len);
                 Some(result)
             }
+            DriverCommand::Rename => {
+                let buf_ptr = message.args[0] as *mut u8;
+                let src_len = message.args[1] as usize;
+                let dest_len = message.args[2] as usize;
+                let total_len = src_len + dest_len;
+                if src_len == 0 || dest_len == 0 {
+                    return Some(Err(IoError::InvalidArgument));
+                }
+                let buf_slice = unsafe { core::slice::from_raw_parts(buf_ptr, total_len) };
+                let old_path = core::str::from_utf8(&buf_slice[..src_len]).ok()?;
+                let new_path = core::str::from_utf8(&buf_slice[src_len..]).ok()?;
+                let result = self.rename(old_path, new_path);
+                self.release_buffer(buf_ptr, total_len);
+                Some(result)
+            }
             DriverCommand::Invalid => Some(Err(IoError::UnsupportedCommand)),
         }
     }
@@ -416,6 +433,11 @@ pub trait AsyncDriver {
 
     /// Remove an empty directory at the given path.
     fn rmdir(&mut self, path: &str) -> IoResult {
+        Err(IoError::UnsupportedOperation)
+    }
+
+    /// Rename or move a file or directory within the same filesystem.
+    fn rename(&mut self, old_path: &str, new_path: &str) -> IoResult {
         Err(IoError::UnsupportedOperation)
     }
 }
