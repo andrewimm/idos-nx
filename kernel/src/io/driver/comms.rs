@@ -12,6 +12,7 @@ pub enum DriverIoAction {
     Open {
         path_str_vaddr: VirtualAddress,
         path_str_len: usize,
+        flags: u32,
     },
     /// Open a handle to the driver itself, with no path.
     /// The argument provides a way to embed a unique instance identifier
@@ -94,10 +95,11 @@ impl DriverIoAction {
             Self::Open {
                 path_str_vaddr,
                 path_str_len,
+                flags,
             } => Message {
                 message_type: DriverCommand::Open as u32,
                 unique_id: request_id,
-                args: [path_str_vaddr.as_u32(), *path_str_len as u32, 0, 0, 0, 0],
+                args: [path_str_vaddr.as_u32(), *path_str_len as u32, *flags, 0, 0, 0],
             },
             Self::OpenRaw { driver_id } => Message {
                 message_type: DriverCommand::OpenRaw as u32,

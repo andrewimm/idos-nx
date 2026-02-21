@@ -125,15 +125,16 @@ where
 pub fn driver_open(
     driver_id: DriverID,
     path: Path,
+    flags: u32,
     io_callback: AsyncIOCallback,
 ) -> Option<IoResult> {
     with_driver(driver_id, |driver| {
         match driver {
             DriverType::KernelFilesystem(fs) => {
-                return fs.open(Some(path), io_callback);
+                return fs.open(Some(path), flags, io_callback);
             }
             DriverType::KernelDevice(dev) => {
-                return dev.open(None, io_callback);
+                return dev.open(None, 0, io_callback);
             }
             DriverType::TaskDevice(dev, sub) => {
                 let action = DriverIoAction::OpenRaw { driver_id: *sub };
@@ -161,6 +162,7 @@ pub fn driver_open(
                     DriverIoAction::Open {
                         path_str_vaddr: VirtualAddress::new(0),
                         path_str_len: 0,
+                        flags,
                     }
                 } else {
                     // create a new frame of memory
@@ -176,6 +178,7 @@ pub fn driver_open(
                     DriverIoAction::Open {
                         path_str_vaddr: shared_vaddr,
                         path_str_len: path_len,
+                        flags,
                     }
                 };
 

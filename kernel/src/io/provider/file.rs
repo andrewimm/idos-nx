@@ -136,6 +136,7 @@ impl IOProvider for FileIOProvider {
                 Err(_) => return Some(Err(IoError::NotFound)),
             }
         };
+        let flags = op.args[2];
         let (driver_id, path) = match prepare_file_path(path_str) {
             Ok(pair) => pair,
             Err(_) => return Some(Err(IoError::NotFound)),
@@ -144,6 +145,7 @@ impl IOProvider for FileIOProvider {
         driver_open(
             driver_id,
             path,
+            flags,
             (self.source_id.load(Ordering::SeqCst), provider_index, id),
         )
     }

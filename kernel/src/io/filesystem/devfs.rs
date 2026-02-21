@@ -65,7 +65,7 @@ impl DevFileSystem {
 }
 
 impl KernelDriver for DevFileSystem {
-    fn open(&self, _path: Option<Path>, _io_callback: AsyncIOCallback) -> Option<IoResult> {
+    fn open(&self, _path: Option<Path>, _flags: u32, _io_callback: AsyncIOCallback) -> Option<IoResult> {
         Some(Ok(self.open_root_listing()))
     }
 

@@ -137,7 +137,7 @@ impl SysFS {
 }
 
 impl KernelDriver for SysFS {
-    fn open(&self, path: Option<Path>, _io_callback: AsyncIOCallback) -> Option<IoResult> {
+    fn open(&self, path: Option<Path>, _flags: u32, _io_callback: AsyncIOCallback) -> Option<IoResult> {
         match path {
             Some(p) => Some(self.open_impl(p)),
             None => Some(Err(IoError::NotFound)),

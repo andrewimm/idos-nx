@@ -128,7 +128,8 @@ pub trait AsyncDriver {
                     let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
                     core::str::from_utf8(path_slice).ok()?
                 };
-                Some(self.open(path).map(|file_ref| *file_ref))
+                let flags = message.args[2];
+                Some(self.open(path, flags).map(|file_ref| *file_ref))
             }
             DriverCommand::OpenRaw => {
                 // Convert to str without allocation:
@@ -136,7 +137,7 @@ pub trait AsyncDriver {
                 // leading zeros
                 let mut digits: [u8; 10] = [0; 10];
                 let id_as_path = number_to_utf8_bytes(message.args[0], &mut digits).ok()?;
-                Some(self.open(id_as_path).map(|file_ref| *file_ref))
+                Some(self.open(id_as_path, 0).map(|file_ref| *file_ref))
             }
             DriverCommand::Close => {
                 let file_ref = DriverFileReference(message.args[0]);
@@ -276,7 +277,7 @@ pub trait AsyncDriver {
     /// On success, the driver returns a DriverFileReference, which is used for
     /// all IO operations on that file until it is closed.
     /// On failure, the driver returns an IoError.
-    fn open(&mut self, path: &str) -> IoResult<DriverFileReference> {
+    fn open(&mut self, path: &str, flags: u32) -> IoResult<DriverFileReference> {
         Err(IoError::UnsupportedOperation)
     }
 

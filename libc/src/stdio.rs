@@ -4,7 +4,7 @@ use core::ffi::{c_char, c_int, c_void, VaList};
 use core::ptr;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use idos_api::io::{AsyncOp, Handle, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE, FILE_OP_STAT, FILE_OP_IOCTL};
+use idos_api::io::{AsyncOp, Handle, ASYNC_OP_CLOSE, ASYNC_OP_OPEN, ASYNC_OP_READ, ASYNC_OP_WRITE, FILE_OP_STAT, FILE_OP_IOCTL, OPEN_FLAG_CREATE};
 use idos_api::syscall::exec::futex_wait_u32;
 use idos_api::syscall::io::{append_io_op, create_file_handle};
 
@@ -192,13 +192,26 @@ pub unsafe extern "C" fn fopen(path: *const c_char, mode: *const c_char) -> *mut
     let mut path_buf = [0u8; 256];
     let path_len = translate_path(path, &mut path_buf);
 
+    // Determine open flags from mode
+    let mut open_flags: u32 = 0;
+    if !mode.is_null() {
+        let mut m = mode;
+        while *m != 0 {
+            if *m as u8 == b'w' || *m as u8 == b'a' {
+                open_flags |= OPEN_FLAG_CREATE;
+                break;
+            }
+            m = m.add(1);
+        }
+    }
+
     // Open the file
     let result = io_sync(
         handle,
         ASYNC_OP_OPEN,
         path_buf.as_ptr() as u32,
         path_len as u32,
-        0,
+        open_flags,
     );
 
     if result.is_err() {

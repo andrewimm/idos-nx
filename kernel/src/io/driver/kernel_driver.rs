@@ -12,7 +12,7 @@ use crate::{files::path::Path, io::filesystem::driver::AsyncIOCallback, task::id
 pub trait KernelDriver {
     #![allow(unused_variables)]
 
-    fn open(&self, path: Option<Path>, io_callback: AsyncIOCallback) -> Option<IoResult>;
+    fn open(&self, path: Option<Path>, flags: u32, io_callback: AsyncIOCallback) -> Option<IoResult>;
 
     fn close(&self, instance: u32, io_callback: AsyncIOCallback) -> Option<IoResult>;
 

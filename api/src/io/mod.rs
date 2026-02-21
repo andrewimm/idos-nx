@@ -23,6 +23,9 @@ pub const FILE_OP_MKDIR: u32 = 0x12;
 pub const FILE_OP_RMDIR: u32 = 0x13;
 pub const FILE_OP_UNLINK: u32 = 0x14;
 
+pub const OPEN_FLAG_CREATE: u32 = 0x1;
+pub const OPEN_FLAG_EXCLUSIVE: u32 = 0x2;
+
 /// All async operations on handles are performed by passing an AsyncOp object
 /// to the kernel. The fields are used to determine which action to take.
 #[repr(C)]

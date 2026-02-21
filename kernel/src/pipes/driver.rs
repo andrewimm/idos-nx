@@ -349,7 +349,7 @@ impl PipeDriver {
 }
 
 impl KernelDriver for PipeDriver {
-    fn open(&self, _path: Option<Path>, _io_callback: AsyncIOCallback) -> Option<IoResult> {
+    fn open(&self, _path: Option<Path>, _flags: u32, _io_callback: AsyncIOCallback) -> Option<IoResult> {
         Some(Err(IoError::UnsupportedOperation))
     }
 

@@ -44,7 +44,7 @@ pub mod sync_fs {
     }
 
     impl KernelDriver for TestSyncFS {
-        fn open(&self, path: Option<Path>, _: AsyncIOCallback) -> Option<IoResult> {
+        fn open(&self, path: Option<Path>, _flags: u32, _: AsyncIOCallback) -> Option<IoResult> {
             let result = match path {
                 Some(path) => {
                     if path.as_str() == "MYFILE.TXT" {
@@ -146,7 +146,7 @@ pub mod async_fs {
             release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
         }
 
-        fn open(&mut self, path: &str) -> IoResult<DriverFileReference> {
+        fn open(&mut self, path: &str, _flags: u32) -> IoResult<DriverFileReference> {
             crate::kprintln!("Async open \"{}\"", path);
             if path == "MYFILE.TXT" {
                 let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
@@ -293,7 +293,7 @@ pub mod async_dev {
             release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
         }
 
-        fn open(&mut self, _path: &str) -> IoResult<DriverFileReference> {
+        fn open(&mut self, _path: &str, _flags: u32) -> IoResult<DriverFileReference> {
             let instance = self.next_instance.fetch_add(1, Ordering::SeqCst);
             self.open_files.write().insert(instance, OpenFile::new());
             Ok(DriverFileReference::new(instance))

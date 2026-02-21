@@ -50,15 +50,40 @@ impl AsyncDriver for FatDriver {
         release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
     }
 
-    fn open(&mut self, path: &str) -> Result<DriverFileReference, IoError> {
-        super::LOGGER.log(format_args!("Open \"{}\"", path));
+    fn open(&mut self, path: &str, flags: u32) -> Result<DriverFileReference, IoError> {
+        use idos_api::io::{OPEN_FLAG_CREATE, OPEN_FLAG_EXCLUSIVE};
+
+        super::LOGGER.log(format_args!("Open \"{}\" flags={}", path, flags));
 
         let root = self.fs.borrow().get_root_directory();
         let entity = if path.is_empty() {
             Entity::Dir(Directory::from_root_dir(root))
         } else {
-            root.find_entry(path, &mut self.fs.borrow_mut().disk)
-                .ok_or(IoError::NotFound)?
+            match root.find_entry(path, &mut self.fs.borrow_mut().disk) {
+                Some(entity) => {
+                    if flags & OPEN_FLAG_EXCLUSIVE != 0 && flags & OPEN_FLAG_CREATE != 0 {
+                        return Err(IoError::AlreadyOpen);
+                    }
+                    entity
+                }
+                None => {
+                    if flags & OPEN_FLAG_CREATE == 0 {
+                        return Err(IoError::NotFound);
+                    }
+                    // Create the file
+                    let (filename, ext) = parse_short_name(path);
+                    let root = self.fs.borrow().get_root_directory();
+                    let mut fs = self.fs.borrow_mut();
+                    let disk_offset = root
+                        .add_entry(&filename, &ext, 0x00, 0, &mut fs.disk)
+                        .ok_or(IoError::OperationFailed)?;
+                    // Read back the entry we just wrote
+                    let mut new_entry = super::dir::DirEntry::new();
+                    fs.disk.read_struct_from_disk(disk_offset, &mut new_entry);
+                    fs.disk.flush_all();
+                    Entity::File(File::from_dir_entry(new_entry, disk_offset))
+                }
+            }
         };
         let open_handle = OpenHandle {
             handle_entity: entity,
@@ -158,7 +183,7 @@ impl AsyncDriver for FatDriver {
         let mut fs = self.fs.borrow_mut();
 
         // Allocate a cluster for the new directory's contents
-        let cluster = table.allocate_cluster(&mut fs.disk).ok_or(IoError::DiskFull)?;
+        let cluster = table.allocate_cluster(&mut fs.disk).ok_or(IoError::OperationFailed)?;
 
         // Zero-fill the new directory cluster
         let cluster_location = table.get_cluster_location(cluster);
@@ -173,7 +198,7 @@ impl AsyncDriver for FatDriver {
         // Add entry to root directory (attribute 0x10 = directory)
         let root = self.fs.borrow().get_root_directory();
         root.add_entry(&filename, &ext, 0x10, cluster as u16, &mut fs.disk)
-            .ok_or(IoError::DiskFull)?;
+            .ok_or(IoError::OperationFailed)?;
 
         fs.disk.flush_all();
         Ok(0)

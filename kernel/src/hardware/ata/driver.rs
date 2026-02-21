@@ -53,7 +53,7 @@ impl AsyncDriver for AtaDeviceDriver {
         release_buffer(VirtualAddress::new(buffer_ptr as u32), buffer_len);
     }
 
-    fn open(&mut self, path: &str) -> IoResult<DriverFileReference> {
+    fn open(&mut self, path: &str, _flags: u32) -> IoResult<DriverFileReference> {
         // The `path` should be a stringified version of the driver index.
         // The driver number is 1-indexed, while the internal array is
         // 0-indexed.

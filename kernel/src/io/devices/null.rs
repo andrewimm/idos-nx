@@ -51,7 +51,7 @@ impl NullDev {
 }
 
 impl KernelDriver for NullDev {
-    fn open(&self, _path: Option<Path>, _: AsyncIOCallback) -> Option<IoResult> {
+    fn open(&self, _path: Option<Path>, _flags: u32, _: AsyncIOCallback) -> Option<IoResult> {
         Some(self.open_impl())
     }
 
