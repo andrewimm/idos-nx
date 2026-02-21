@@ -2,7 +2,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use super::dir::{is_subdir_empty, parse_short_name, Directory, Entity, File};
+use super::dir::{is_subdir_empty, parse_short_name, resolve_path, Directory, Entity, File};
 use super::fs::FatFS;
 use super::table::AllocationTable;
 use crate::collections::SlotList;
@@ -59,9 +59,12 @@ impl AsyncDriver for FatDriver {
             let root = self.fs.borrow().get_root_directory();
             Entity::Dir(Directory::from_root_dir(root))
         } else {
-            // Try to find existing entry first
+            let table = self.get_table();
             let root = self.fs.borrow().get_root_directory();
-            let found = root.find_entry(path, &mut self.fs.borrow_mut().disk);
+            let (parent_dir, leaf) = resolve_path(path, root, &table, &mut self.fs.borrow_mut().disk)?;
+
+            // Try to find existing entry first
+            let found = parent_dir.find_entry(leaf, &table, &mut self.fs.borrow_mut().disk);
             match found {
                 Some(entity) => {
                     if flags & OPEN_FLAG_EXCLUSIVE != 0 && flags & OPEN_FLAG_CREATE != 0 {
@@ -74,11 +77,10 @@ impl AsyncDriver for FatDriver {
                         return Err(IoError::NotFound);
                     }
                     // Create the file
-                    let (filename, ext) = parse_short_name(path);
-                    let root = self.fs.borrow().get_root_directory();
+                    let (filename, ext) = parse_short_name(leaf);
                     let mut fs = self.fs.borrow_mut();
-                    let disk_offset = root
-                        .add_entry(&filename, &ext, 0x00, 0, &mut fs.disk)
+                    let disk_offset = parent_dir
+                        .add_entry(&filename, &ext, 0x00, 0, &table, &mut fs.disk)
                         .ok_or(IoError::OperationFailed)?;
                     // Read back the entry we just wrote
                     let mut new_entry = super::dir::DirEntry::new();
@@ -162,10 +164,10 @@ impl AsyncDriver for FatDriver {
                 status.file_type = FileType::File as u32;
                 status.modification_time = f.get_modification_time();
             }
-            Entity::Dir(_) => {
+            Entity::Dir(d) => {
                 status.byte_size = 0;
                 status.file_type = FileType::Dir as u32;
-                status.modification_time = 0;
+                status.modification_time = d.get_modification_time();
             }
         }
         Ok(0)
@@ -174,15 +176,17 @@ impl AsyncDriver for FatDriver {
     fn mkdir(&mut self, path: &str) -> Result<u32, IoError> {
         super::LOGGER.log(format_args!("Mkdir \"{}\"", path));
 
-        let (filename, ext) = parse_short_name(path);
+        let table = self.get_table();
         let root = self.fs.borrow().get_root_directory();
+        let (parent_dir, leaf) = resolve_path(path, root, &table, &mut self.fs.borrow_mut().disk)?;
+
+        let (filename, ext) = parse_short_name(leaf);
 
         // Check if entry already exists
-        if root.find_entry(path, &mut self.fs.borrow_mut().disk).is_some() {
+        if parent_dir.find_entry(leaf, &table, &mut self.fs.borrow_mut().disk).is_some() {
             return Err(IoError::AlreadyOpen);
         }
 
-        let table = self.get_table();
         let mut fs = self.fs.borrow_mut();
 
         // Allocate a cluster for the new directory's contents
@@ -198,9 +202,18 @@ impl AsyncDriver for FatDriver {
             offset += to_write;
         }
 
-        // Add entry to root directory (attribute 0x10 = directory)
-        let root = fs.get_root_directory();
-        root.add_entry(&filename, &ext, 0x10, cluster as u16, &mut fs.disk)
+        // Write "." and ".." entries into the new directory
+        let parent_cluster = parent_dir.first_cluster() as u16;
+        let new_subdir = super::dir::SubDirectory::new(cluster);
+        let dot_name: [u8; 8] = [b'.', 0x20, 0x20, 0x20, 0x20, 0x20, 0x20, 0x20];
+        let dotdot_name: [u8; 8] = [b'.', b'.', 0x20, 0x20, 0x20, 0x20, 0x20, 0x20];
+        let no_ext: [u8; 3] = [0x20; 3];
+        new_subdir.add_entry(&dot_name, &no_ext, 0x10, cluster as u16, &table, &mut fs.disk);
+        new_subdir.add_entry(&dotdot_name, &no_ext, 0x10, parent_cluster, &table, &mut fs.disk);
+
+        // Add entry to parent directory (attribute 0x10 = directory)
+        parent_dir
+            .add_entry(&filename, &ext, 0x10, cluster as u16, &table, &mut fs.disk)
             .ok_or(IoError::OperationFailed)?;
 
         fs.disk.flush_all();
@@ -210,22 +223,23 @@ impl AsyncDriver for FatDriver {
     fn unlink(&mut self, path: &str) -> Result<u32, IoError> {
         super::LOGGER.log(format_args!("Unlink \"{}\"", path));
 
-        let (filename, ext) = parse_short_name(path);
+        let table = self.get_table();
         let root = self.fs.borrow().get_root_directory();
+        let (parent_dir, leaf) = resolve_path(path, root, &table, &mut self.fs.borrow_mut().disk)?;
+
+        let (filename, ext) = parse_short_name(leaf);
 
         // Check that the entry exists and is a file
-        match root.find_entry(path, &mut self.fs.borrow_mut().disk) {
+        match parent_dir.find_entry(leaf, &table, &mut self.fs.borrow_mut().disk) {
             Some(Entity::File(_)) => {}
             Some(Entity::Dir(_)) => return Err(IoError::InvalidArgument),
             None => return Err(IoError::NotFound),
         }
 
-        let table = self.get_table();
         let mut fs = self.fs.borrow_mut();
-        let root = fs.get_root_directory();
 
         // Remove the directory entry
-        let removed = root.remove_entry(&filename, &ext, &mut fs.disk)
+        let removed = parent_dir.remove_entry(&filename, &ext, &table, &mut fs.disk)
             .ok_or(IoError::NotFound)?;
 
         // Free the cluster chain
@@ -241,14 +255,16 @@ impl AsyncDriver for FatDriver {
     fn rmdir(&mut self, path: &str) -> Result<u32, IoError> {
         super::LOGGER.log(format_args!("Rmdir \"{}\"", path));
 
-        let (filename, ext) = parse_short_name(path);
+        let table = self.get_table();
         let root = self.fs.borrow().get_root_directory();
+        let (parent_dir, leaf) = resolve_path(path, root, &table, &mut self.fs.borrow_mut().disk)?;
+
+        let (filename, ext) = parse_short_name(leaf);
 
         // Check that the entry exists and is a directory
-        let first_cluster = match root.find_entry(path, &mut self.fs.borrow_mut().disk) {
+        let first_cluster = match parent_dir.find_entry(leaf, &table, &mut self.fs.borrow_mut().disk) {
             Some(Entity::Dir(d)) => {
-                // Get the first cluster from the directory's underlying entry
-                match &d.dir_type() {
+                match d.dir_type() {
                     super::dir::DirectoryType::Subdir(entry) => entry.first_file_cluster(),
                     super::dir::DirectoryType::Root(_) => return Err(IoError::InvalidArgument),
                 }
@@ -257,18 +273,15 @@ impl AsyncDriver for FatDriver {
             None => return Err(IoError::NotFound),
         };
 
-        let table = self.get_table();
-
         // Check that directory is empty
         if !is_subdir_empty(first_cluster as u32, &table, &mut self.fs.borrow_mut().disk) {
             return Err(IoError::InvalidArgument);
         }
 
         let mut fs = self.fs.borrow_mut();
-        let root = fs.get_root_directory();
 
         // Remove the directory entry
-        root.remove_entry(&filename, &ext, &mut fs.disk)
+        parent_dir.remove_entry(&filename, &ext, &table, &mut fs.disk)
             .ok_or(IoError::NotFound)?;
 
         // Free the cluster chain
@@ -283,35 +296,40 @@ impl AsyncDriver for FatDriver {
     fn rename(&mut self, old_path: &str, new_path: &str) -> Result<u32, IoError> {
         super::LOGGER.log(format_args!("Rename \"{}\" -> \"{}\"", old_path, new_path));
 
+        let table = self.get_table();
+
+        // Resolve old path
         let root = self.fs.borrow().get_root_directory();
+        let (old_parent, old_leaf) = resolve_path(old_path, root, &table, &mut self.fs.borrow_mut().disk)?;
 
         // Check that the source entry exists
-        if root.find_entry(old_path, &mut self.fs.borrow_mut().disk).is_none() {
+        if old_parent.find_entry(old_leaf, &table, &mut self.fs.borrow_mut().disk).is_none() {
             return Err(IoError::NotFound);
         }
 
-        // Check that the destination does not already exist
+        // Resolve new path
         let root = self.fs.borrow().get_root_directory();
-        if root.find_entry(new_path, &mut self.fs.borrow_mut().disk).is_some() {
+        let (new_parent, new_leaf) = resolve_path(new_path, root, &table, &mut self.fs.borrow_mut().disk)?;
+
+        // Check that the destination does not already exist
+        if new_parent.find_entry(new_leaf, &table, &mut self.fs.borrow_mut().disk).is_some() {
             return Err(IoError::AlreadyOpen);
         }
 
-        let (old_filename, old_ext) = parse_short_name(old_path);
-        let (new_filename, new_ext) = parse_short_name(new_path);
+        let (old_filename, old_ext) = parse_short_name(old_leaf);
+        let (new_filename, new_ext) = parse_short_name(new_leaf);
 
         let mut fs = self.fs.borrow_mut();
-        let root = fs.get_root_directory();
 
         // Remove the old entry (marks it as deleted, returns the DirEntry data)
-        let mut entry = root.remove_entry(&old_filename, &old_ext, &mut fs.disk)
+        let mut entry = old_parent.remove_entry(&old_filename, &old_ext, &table, &mut fs.disk)
             .ok_or(IoError::NotFound)?;
 
         // Update the filename to the new name
         entry.set_filename(&new_filename, &new_ext);
 
-        // Write the entry into a free slot with the new name
-        let root = fs.get_root_directory();
-        root.write_entry(&entry, &mut fs.disk)
+        // Write the entry into the new parent directory
+        new_parent.write_entry(&entry, &table, &mut fs.disk)
             .ok_or(IoError::OperationFailed)?;
 
         fs.disk.flush_all();
@@ -327,9 +345,12 @@ impl AsyncDriver for FatDriver {
             return Ok(DriverMappingToken::new(*token));
         }
 
+        let table = self.get_table();
         let root = self.fs.borrow().get_root_directory();
-        let entity = root
-            .find_entry(path, &mut self.fs.borrow_mut().disk)
+        let (parent_dir, leaf) = resolve_path(path, root, &table, &mut self.fs.borrow_mut().disk)?;
+
+        let entity = parent_dir
+            .find_entry(leaf, &table, &mut self.fs.borrow_mut().disk)
             .ok_or(IoError::NotFound)?;
         let file = match entity {
             Entity::File(f) => f,

@@ -4,6 +4,7 @@ use crate::time::{
     date::{Date, DateTime, Time},
     system::Timestamp,
 };
+use idos_api::io::error::IoError;
 
 use super::{disk::DiskAccess, table::AllocationTable};
 
@@ -425,6 +426,13 @@ impl Directory {
         &self.dir_type
     }
 
+    pub fn get_modification_time(&self) -> u32 {
+        match &self.dir_type {
+            DirectoryType::Root(_) => 0,
+            DirectoryType::Subdir(entry) => entry.get_modification_timestamp().as_u32(),
+        }
+    }
+
     pub fn from_dir_entry(dir_entry: DirEntry) -> Self {
         Self {
             dir_type: DirectoryType::Subdir(dir_entry),
@@ -445,7 +453,7 @@ impl Directory {
         &mut self,
         buffer: &mut [u8],
         offset: u32,
-        _table: AllocationTable,
+        table: AllocationTable,
         disk: &mut DiskAccess,
     ) -> u32 {
         if !self.entries_fetched {
@@ -460,9 +468,14 @@ impl Directory {
                     }
                     self.entries_fetched = true;
                 }
-                DirectoryType::Subdir(_entry) => {
-                    // needs to be implemented
-                    return 0;
+                DirectoryType::Subdir(entry) => {
+                    let subdir = SubDirectory::new(entry.first_file_cluster() as u32);
+                    for (dir_entry, _offset) in subdir.iter(&table, disk) {
+                        let name = dir_entry.get_full_name();
+                        self.entries.extend_from_slice(name.as_bytes());
+                        self.entries.push(0);
+                    }
+                    self.entries_fetched = true;
                 }
             }
         }
@@ -718,6 +731,352 @@ pub fn is_subdir_empty(
             None => return true,
         }
     }
+}
+
+/// Represents a subdirectory stored in a cluster chain
+pub struct SubDirectory {
+    first_cluster: u32,
+}
+
+impl SubDirectory {
+    pub fn new(first_cluster: u32) -> Self {
+        Self { first_cluster }
+    }
+
+    pub fn iter<'a>(
+        &self,
+        table: &AllocationTable,
+        disk: &'a mut DiskAccess,
+    ) -> SubdirIter<'a> {
+        let entry_size = core::mem::size_of::<DirEntry>() as u32;
+        let entries_per_cluster = table.bytes_per_cluster() / entry_size;
+        let cluster_location = table.get_cluster_location(self.first_cluster);
+        let mut current = DirEntry::new();
+        disk.read_struct_from_disk(cluster_location, &mut current);
+
+        SubdirIter {
+            disk,
+            table: *table,
+            current_cluster: self.first_cluster,
+            current_index_in_cluster: 0,
+            entries_per_cluster,
+            current,
+        }
+    }
+
+    pub fn find_entry(
+        &self,
+        name: &str,
+        table: &AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> Option<Entity> {
+        let (short_filename, short_ext) = parse_short_name(name);
+
+        for (entry, disk_offset) in self.iter(table, disk) {
+            if entry.matches_name(&short_filename, &short_ext) {
+                if entry.is_directory() {
+                    return Some(Entity::Dir(Directory::from_dir_entry(entry)));
+                } else {
+                    return Some(Entity::File(File::from_dir_entry(entry, disk_offset)));
+                }
+            }
+        }
+        None
+    }
+
+    pub fn write_entry(
+        &self,
+        entry: &DirEntry,
+        table: &AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> Option<u32> {
+        let entry_size = core::mem::size_of::<DirEntry>() as u32;
+        let entries_per_cluster = table.bytes_per_cluster() / entry_size;
+
+        let mut cluster = self.first_cluster;
+        let mut last_cluster = cluster;
+        loop {
+            let cluster_location = table.get_cluster_location(cluster);
+            for i in 0..entries_per_cluster {
+                let offset = cluster_location + i * entry_size;
+                let mut slot = DirEntry::new();
+                disk.read_struct_from_disk(offset, &mut slot);
+
+                if slot.file_name[0] == 0x00 || slot.file_name[0] == 0xE5 {
+                    disk.write_struct_to_disk(offset, entry);
+                    return Some(offset);
+                }
+            }
+            last_cluster = cluster;
+            match table.get_next_cluster(cluster, disk) {
+                Some(next) => cluster = next,
+                None => break,
+            }
+        }
+
+        // No free slot found, allocate a new cluster and extend the chain
+        let new_cluster = table.allocate_cluster(disk)?;
+        table.set_cluster_entry(last_cluster, new_cluster, disk);
+
+        // Zero-fill the new cluster
+        let new_loc = table.get_cluster_location(new_cluster);
+        let bytes_per_cluster = table.bytes_per_cluster();
+        let zero_buf = [0u8; 512];
+        let mut off = 0u32;
+        while off < bytes_per_cluster {
+            let n = (bytes_per_cluster - off).min(512);
+            disk.write_bytes_to_disk(new_loc + off, &zero_buf[..n as usize]);
+            off += n;
+        }
+
+        disk.write_struct_to_disk(new_loc, entry);
+        Some(new_loc)
+    }
+
+    pub fn add_entry(
+        &self,
+        filename: &[u8; 8],
+        ext: &[u8; 3],
+        attributes: u8,
+        first_cluster: u16,
+        table: &AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> Option<u32> {
+        let mut new_entry = DirEntry::new();
+        new_entry.set_filename(filename, ext);
+        new_entry.set_attributes(attributes);
+        new_entry.set_first_cluster(first_cluster);
+
+        let now = crate::time::system::Timestamp::now().to_datetime();
+        let fat_date = FileDate::from_system_date(&now.date);
+        let fat_time = FileTime::from_system_time(&now.time);
+        new_entry.creation_date = fat_date;
+        new_entry.creation_time = fat_time;
+        new_entry.last_modify_date = fat_date;
+        new_entry.last_modify_time = fat_time;
+        new_entry.access_date = fat_date;
+
+        self.write_entry(&new_entry, table, disk)
+    }
+
+    pub fn remove_entry(
+        &self,
+        filename: &[u8; 8],
+        ext: &[u8; 3],
+        table: &AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> Option<DirEntry> {
+        let entry_size = core::mem::size_of::<DirEntry>() as u32;
+        let entries_per_cluster = table.bytes_per_cluster() / entry_size;
+
+        let mut cluster = self.first_cluster;
+        loop {
+            let cluster_location = table.get_cluster_location(cluster);
+            for i in 0..entries_per_cluster {
+                let offset = cluster_location + i * entry_size;
+                let mut entry = DirEntry::new();
+                disk.read_struct_from_disk(offset, &mut entry);
+
+                if entry.file_name[0] == 0x00 {
+                    return None;
+                }
+                if entry.file_name[0] == 0xE5 {
+                    continue;
+                }
+
+                if entry.matches_name(filename, ext) {
+                    let removed = entry;
+                    entry.mark_deleted();
+                    disk.write_struct_to_disk(offset, &entry);
+                    return Some(removed);
+                }
+            }
+            match table.get_next_cluster(cluster, disk) {
+                Some(next) => cluster = next,
+                None => return None,
+            }
+        }
+    }
+}
+
+pub struct SubdirIter<'a> {
+    disk: &'a mut DiskAccess,
+    table: AllocationTable,
+    current_cluster: u32,
+    current_index_in_cluster: u32,
+    entries_per_cluster: u32,
+    current: DirEntry,
+}
+
+impl SubdirIter<'_> {
+    fn current_entry_offset(&self) -> u32 {
+        let cluster_location = self.table.get_cluster_location(self.current_cluster);
+        cluster_location + self.current_index_in_cluster * core::mem::size_of::<DirEntry>() as u32
+    }
+}
+
+impl Iterator for SubdirIter<'_> {
+    type Item = (DirEntry, u32);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            if self.current.file_name[0] == 0x00 {
+                return None;
+            }
+
+            let entry = self.current;
+            let offset = self.current_entry_offset();
+
+            // Advance to next entry
+            self.current_index_in_cluster += 1;
+            if self.current_index_in_cluster >= self.entries_per_cluster {
+                match self.table.get_next_cluster(self.current_cluster, self.disk) {
+                    Some(next) => {
+                        self.current_cluster = next;
+                        self.current_index_in_cluster = 0;
+                    }
+                    None => {
+                        // No more clusters; mark end for next call
+                        self.current.file_name[0] = 0x00;
+                    }
+                }
+            }
+
+            // Read next entry (if not at end)
+            if self.current.file_name[0] != 0x00 {
+                let next_offset = self.current_entry_offset();
+                self.disk.read_struct_from_disk(next_offset, &mut self.current);
+            }
+
+            // Skip deleted entries
+            if entry.file_name[0] == 0xE5 {
+                continue;
+            }
+
+            return Some((entry, offset));
+        }
+    }
+}
+
+/// Unified directory handle that can represent either the root directory or a subdirectory
+pub enum AnyDirectory {
+    Root(RootDirectory),
+    Sub(SubDirectory),
+}
+
+impl AnyDirectory {
+    /// Returns the first cluster of this directory, or 0 for the root directory.
+    pub fn first_cluster(&self) -> u32 {
+        match self {
+            AnyDirectory::Root(_) => 0,
+            AnyDirectory::Sub(sub) => sub.first_cluster,
+        }
+    }
+
+    pub fn find_entry(
+        &self,
+        name: &str,
+        table: &AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> Option<Entity> {
+        match self {
+            AnyDirectory::Root(root) => root.find_entry(name, disk),
+            AnyDirectory::Sub(sub) => sub.find_entry(name, table, disk),
+        }
+    }
+
+    pub fn add_entry(
+        &self,
+        filename: &[u8; 8],
+        ext: &[u8; 3],
+        attributes: u8,
+        first_cluster: u16,
+        table: &AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> Option<u32> {
+        match self {
+            AnyDirectory::Root(root) => root.add_entry(filename, ext, attributes, first_cluster, disk),
+            AnyDirectory::Sub(sub) => sub.add_entry(filename, ext, attributes, first_cluster, table, disk),
+        }
+    }
+
+    pub fn remove_entry(
+        &self,
+        filename: &[u8; 8],
+        ext: &[u8; 3],
+        table: &AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> Option<DirEntry> {
+        match self {
+            AnyDirectory::Root(root) => root.remove_entry(filename, ext, disk),
+            AnyDirectory::Sub(sub) => sub.remove_entry(filename, ext, table, disk),
+        }
+    }
+
+    pub fn write_entry(
+        &self,
+        entry: &DirEntry,
+        table: &AllocationTable,
+        disk: &mut DiskAccess,
+    ) -> Option<u32> {
+        match self {
+            AnyDirectory::Root(root) => root.write_entry(entry, disk),
+            AnyDirectory::Sub(sub) => sub.write_entry(entry, table, disk),
+        }
+    }
+}
+
+/// Resolve a path into the parent directory and the leaf component name.
+/// For example, "BOOP/FILE.TXT" resolves to (SubDirectory for BOOP, "FILE.TXT").
+/// A simple path like "FILE.TXT" resolves to (Root, "FILE.TXT").
+pub fn resolve_path<'a>(
+    path: &'a str,
+    root: RootDirectory,
+    table: &AllocationTable,
+    disk: &mut DiskAccess,
+) -> Result<(AnyDirectory, &'a str), IoError> {
+    if path.is_empty() {
+        return Err(IoError::InvalidArgument);
+    }
+
+    // Split into parent path and leaf name without allocating.
+    // Support both '/' and '\' as path separators.
+    let sep_pos = path.rfind('/').or_else(|| path.rfind('\\'));
+    let (parent_path, leaf) = match sep_pos {
+        Some(pos) => (&path[..pos], &path[pos + 1..]),
+        None => ("", path),
+    };
+
+    if leaf.is_empty() {
+        return Err(IoError::InvalidArgument);
+    }
+
+    let mut current = AnyDirectory::Root(root);
+
+    // Walk parent directory components
+    if !parent_path.is_empty() {
+        for component in parent_path.split(|c: char| c == '/' || c == '\\') {
+            if component.is_empty() {
+                continue;
+            }
+            let entity = current
+                .find_entry(component, table, disk)
+                .ok_or(IoError::NotFound)?;
+            match entity {
+                Entity::Dir(d) => match d.dir_type() {
+                    DirectoryType::Subdir(entry) => {
+                        current = AnyDirectory::Sub(SubDirectory::new(
+                            entry.first_file_cluster() as u32,
+                        ));
+                    }
+                    DirectoryType::Root(_) => return Err(IoError::InvalidArgument),
+                },
+                Entity::File(_) => return Err(IoError::NotFound),
+            }
+        }
+    }
+
+    Ok((current, leaf))
 }
 
 #[cfg(test)]
