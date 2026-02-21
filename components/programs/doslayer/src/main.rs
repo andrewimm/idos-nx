@@ -107,7 +107,7 @@ pub extern "C" fn dos_loader_start(load_info_addr: u32) -> ! {
 
     // 3. Open the executable and read the first 2 bytes to detect format
     let file_handle = create_file_handle();
-    if open_sync(file_handle, exec_path_str).is_err() {
+    if open_sync(file_handle, exec_path_str, 0).is_err() {
         idos_api::syscall::exec::terminate(0xfe);
     }
 
@@ -283,7 +283,7 @@ fn compat_start(mut vm_regs: VMRegisters) -> ! {
     );
 
     let stdaux = create_file_handle();
-    let _ = open_sync(stdaux, "DEV:\\COM1");
+    let _ = open_sync(stdaux, "DEV:\\COM1", 0);
 
     loop {
         idos_api::syscall::exec::enter_8086(&mut vm_regs);

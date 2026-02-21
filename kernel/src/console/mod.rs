@@ -236,9 +236,9 @@ fn start_command(console_index: usize) -> Handle {
     let path = alloc::format!("DEV:\\CON{}", console_index + 1);
 
     let stdin = create_file_handle();
-    open_sync(stdin, path.as_str()).unwrap();
+    open_sync(stdin, path.as_str(), 0).unwrap();
     let stdout = create_file_handle();
-    open_sync(stdout, path.as_str()).unwrap();
+    open_sync(stdout, path.as_str(), 0).unwrap();
 
     let _ = write_sync(stdout, b"Loading COMMAND.ELF from C:\n\n", 0);
 

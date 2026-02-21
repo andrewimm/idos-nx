@@ -19,7 +19,7 @@ pub struct PsfFont {
 impl PsfFont {
     pub fn from_file(path: &str) -> Result<Self, IoError> {
         let handle = create_file_handle();
-        let _ = open_sync(handle, path)?;
+        let _ = open_sync(handle, path, 0)?;
 
         let mut header = [0u8; 4];
         let _ = read_sync(handle, &mut header, 0)?;

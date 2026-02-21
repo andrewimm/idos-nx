@@ -92,7 +92,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
     let _ = write_sync(stdout, output.as_bytes(), 0);
 
     let dir_handle = create_file_handle();
-    match open_sync(dir_handle, env.cwd.as_str()) {
+    match open_sync(dir_handle, env.cwd.as_str(), 0) {
         Ok(_) => (),
         Err(_) => {
             let _ = write_sync(stdout, "Failed to open directory...\n".as_bytes(), 0);
@@ -128,7 +128,7 @@ fn dir(stdout: Handle, _args: &Vec<String>, env: &Environment) {
         let file_status_ptr = &mut file_status as *mut FileStatus;
         let mut file_path = env.cwd.clone();
         file_path.push(entry.name.as_str());
-        match open_sync(stat_handle, file_path.as_str()) {
+        match open_sync(stat_handle, file_path.as_str(), 0) {
             Ok(_) => {
                 let op = PendingHandleOp::new(
                     stat_handle,
@@ -198,7 +198,7 @@ fn try_exec(
     _env: &Environment,
 ) -> bool {
     let exec_handle = create_file_handle();
-    match open_sync(exec_handle, name) {
+    match open_sync(exec_handle, name, 0) {
         Ok(_) => {
             let _ = close_sync(exec_handle);
         }
@@ -262,7 +262,7 @@ fn type_file(stdout: Handle, args: &Vec<String>, env: &Environment) {
             path.push(arg.as_str());
             path
         };
-        match open_sync(handle, file_path.as_str()) {
+        match open_sync(handle, file_path.as_str(), 0) {
             Ok(_) => {
                 let mut read_offset = 0;
                 loop {

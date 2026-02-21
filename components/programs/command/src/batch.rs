@@ -10,7 +10,7 @@ use crate::exec::{exec_line, get_io_buffer};
 /// Execute a .BAT batch file. Arguments are available as %0-%9 within the file.
 pub fn exec_batch(env: &mut Environment, path: &str, args: &Vec<String>) {
     let handle = create_file_handle();
-    match open_sync(handle, path) {
+    match open_sync(handle, path, 0) {
         Ok(_) => {}
         Err(_) => {
             let _ = write_sync(env.stdout, b"Failed to open batch file\n", 0);

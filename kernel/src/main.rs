@@ -94,7 +94,7 @@ fn init_system() -> ! {
     // initialize drivers that rely on multitasking
     {
         //let con = task::actions::handle::create_file_handle();
-        //task::actions::io::open_sync(con, "DEV:\\CON1").unwrap();
+        //task::actions::io::open_sync(con, "DEV:\\CON1", 0).unwrap();
 
         hardware::ps2::install_drivers();
 
@@ -119,7 +119,7 @@ fn init_system() -> ! {
         console::init_console();
 
         let con = task::actions::handle::create_file_handle();
-        task::actions::io::open_sync(con, "DEV:\\CON1").unwrap();
+        task::actions::io::open_sync(con, "DEV:\\CON1", 0).unwrap();
 
         logger.log("\nSystem ready! Welcome to IDOS\n\n");
         logger.flush_to_file(con);

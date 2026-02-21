@@ -114,7 +114,7 @@ fn setup_redirect(env: &mut Environment, redirect: &RedirectOutput, is_builtin: 
         RedirectOutput::Overwrite(filename) | RedirectOutput::Append(filename) => {
             let file_path = env.full_file_path(&String::from(filename.as_str()));
             let handle = create_file_handle();
-            match open_sync(handle, file_path.as_str()) {
+            match open_sync(handle, file_path.as_str(), 0) {
                 Ok(_) => {}
                 Err(_) => {
                     env.write(b"Failed to open file for redirect\n");
@@ -213,7 +213,7 @@ fn append(env: &mut Environment, args: &Vec<String>) {
     }
 
     let handle = create_file_handle();
-    match open_sync(handle, file_path.as_str()) {
+    match open_sync(handle, file_path.as_str(), 0) {
         Ok(_) => {}
         Err(_) => {
             env.write(b"Failed to open file\n");
@@ -247,7 +247,7 @@ fn append(env: &mut Environment, args: &Vec<String>) {
 
 fn drives(env: &mut Environment) {
     let handle = create_file_handle();
-    match open_sync(handle, "SYS:\\DRIVES") {
+    match open_sync(handle, "SYS:\\DRIVES", 0) {
         Ok(_) => {}
         Err(_) => {
             env.write(b"Failed to read drive list\n");
@@ -276,7 +276,7 @@ fn drives(env: &mut Environment) {
 fn ver(env: &mut Environment) {
     env.write(b"\n");
     let handle = create_file_handle();
-    match open_sync(handle, "SYS:\\KERNINFO") {
+    match open_sync(handle, "SYS:\\KERNINFO", 0) {
         Ok(_) => {
             let buffer = get_io_buffer();
             let mut read_offset = 0;
@@ -500,7 +500,7 @@ fn dir(env: &mut Environment, args: &Vec<String>) {
     env.write(output.as_bytes());
 
     let dir_handle = create_file_handle();
-    match open_sync(dir_handle, env.cwd_string()) {
+    match open_sync(dir_handle, env.cwd_string(), 0) {
         Ok(_) => (),
         Err(_) => {
             env.write(b"Failed to open directory...\n");
@@ -537,7 +537,7 @@ fn dir(env: &mut Environment, args: &Vec<String>) {
         let file_status_ptr = &mut file_status as *mut FileStatus;
         let mut file_path = String::from(env.cwd_string());
         file_path.push_str(entry.name.as_str());
-        match open_sync(stat_handle, file_path.as_str()) {
+        match open_sync(stat_handle, file_path.as_str(), 0) {
             Ok(_) => {
                 let op = io_sync(
                     stat_handle,
@@ -607,7 +607,7 @@ fn type_file(env: &mut Environment, args: &Vec<String>) {
 fn type_file_inner(env: &mut Environment, arg: &String) -> Result<(), ()> {
     let handle = create_file_handle();
     let file_path = env.full_file_path(arg);
-    let _ = open_sync(handle, file_path.as_str()).map_err(|_| ());
+    let _ = open_sync(handle, file_path.as_str(), 0).map_err(|_| ());
     let mut read_offset = 0;
 
     let buffer = get_io_buffer();
@@ -691,7 +691,7 @@ fn ends_with_ignore_case(s: &[u8], suffix: &[u8]) -> bool {
 
 fn file_exists(path: &str) -> bool {
     let handle = create_file_handle();
-    match open_sync(handle, path) {
+    match open_sync(handle, path, 0) {
         Ok(_) => {
             let _ = close_sync(handle);
             true
@@ -702,7 +702,7 @@ fn file_exists(path: &str) -> bool {
 
 fn try_exec(env: &Environment, exec_path: &str, args: &Vec<String>) -> bool {
     let exec_handle = create_file_handle();
-    match open_sync(exec_handle, exec_path) {
+    match open_sync(exec_handle, exec_path, 0) {
         Ok(_) => {
             let _ = close_sync(exec_handle);
         }

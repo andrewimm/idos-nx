@@ -25,12 +25,12 @@ pub fn io_sync(handle: Handle, op_code: u32, arg0: u32, arg1: u32, arg2: u32) ->
     }
 }
 
-pub fn open_sync(handle: Handle, path: &str) -> IoResult {
+pub fn open_sync(handle: Handle, path: &str, flags: u32) -> IoResult {
     use crate::io::ASYNC_OP_OPEN;
 
     let path_ptr = path.as_ptr() as u32;
     let path_len = path.len() as u32;
-    io_sync(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0)
+    io_sync(handle, ASYNC_OP_OPEN, path_ptr, path_len, flags)
 }
 
 pub fn read_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IoResult {

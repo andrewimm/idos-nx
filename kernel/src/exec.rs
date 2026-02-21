@@ -187,7 +187,7 @@ pub fn exec_program(task_id: TaskID, path: &str) -> Result<(), ExecError> {
 
     // 1. Detect executable format by reading magic bytes
     let exec_handle = create_file_handle();
-    let _ = open_sync(exec_handle, path).map_err(|_| ExecError::FileNotFound)?;
+    let _ = open_sync(exec_handle, path, 0).map_err(|_| ExecError::FileNotFound)?;
 
     let mut magic: [u8; 4] = [0; 4];
     let _ = crate::task::actions::io::read_sync(exec_handle, &mut magic, 0)
@@ -322,7 +322,7 @@ fn parse_and_cache_loader(loader_path: &'static str) -> Result<CachedLoader, Exe
 
     // Open and read ELF headers
     let handle = create_file_handle();
-    let _ = open_sync(handle, loader_path).map_err(|_| ExecError::LoaderNotFound)?;
+    let _ = open_sync(handle, loader_path, 0).map_err(|_| ExecError::LoaderNotFound)?;
 
     let mut elf_header = ElfHeader::default();
     let _ = read_struct_sync(handle, &mut elf_header, 0).map_err(|_| ExecError::ParseError)?;

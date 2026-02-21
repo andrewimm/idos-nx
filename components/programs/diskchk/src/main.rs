@@ -214,7 +214,7 @@ pub extern "C" fn main() {
 
     // Open device
     let handle = create_file_handle();
-    if open_sync(handle, dev_path).is_err() {
+    if open_sync(handle, dev_path, 0).is_err() {
         out.push(b"Error: cannot open device ");
         out.push_str(dev_path);
         out.push(b"\n");

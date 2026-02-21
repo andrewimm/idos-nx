@@ -57,9 +57,9 @@ pub fn start_command(console: usize) {
     let path = alloc::format!("DEV:\\CON{}", console + 1);
 
     let stdin = create_file_handle();
-    open_sync(stdin, path.as_str()).unwrap();
+    open_sync(stdin, path.as_str(), 0).unwrap();
     let stdout = create_file_handle();
-    open_sync(stdout, path.as_str()).unwrap();
+    open_sync(stdout, path.as_str(), 0).unwrap();
     let task_id = create_kernel_task(command_task, Some("COMMAND"));
     transfer_handle(stdin, task_id);
     transfer_handle(stdout, task_id);

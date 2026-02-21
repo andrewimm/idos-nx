@@ -23,7 +23,7 @@ impl DiskAccess {
     pub fn new(mount: &str) -> Self {
         let mount_handle = create_file_handle();
 
-        open_sync(mount_handle, mount).unwrap();
+        open_sync(mount_handle, mount, 0).unwrap();
 
         let buffer_size = 4096;
 

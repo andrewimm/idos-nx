@@ -15,7 +15,7 @@ use idos_api::{
 pub extern "C" fn main() {
     let stdin = Handle::new(0);
     let serial = idos_api::syscall::io::create_file_handle();
-    idos_api::io::sync::open_sync(serial, "DEV:\\COM1").unwrap();
+    idos_api::io::sync::open_sync(serial, "DEV:\\COM1", 0).unwrap();
 
     idos_api::io::sync::write_sync(serial, b"[gamedemo] started, serial=", 0).ok();
     let serial_id = [b'0' + serial.as_u32() as u8];

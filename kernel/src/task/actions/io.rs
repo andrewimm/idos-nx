@@ -85,12 +85,12 @@ pub fn driver_io_complete(request_id: u32, return_value: IoResult) {
     crate::io::driver::pending::request_complete(request_id, return_value);
 }
 
-pub fn open_sync(handle: Handle, path: &str) -> IoResult {
+pub fn open_sync(handle: Handle, path: &str, flags: u32) -> IoResult {
     use crate::io::async_io::ASYNC_OP_OPEN;
 
     let path_ptr = path.as_ptr() as u32;
     let path_len = path.len() as u32;
-    io_sync(handle, ASYNC_OP_OPEN, path_ptr, path_len, 0)
+    io_sync(handle, ASYNC_OP_OPEN, path_ptr, path_len, flags)
 }
 
 pub fn read_sync(handle: Handle, buffer: &mut [u8], offset: u32) -> IoResult {

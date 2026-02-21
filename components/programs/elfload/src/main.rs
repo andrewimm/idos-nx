@@ -64,7 +64,7 @@ pub extern "C" fn loader_start(load_info_addr: u32) -> ! {
 
     // Open the executable file
     let file_handle = create_file_handle();
-    if open_sync(file_handle, exec_path_str).is_err() {
+    if open_sync(file_handle, exec_path_str, 0).is_err() {
         idos_api::syscall::exec::terminate(0xfe);
     }
 
