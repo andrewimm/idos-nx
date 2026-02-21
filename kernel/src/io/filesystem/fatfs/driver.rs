@@ -55,11 +55,14 @@ impl AsyncDriver for FatDriver {
 
         super::LOGGER.log(format_args!("Open \"{}\" flags={}", path, flags));
 
-        let root = self.fs.borrow().get_root_directory();
         let entity = if path.is_empty() {
+            let root = self.fs.borrow().get_root_directory();
             Entity::Dir(Directory::from_root_dir(root))
         } else {
-            match root.find_entry(path, &mut self.fs.borrow_mut().disk) {
+            // Try to find existing entry first
+            let root = self.fs.borrow().get_root_directory();
+            let found = root.find_entry(path, &mut self.fs.borrow_mut().disk);
+            match found {
                 Some(entity) => {
                     if flags & OPEN_FLAG_EXCLUSIVE != 0 && flags & OPEN_FLAG_CREATE != 0 {
                         return Err(IoError::AlreadyOpen);

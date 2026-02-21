@@ -118,6 +118,10 @@ impl DateTime {
     }
 
     pub fn to_timestamp(&self) -> Timestamp {
+        if self.date.year < 1980 || self.date.month == 0 || self.date.month > 12 {
+            return Timestamp(0);
+        }
+
         let year = self.date.year - 1980;
         let quadrennials = year as u32 / 4;
         let year_remainder = year as u32 % 4;
@@ -132,7 +136,7 @@ impl DateTime {
             + self.time.hours as u32 * 60 * 60
             + self.time.minutes as u32 * 60
             + self.time.seconds as u32;
-        
+
         Timestamp(timestamp)
     }
 

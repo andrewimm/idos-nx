@@ -17,7 +17,7 @@ use idos_api::syscall::memory::map_memory;
 use idos_api::time::DateTime;
 use idos_api::{io::file::FileStatus, syscall::exec::create_task};
 use idos_api::{
-    io::{error::IoError, sync::io_sync, FILE_OP_STAT},
+    io::{error::IoError, sync::io_sync, FILE_OP_STAT, OPEN_FLAG_CREATE},
     syscall::exec::load_executable,
 };
 
@@ -114,7 +114,7 @@ fn setup_redirect(env: &mut Environment, redirect: &RedirectOutput, is_builtin: 
         RedirectOutput::Overwrite(filename) | RedirectOutput::Append(filename) => {
             let file_path = env.full_file_path(&String::from(filename.as_str()));
             let handle = create_file_handle();
-            match open_sync(handle, file_path.as_str(), 0) {
+            match open_sync(handle, file_path.as_str(), OPEN_FLAG_CREATE) {
                 Ok(_) => {}
                 Err(_) => {
                     env.write(b"Failed to open file for redirect\n");
@@ -213,7 +213,7 @@ fn append(env: &mut Environment, args: &Vec<String>) {
     }
 
     let handle = create_file_handle();
-    match open_sync(handle, file_path.as_str(), 0) {
+    match open_sync(handle, file_path.as_str(), OPEN_FLAG_CREATE) {
         Ok(_) => {}
         Err(_) => {
             env.write(b"Failed to open file\n");

@@ -189,6 +189,13 @@ impl FileTime {
             seconds: self.get_seconds() as u8,
         }
     }
+
+    pub fn from_system_time(time: &Time) -> Self {
+        let val = ((time.hours as u16) << 11)
+            | ((time.minutes as u16) << 5)
+            | ((time.seconds as u16) >> 1);
+        FileTime(val)
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -214,6 +221,14 @@ impl FileDate {
             month: self.get_month() as u8,
             year: self.get_year(),
         }
+    }
+
+    pub fn from_system_date(date: &Date) -> Self {
+        let year_val = if date.year >= 1980 { date.year - 1980 } else { 0 };
+        let val = ((year_val & 0x7f) << 9)
+            | ((date.month as u16 & 0xf) << 5)
+            | (date.day as u16 & 0x1f);
+        FileDate(val)
     }
 }
 
@@ -268,6 +283,17 @@ impl RootDirectory {
                 new_entry.set_filename(filename, ext);
                 new_entry.set_attributes(attributes);
                 new_entry.set_first_cluster(first_cluster);
+
+                // Set creation and modification timestamps
+                let now = crate::time::system::Timestamp::now().to_datetime();
+                let fat_date = FileDate::from_system_date(&now.date);
+                let fat_time = FileTime::from_system_time(&now.time);
+                new_entry.creation_date = fat_date;
+                new_entry.creation_time = fat_time;
+                new_entry.last_modify_date = fat_date;
+                new_entry.last_modify_time = fat_time;
+                new_entry.access_date = fat_date;
+
                 disk.write_struct_to_disk(offset, &new_entry);
                 return Some(offset);
             }
