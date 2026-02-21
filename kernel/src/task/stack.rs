@@ -14,8 +14,11 @@ extern "C" {
 
 /// Bottom of the scratch area, top of the kernel stacks
 const KERNEL_STACKS_TOP: usize = SCRATCH_BOTTOM;
-pub const STACK_SIZE_IN_PAGES: usize = 1;
+/// Total virtual pages per stack slot (including guard page)
+pub const STACK_SIZE_IN_PAGES: usize = 4;
 pub const STACK_SIZE_IN_BYTES: usize = STACK_SIZE_IN_PAGES * 0x1000;
+/// Number of unmapped guard pages at the bottom of each stack
+const GUARD_PAGES: usize = 1;
 
 pub const MAX_KERNEL_STACKS: usize = 1024;
 pub const KERNEL_STACKS_BOTTOM: usize =
@@ -25,10 +28,11 @@ pub const KERNEL_STACKS_BOTTOM: usize =
 /// can easily be recycled
 static STACK_ALLOCATION_BITMAP: Mutex<Vec<u8>> = Mutex::new(Vec::new());
 
-/// Return the physical location and size (in pages) of the initial kernel stack
+/// Return the physical location and size (in pages) of the usable portion of
+/// the initial kernel stack, skipping the guard page at the bottom.
 pub fn get_initial_kernel_stack_location() -> (PhysicalAddress, usize) {
     let addr = PhysicalAddress::new(&raw const label_stack_start as *const u8 as u32);
-    (addr, STACK_SIZE_IN_PAGES)
+    (addr + (GUARD_PAGES * 0x1000) as u32, STACK_SIZE_IN_PAGES - GUARD_PAGES)
 }
 
 /// Return the distance between the virtual initial kernel stack and its
@@ -98,7 +102,7 @@ pub fn create_initial_stack() -> Box<[u8]> {
 
 /// When a task has terminated, its kernel stack is freed to release memory.
 /// This marks the virtual space as being available again, and releases the
-/// physical frame that was backing it.
+/// physical frames that were backing it. The guard page has no frame to free.
 pub fn free_stack(stack: Box<[u8]>) {
     let box_ptr = Box::into_raw(stack);
     let location = box_ptr as *mut u8 as usize;
@@ -106,42 +110,53 @@ pub fn free_stack(stack: Box<[u8]>) {
     mark_stack_as_free(&STACK_ALLOCATION_BITMAP, offset - 1);
 
     let stack_start = VirtualAddress::new(location as u32);
-    let table_location = 0xffc00000 + 0x1000 * stack_start.get_page_directory_index();
-    let page_table = PageTable::at_address(VirtualAddress::new(table_location as u32));
-    let table_index = stack_start.get_page_table_index();
-    let frame_address = page_table.get(table_index).get_address();
-    page_table.get_mut(table_index).clear_present();
-    invalidate_page(stack_start);
-    // Because a kernel stack is allocated directly, it is safe to release the
-    // frame without tracking. Kernel stacks should never be shared.
-    release_frame(frame_address).unwrap();
+
+    // Only free the usable pages, skip the guard page(s)
+    for page in GUARD_PAGES..STACK_SIZE_IN_PAGES {
+        let page_addr = stack_start + (page * 0x1000) as u32;
+        let table_location = 0xffc00000 + 0x1000 * page_addr.get_page_directory_index();
+        let page_table = PageTable::at_address(VirtualAddress::new(table_location as u32));
+        let table_index = page_addr.get_page_table_index();
+        let frame_address = page_table.get(table_index).get_address();
+        page_table.get_mut(table_index).clear_present();
+        invalidate_page(page_addr);
+        // Because a kernel stack is allocated directly, it is safe to release the
+        // frame without tracking. Kernel stacks should never be shared.
+        release_frame(frame_address).unwrap();
+    }
 
     super::LOGGER.log(format_args!(
-        "Free kernel stack {:?} {:?}",
-        stack_start, frame_address
+        "Free kernel stack {:?} ({} pages)",
+        stack_start, STACK_SIZE_IN_PAGES - GUARD_PAGES
     ));
 }
 
 /// Request a kernel stack for a new task. This finds a free area of virtual
-/// memory, backs it with a physical frame, and returns a Box referencing that
-/// newly allocated space.
+/// memory, backs it with physical frames, and returns a Box referencing that
+/// newly allocated space. The bottom page is left unmapped as a guard page
+/// to catch stack overflows.
 pub fn allocate_stack() -> Box<[u8]> {
     let index = find_free_stack(&STACK_ALLOCATION_BITMAP);
     let stack = stack_box_from_index(index);
     let ptr: *const u8 = &stack[0];
     let stack_start = VirtualAddress::new(ptr as u32);
-    let table_location = 0xffc00000 + 0x1000 * stack_start.get_page_directory_index();
-    let page_table = PageTable::at_address(VirtualAddress::new(table_location as u32));
-    let table_index = stack_start.get_page_table_index();
-    // safe to directly allocate frame because kernel stacks are never shared
-    let frame_address = allocate_frame().unwrap().to_physical_address();
-    page_table.get_mut(table_index).set_address(frame_address);
-    page_table.get_mut(table_index).set_present();
-    invalidate_page(stack_start);
+
+    // Skip the guard page(s) at the bottom; only map usable pages
+    for page in GUARD_PAGES..STACK_SIZE_IN_PAGES {
+        let page_addr = stack_start + (page * 0x1000) as u32;
+        let table_location = 0xffc00000 + 0x1000 * page_addr.get_page_directory_index();
+        let page_table = PageTable::at_address(VirtualAddress::new(table_location as u32));
+        let table_index = page_addr.get_page_table_index();
+        // safe to directly allocate frame because kernel stacks are never shared
+        let frame_address = allocate_frame().unwrap().to_physical_address();
+        page_table.get_mut(table_index).set_address(frame_address);
+        page_table.get_mut(table_index).set_present();
+        invalidate_page(page_addr);
+    }
 
     super::LOGGER.log(format_args!(
-        "Alloc kernel stack: {:?} {:?}",
-        stack_start, frame_address
+        "Alloc kernel stack: {:?} ({} usable + {} guard pages)",
+        stack_start, STACK_SIZE_IN_PAGES - GUARD_PAGES, GUARD_PAGES
     ));
 
     stack

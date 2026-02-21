@@ -45,7 +45,7 @@ SECTIONS
 
     __stack_start = . - KERNEL_VADDR_OFFSET;
 
-    . += 0x1000;
+    . += 0x4000;
 
     __stack_end = . - KERNEL_VADDR_OFFSET;
   }
