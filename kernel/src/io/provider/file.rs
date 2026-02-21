@@ -4,10 +4,11 @@ use super::{AsyncOpQueue, IOProvider, OpIdGenerator, UnmappedAsyncOp};
 use crate::{
     files::path::Path,
     io::{
-        async_io::{AsyncOpID, FILE_OP_IOCTL, FILE_OP_STAT},
+        async_io::{AsyncOpID, FILE_OP_IOCTL, FILE_OP_MKDIR, FILE_OP_RMDIR, FILE_OP_STAT, FILE_OP_UNLINK},
         filesystem::{
-            driver::DriverID, driver_close, driver_ioctl, driver_open, driver_read, driver_share,
-            driver_stat, driver_write, get_driver_id_by_name,
+            driver::DriverID, driver_close, driver_ioctl, driver_mkdir, driver_open, driver_read,
+            driver_rmdir, driver_share, driver_stat, driver_unlink, driver_write,
+            get_driver_id_by_name,
         },
         handle::Handle,
         prepare_file_path,
@@ -226,8 +227,37 @@ impl IOProvider for FileIOProvider {
         id: AsyncOpID,
         op: UnmappedAsyncOp,
     ) -> Option<IoResult> {
+        let op_code = op.op_code & 0xffff;
+
+        // Path-based operations that don't require a bound file instance
+        match op_code {
+            FILE_OP_MKDIR | FILE_OP_UNLINK | FILE_OP_RMDIR => {
+                let path_ptr = op.args[0] as *const u8;
+                let path_len = op.args[1] as usize;
+                let path_str = unsafe {
+                    match core::str::from_utf8(core::slice::from_raw_parts(path_ptr, path_len)) {
+                        Ok(str) => str,
+                        Err(_) => return Some(Err(IoError::NotFound)),
+                    }
+                };
+                let (driver_id, path) = match prepare_file_path(path_str) {
+                    Ok(pair) => pair,
+                    Err(_) => return Some(Err(IoError::NotFound)),
+                };
+                let io_cb = (self.source_id.load(Ordering::SeqCst), provider_index, id);
+                return match op_code {
+                    FILE_OP_MKDIR => driver_mkdir(driver_id, path, io_cb),
+                    FILE_OP_UNLINK => driver_unlink(driver_id, path, io_cb),
+                    FILE_OP_RMDIR => driver_rmdir(driver_id, path, io_cb),
+                    _ => unreachable!(),
+                };
+            }
+            _ => {}
+        }
+
+        // Instance-bound operations
         if let Some(instance) = self.bound_instance.lock().clone() {
-            match op.op_code & 0xffff {
+            match op_code {
                 FILE_OP_STAT => {
                     let status_ptr = op.args[0] as *mut FileStatus;
                     let status_len = op.args[1] as usize;
@@ -246,7 +276,6 @@ impl IOProvider for FileIOProvider {
                 FILE_OP_IOCTL => {
                     let ioctl = op.args[0];
                     let arg = op.args[1];
-                    // if arg is a pointer, this is the length. Otherwise it's zero
                     let arg_len = op.args[2] as usize;
                     let driver_id: DriverID = self.driver_id.lock().unwrap();
                     return driver_ioctl(

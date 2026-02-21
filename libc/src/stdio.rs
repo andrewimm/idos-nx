@@ -1134,8 +1134,8 @@ pub unsafe fn debug_write_hex(val: u32) {
 // ---- remove / rename ----
 
 #[no_mangle]
-pub unsafe extern "C" fn remove(_path: *const c_char) -> c_int {
-    -1 // stub
+pub unsafe extern "C" fn remove(path: *const c_char) -> c_int {
+    crate::unistd::unlink(path)
 }
 
 #[no_mangle]

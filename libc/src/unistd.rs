@@ -2,7 +2,11 @@
 
 use core::ffi::{c_char, c_int, c_void};
 
+use idos_api::io::{ASYNC_OP_CLOSE, FILE_OP_RMDIR, FILE_OP_UNLINK};
+use idos_api::syscall::io::create_file_handle;
 use idos_api::syscall::syscall;
+
+use crate::stdio::{io_sync, translate_path_raw};
 
 #[no_mangle]
 pub unsafe extern "C" fn sleep(seconds: u32) -> u32 {
@@ -48,8 +52,29 @@ pub unsafe extern "C" fn access(_path: *const c_char, _mode: c_int) -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn unlink(_path: *const c_char) -> c_int {
-    -1 // stub failure
+pub unsafe extern "C" fn unlink(path: *const c_char) -> c_int {
+    if path.is_null() {
+        return -1;
+    }
+    let handle = create_file_handle();
+    let mut path_buf = [0u8; 256];
+    let path_len = translate_path_raw(path, &mut path_buf);
+    let result = io_sync(handle, FILE_OP_UNLINK, path_buf.as_ptr() as u32, path_len as u32, 0);
+    io_sync(handle, ASYNC_OP_CLOSE, 0, 0, 0).ok();
+    if result.is_err() { -1 } else { 0 }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rmdir(path: *const c_char) -> c_int {
+    if path.is_null() {
+        return -1;
+    }
+    let handle = create_file_handle();
+    let mut path_buf = [0u8; 256];
+    let path_len = translate_path_raw(path, &mut path_buf);
+    let result = io_sync(handle, FILE_OP_RMDIR, path_buf.as_ptr() as u32, path_len as u32, 0);
+    io_sync(handle, ASYNC_OP_CLOSE, 0, 0, 0).ok();
+    if result.is_err() { -1 } else { 0 }
 }
 
 #[no_mangle]

@@ -19,6 +19,9 @@ pub enum DriverCommand {
     CreateMapping,
     RemoveMapping,
     PageInMapping,
+    Mkdir,
+    Unlink,
+    Rmdir,
     // Every time a new command is added, modify the method below that decodes the command
     Invalid = 0xffffffff,
 }
@@ -37,6 +40,9 @@ impl DriverCommand {
             9 => DriverCommand::CreateMapping,
             10 => DriverCommand::RemoveMapping,
             11 => DriverCommand::PageInMapping,
+            12 => DriverCommand::Mkdir,
+            13 => DriverCommand::Unlink,
+            14 => DriverCommand::Rmdir,
             _ => DriverCommand::Invalid,
         }
     }
@@ -222,6 +228,42 @@ pub trait AsyncDriver {
                 let frame_paddr = message.args[2];
                 Some(self.page_in_mapping(map_token, offset, frame_paddr))
             }
+            DriverCommand::Mkdir => {
+                let path_ptr = message.args[0] as *mut u8;
+                let path_len = message.args[1] as usize;
+                if path_len == 0 {
+                    return Some(Err(IoError::InvalidArgument));
+                }
+                let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
+                let path = core::str::from_utf8(path_slice).ok()?;
+                let result = self.mkdir(path);
+                self.release_buffer(path_ptr, path_len);
+                Some(result)
+            }
+            DriverCommand::Unlink => {
+                let path_ptr = message.args[0] as *mut u8;
+                let path_len = message.args[1] as usize;
+                if path_len == 0 {
+                    return Some(Err(IoError::InvalidArgument));
+                }
+                let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
+                let path = core::str::from_utf8(path_slice).ok()?;
+                let result = self.unlink(path);
+                self.release_buffer(path_ptr, path_len);
+                Some(result)
+            }
+            DriverCommand::Rmdir => {
+                let path_ptr = message.args[0] as *mut u8;
+                let path_len = message.args[1] as usize;
+                if path_len == 0 {
+                    return Some(Err(IoError::InvalidArgument));
+                }
+                let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
+                let path = core::str::from_utf8(path_slice).ok()?;
+                let result = self.rmdir(path);
+                self.release_buffer(path_ptr, path_len);
+                Some(result)
+            }
             DriverCommand::Invalid => Some(Err(IoError::UnsupportedCommand)),
         }
     }
@@ -358,6 +400,21 @@ pub trait AsyncDriver {
         arg_ptr: *mut u8,
         arg_len: usize,
     ) -> IoResult {
+        Err(IoError::UnsupportedOperation)
+    }
+
+    /// Create a directory at the given path.
+    fn mkdir(&mut self, path: &str) -> IoResult {
+        Err(IoError::UnsupportedOperation)
+    }
+
+    /// Remove (unlink) a file at the given path.
+    fn unlink(&mut self, path: &str) -> IoResult {
+        Err(IoError::UnsupportedOperation)
+    }
+
+    /// Remove an empty directory at the given path.
+    fn rmdir(&mut self, path: &str) -> IoResult {
         Err(IoError::UnsupportedOperation)
     }
 }

@@ -19,6 +19,9 @@ pub const ASYNC_OP_SHARE: u32 = 5;
 
 pub const FILE_OP_STAT: u32 = 0x10;
 pub const FILE_OP_IOCTL: u32 = 0x11;
+pub const FILE_OP_MKDIR: u32 = 0x12;
+pub const FILE_OP_RMDIR: u32 = 0x13;
+pub const FILE_OP_UNLINK: u32 = 0x14;
 
 /// All async operations on handles are performed by passing an AsyncOp object
 /// to the kernel. The fields are used to determine which action to take.

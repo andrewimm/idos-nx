@@ -65,6 +65,21 @@ pub enum DriverIoAction {
     },
     /// Unmap a file mapping
     RemoveFileMapping { mapping_token: u32 },
+    /// Create a directory at a path
+    Mkdir {
+        path_str_vaddr: VirtualAddress,
+        path_str_len: usize,
+    },
+    /// Remove (unlink) a file at a path
+    Unlink {
+        path_str_vaddr: VirtualAddress,
+        path_str_len: usize,
+    },
+    /// Remove an empty directory at a path
+    Rmdir {
+        path_str_vaddr: VirtualAddress,
+        path_str_len: usize,
+    },
     /// Copy file contents into memory frame
     PageInFileMapping {
         mapping_token: u32,
@@ -185,6 +200,30 @@ impl DriverIoAction {
                     0,
                     0,
                 ],
+            },
+            Self::Mkdir {
+                path_str_vaddr,
+                path_str_len,
+            } => Message {
+                message_type: DriverCommand::Mkdir as u32,
+                unique_id: request_id,
+                args: [path_str_vaddr.as_u32(), *path_str_len as u32, 0, 0, 0, 0],
+            },
+            Self::Unlink {
+                path_str_vaddr,
+                path_str_len,
+            } => Message {
+                message_type: DriverCommand::Unlink as u32,
+                unique_id: request_id,
+                args: [path_str_vaddr.as_u32(), *path_str_len as u32, 0, 0, 0, 0],
+            },
+            Self::Rmdir {
+                path_str_vaddr,
+                path_str_len,
+            } => Message {
+                message_type: DriverCommand::Rmdir as u32,
+                unique_id: request_id,
+                args: [path_str_vaddr.as_u32(), *path_str_len as u32, 0, 0, 0, 0],
             },
             Self::CreateFileMapping {
                 path_str_vaddr,

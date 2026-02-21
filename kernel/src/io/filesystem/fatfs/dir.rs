@@ -120,6 +120,23 @@ impl DirEntry {
         self.first_file_cluster = cluster;
     }
 
+    pub fn set_filename(&mut self, filename: &[u8; 8], ext: &[u8; 3]) {
+        self.file_name = *filename;
+        self.ext = *ext;
+    }
+
+    pub fn set_attributes(&mut self, attributes: u8) {
+        self.attributes = attributes;
+    }
+
+    pub fn first_file_cluster(&self) -> u16 {
+        self.first_file_cluster
+    }
+
+    pub fn mark_deleted(&mut self) {
+        self.file_name[0] = 0xE5;
+    }
+
     pub fn matches_name(&self, filename: &[u8; 8], ext: &[u8; 3]) -> bool {
         // TODO: make case sensitivity configurable
         for i in 0..8 {
@@ -227,6 +244,70 @@ impl RootDirectory {
         }
     }
 
+    /// Add a new directory entry to the root directory.
+    /// Returns the disk offset of the newly written entry.
+    pub fn add_entry(
+        &self,
+        filename: &[u8; 8],
+        ext: &[u8; 3],
+        attributes: u8,
+        first_cluster: u16,
+        disk: &mut DiskAccess,
+    ) -> Option<u32> {
+        let dir_offset = self.first_sector * 512;
+        let entry_size = core::mem::size_of::<DirEntry>() as u32;
+
+        for i in 0..self.max_entries {
+            let offset = dir_offset + i * entry_size;
+            let mut entry = DirEntry::new();
+            disk.read_struct_from_disk(offset, &mut entry);
+
+            // A slot is free if first byte is 0x00 (end of directory) or 0xE5 (deleted)
+            if entry.file_name[0] == 0x00 || entry.file_name[0] == 0xE5 {
+                let mut new_entry = DirEntry::new();
+                new_entry.set_filename(filename, ext);
+                new_entry.set_attributes(attributes);
+                new_entry.set_first_cluster(first_cluster);
+                disk.write_struct_to_disk(offset, &new_entry);
+                return Some(offset);
+            }
+        }
+        None // no free slots
+    }
+
+    /// Remove a directory entry by name. Sets the first byte to 0xE5 (deleted marker).
+    /// Returns the DirEntry that was removed (for cluster chain cleanup).
+    pub fn remove_entry(
+        &self,
+        filename: &[u8; 8],
+        ext: &[u8; 3],
+        disk: &mut DiskAccess,
+    ) -> Option<DirEntry> {
+        let dir_offset = self.first_sector * 512;
+        let entry_size = core::mem::size_of::<DirEntry>() as u32;
+
+        for i in 0..self.max_entries {
+            let offset = dir_offset + i * entry_size;
+            let mut entry = DirEntry::new();
+            disk.read_struct_from_disk(offset, &mut entry);
+
+            if entry.file_name[0] == 0x00 {
+                return None; // end of directory
+            }
+            if entry.file_name[0] == 0xE5 {
+                continue; // deleted entry
+            }
+
+            if entry.matches_name(filename, ext) {
+                let removed = entry;
+                entry.mark_deleted();
+                disk.write_struct_to_disk(offset, &entry);
+                return Some(removed);
+            }
+        }
+        None
+    }
+
     pub fn find_entry(&self, name: &str, disk: &mut DiskAccess) -> Option<Entity> {
         let (filename, ext) = match name.rsplit_once('.') {
             Some(pair) => pair,
@@ -306,6 +387,10 @@ pub struct Directory {
 }
 
 impl Directory {
+    pub fn dir_type(&self) -> &DirectoryType {
+        &self.dir_type
+    }
+
     pub fn from_dir_entry(dir_entry: DirEntry) -> Self {
         Self {
             dir_type: DirectoryType::Subdir(dir_entry),
@@ -541,6 +626,62 @@ impl File {
                 // if there is no more room in the buffer, exit
                 return bytes_written as u32;
             }
+        }
+    }
+}
+
+/// Parse a filename string into FAT 8.3 format (uppercase, space-padded).
+pub fn parse_short_name(name: &str) -> ([u8; 8], [u8; 3]) {
+    let (filename, ext) = match name.rsplit_once('.') {
+        Some(pair) => pair,
+        None => (name, ""),
+    };
+    let mut short_filename: [u8; 8] = [0x20; 8];
+    let mut short_ext: [u8; 3] = [0x20; 3];
+    let filename_len = filename.len().min(8);
+    let ext_len = ext.len().min(3);
+    for i in 0..filename_len {
+        short_filename[i] = filename.as_bytes()[i].to_ascii_uppercase();
+    }
+    for i in 0..ext_len {
+        short_ext[i] = ext.as_bytes()[i].to_ascii_uppercase();
+    }
+    (short_filename, short_ext)
+}
+
+/// Check if a subdirectory (given by its first cluster) is empty.
+pub fn is_subdir_empty(
+    first_cluster: u32,
+    table: &AllocationTable,
+    disk: &mut DiskAccess,
+) -> bool {
+    let cluster_location = table.get_cluster_location(first_cluster);
+    let entry_size = core::mem::size_of::<DirEntry>() as u32;
+    let entries_per_cluster = table.bytes_per_cluster() / entry_size;
+
+    let mut cluster = first_cluster;
+    loop {
+        let loc = table.get_cluster_location(cluster);
+        for i in 0..entries_per_cluster {
+            let offset = loc + i * entry_size;
+            let mut entry = DirEntry::new();
+            disk.read_struct_from_disk(offset, &mut entry);
+
+            if entry.file_name[0] == 0x00 {
+                return true; // end of directory, no entries found
+            }
+            if entry.file_name[0] == 0xE5 {
+                continue; // deleted entry
+            }
+            // Skip . and .. entries
+            if entry.get_filename() == "." || entry.get_filename() == ".." {
+                continue;
+            }
+            return false; // found a real entry
+        }
+        match table.get_next_cluster(cluster, disk) {
+            Some(next) => cluster = next,
+            None => return true,
         }
     }
 }

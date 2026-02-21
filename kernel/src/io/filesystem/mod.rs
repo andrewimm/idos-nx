@@ -186,6 +186,98 @@ pub fn driver_open(
     })
 }
 
+/// Run a path-based operation (mkdir/unlink/rmdir) on a driver.
+/// These operations don't require an open file instance.
+fn driver_path_op(
+    driver_id: DriverID,
+    path: Path,
+    io_callback: AsyncIOCallback,
+    kernel_fn: fn(&dyn super::driver::kernel_driver::KernelDriver, &str, AsyncIOCallback) -> Option<IoResult>,
+    make_action: fn(VirtualAddress, usize) -> DriverIoAction,
+) -> Option<IoResult> {
+    let path_len = path.as_str().len();
+    if path_len == 0 {
+        return Some(Err(IoError::InvalidArgument));
+    }
+
+    with_driver(driver_id, |driver| {
+        match driver {
+            DriverType::KernelFilesystem(fs) => {
+                return kernel_fn(&**fs, path.as_str(), io_callback);
+            }
+            DriverType::KernelDevice(_) | DriverType::TaskDevice(_, _) => {
+                return Some(Err(IoError::UnsupportedOperation));
+            }
+            DriverType::TaskFilesystem(task) => {
+                let page_start =
+                    map_memory(None, 0x1000, crate::task::memory::MemoryBacking::FreeMemory)
+                        .unwrap();
+                let path_slice = unsafe {
+                    core::slice::from_raw_parts_mut(page_start.as_ptr_mut::<u8>(), path_len)
+                };
+                path_slice.copy_from_slice(path.as_str().as_bytes());
+                let shared_vaddr = share_buffer(*task, page_start, path_len);
+                release_buffer(page_start, path_len);
+                let action = make_action(shared_vaddr, path_len);
+
+                send_async_request(*task, io_callback, action);
+                None
+            }
+        }
+    })
+}
+
+pub fn driver_mkdir(
+    driver_id: DriverID,
+    path: Path,
+    io_callback: AsyncIOCallback,
+) -> Option<IoResult> {
+    driver_path_op(
+        driver_id,
+        path,
+        io_callback,
+        |d, p, cb| d.mkdir(p, cb),
+        |vaddr, len| DriverIoAction::Mkdir {
+            path_str_vaddr: vaddr,
+            path_str_len: len,
+        },
+    )
+}
+
+pub fn driver_unlink(
+    driver_id: DriverID,
+    path: Path,
+    io_callback: AsyncIOCallback,
+) -> Option<IoResult> {
+    driver_path_op(
+        driver_id,
+        path,
+        io_callback,
+        |d, p, cb| d.unlink(p, cb),
+        |vaddr, len| DriverIoAction::Unlink {
+            path_str_vaddr: vaddr,
+            path_str_len: len,
+        },
+    )
+}
+
+pub fn driver_rmdir(
+    driver_id: DriverID,
+    path: Path,
+    io_callback: AsyncIOCallback,
+) -> Option<IoResult> {
+    driver_path_op(
+        driver_id,
+        path,
+        io_callback,
+        |d, p, cb| d.rmdir(p, cb),
+        |vaddr, len| DriverIoAction::Rmdir {
+            path_str_vaddr: vaddr,
+            path_str_len: len,
+        },
+    )
+}
+
 pub fn driver_close(id: DriverID, instance: u32, io_callback: AsyncIOCallback) -> Option<IoResult> {
     with_driver(id, |driver| match driver {
         DriverType::KernelFilesystem(d) | DriverType::KernelDevice(d) => {

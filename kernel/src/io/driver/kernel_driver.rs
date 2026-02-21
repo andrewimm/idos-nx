@@ -66,6 +66,18 @@ pub trait KernelDriver {
         Some(Err(IoError::UnsupportedOperation))
     }
 
+    fn mkdir(&self, path: &str, io_callback: AsyncIOCallback) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
+    }
+
+    fn unlink(&self, path: &str, io_callback: AsyncIOCallback) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
+    }
+
+    fn rmdir(&self, path: &str, io_callback: AsyncIOCallback) -> Option<IoResult> {
+        Some(Err(IoError::UnsupportedOperation))
+    }
+
     fn create_mapping(&self, path: &str) -> Option<IoResult<DriverMappingToken>> {
         Some(Err(IoError::UnsupportedOperation))
     }

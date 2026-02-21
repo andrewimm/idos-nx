@@ -3,7 +3,7 @@
 use core::ffi::{c_char, c_int};
 
 use idos_api::io::file::FileStatus;
-use idos_api::io::{ASYNC_OP_CLOSE, ASYNC_OP_OPEN, FILE_OP_STAT};
+use idos_api::io::{ASYNC_OP_CLOSE, ASYNC_OP_OPEN, FILE_OP_MKDIR, FILE_OP_STAT};
 use idos_api::syscall::io::create_file_handle;
 
 use crate::stdio::{io_sync, translate_path_raw};
@@ -105,8 +105,16 @@ pub unsafe extern "C" fn fstat(_fd: c_int, statbuf: *mut Stat) -> c_int {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn mkdir(_pathname: *const c_char, _mode: u32) -> c_int {
-    0 // stub success
+pub unsafe extern "C" fn mkdir(pathname: *const c_char, _mode: u32) -> c_int {
+    if pathname.is_null() {
+        return -1;
+    }
+    let handle = create_file_handle();
+    let mut path_buf = [0u8; 256];
+    let path_len = translate_path_raw(pathname, &mut path_buf);
+    let result = io_sync(handle, FILE_OP_MKDIR, path_buf.as_ptr() as u32, path_len as u32, 0);
+    io_sync(handle, ASYNC_OP_CLOSE, 0, 0, 0).ok();
+    if result.is_err() { -1 } else { 0 }
 }
 
 #[no_mangle]

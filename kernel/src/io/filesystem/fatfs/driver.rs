@@ -2,7 +2,7 @@ use alloc::collections::BTreeMap;
 use alloc::string::String;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use super::dir::{Directory, Entity, File};
+use super::dir::{is_subdir_empty, parse_short_name, Directory, Entity, File};
 use super::fs::FatFS;
 use super::table::AllocationTable;
 use crate::collections::SlotList;
@@ -10,6 +10,8 @@ use core::cell::RefCell;
 use idos_api::io::driver::{AsyncDriver, DriverFileReference, DriverMappingToken};
 use idos_api::io::error::IoError;
 use idos_api::io::file::{FileStatus, FileType};
+
+static ZERO_SECTOR: [u8; 512] = [0u8; 512];
 
 pub struct FatDriver {
     fs: RefCell<FatFS>,
@@ -138,6 +140,115 @@ impl AsyncDriver for FatDriver {
                 status.modification_time = 0;
             }
         }
+        Ok(0)
+    }
+
+    fn mkdir(&mut self, path: &str) -> Result<u32, IoError> {
+        super::LOGGER.log(format_args!("Mkdir \"{}\"", path));
+
+        let (filename, ext) = parse_short_name(path);
+        let root = self.fs.borrow().get_root_directory();
+
+        // Check if entry already exists
+        if root.find_entry(path, &mut self.fs.borrow_mut().disk).is_some() {
+            return Err(IoError::AlreadyOpen);
+        }
+
+        let table = self.get_table();
+        let mut fs = self.fs.borrow_mut();
+
+        // Allocate a cluster for the new directory's contents
+        let cluster = table.allocate_cluster(&mut fs.disk).ok_or(IoError::DiskFull)?;
+
+        // Zero-fill the new directory cluster
+        let cluster_location = table.get_cluster_location(cluster);
+        let bytes_per_cluster = table.bytes_per_cluster();
+        let mut offset = 0u32;
+        while offset < bytes_per_cluster {
+            let to_write = (bytes_per_cluster - offset).min(512);
+            fs.disk.write_bytes_to_disk(cluster_location + offset, &ZERO_SECTOR[..to_write as usize]);
+            offset += to_write;
+        }
+
+        // Add entry to root directory (attribute 0x10 = directory)
+        let root = self.fs.borrow().get_root_directory();
+        root.add_entry(&filename, &ext, 0x10, cluster as u16, &mut fs.disk)
+            .ok_or(IoError::DiskFull)?;
+
+        fs.disk.flush_all();
+        Ok(0)
+    }
+
+    fn unlink(&mut self, path: &str) -> Result<u32, IoError> {
+        super::LOGGER.log(format_args!("Unlink \"{}\"", path));
+
+        let (filename, ext) = parse_short_name(path);
+        let root = self.fs.borrow().get_root_directory();
+
+        // Check that the entry exists and is a file
+        match root.find_entry(path, &mut self.fs.borrow_mut().disk) {
+            Some(Entity::File(_)) => {}
+            Some(Entity::Dir(_)) => return Err(IoError::InvalidArgument),
+            None => return Err(IoError::NotFound),
+        }
+
+        let table = self.get_table();
+        let root = self.fs.borrow().get_root_directory();
+        let mut fs = self.fs.borrow_mut();
+
+        // Remove the directory entry
+        let removed = root.remove_entry(&filename, &ext, &mut fs.disk)
+            .ok_or(IoError::NotFound)?;
+
+        // Free the cluster chain
+        let first_cluster = removed.first_file_cluster();
+        if first_cluster != 0 {
+            table.free_chain(first_cluster as u32, &mut fs.disk);
+        }
+
+        fs.disk.flush_all();
+        Ok(0)
+    }
+
+    fn rmdir(&mut self, path: &str) -> Result<u32, IoError> {
+        super::LOGGER.log(format_args!("Rmdir \"{}\"", path));
+
+        let (filename, ext) = parse_short_name(path);
+        let root = self.fs.borrow().get_root_directory();
+
+        // Check that the entry exists and is a directory
+        let first_cluster = match root.find_entry(path, &mut self.fs.borrow_mut().disk) {
+            Some(Entity::Dir(d)) => {
+                // Get the first cluster from the directory's underlying entry
+                match &d.dir_type() {
+                    super::dir::DirectoryType::Subdir(entry) => entry.first_file_cluster(),
+                    super::dir::DirectoryType::Root(_) => return Err(IoError::InvalidArgument),
+                }
+            }
+            Some(Entity::File(_)) => return Err(IoError::InvalidArgument),
+            None => return Err(IoError::NotFound),
+        };
+
+        let table = self.get_table();
+
+        // Check that directory is empty
+        if !is_subdir_empty(first_cluster as u32, &table, &mut self.fs.borrow_mut().disk) {
+            return Err(IoError::InvalidArgument);
+        }
+
+        let root = self.fs.borrow().get_root_directory();
+        let mut fs = self.fs.borrow_mut();
+
+        // Remove the directory entry
+        root.remove_entry(&filename, &ext, &mut fs.disk)
+            .ok_or(IoError::NotFound)?;
+
+        // Free the cluster chain
+        if first_cluster != 0 {
+            table.free_chain(first_cluster as u32, &mut fs.disk);
+        }
+
+        fs.disk.flush_all();
         Ok(0)
     }
 
