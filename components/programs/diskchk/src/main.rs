@@ -286,7 +286,7 @@ pub extern "C" fn main() {
     let root_dir_start = fat_start + (fat_count as u32) * fat_size;
     let root_dir_size = (root_dir_entries as u32) * 32;
     let root_dir_sectors = (root_dir_size + 511) / 512;
-    let _data_start = root_dir_start + root_dir_sectors * 512;
+    let data_start = root_dir_start + root_dir_sectors * 512;
     let total_data_sectors = (total_sectors as u32) - (reserved_sectors as u32)
         - (fat_count as u32) * (sectors_per_fat as u32) - root_dir_sectors;
     let total_clusters = total_data_sectors / (sectors_per_cluster as u32);
@@ -446,9 +446,9 @@ pub extern "C" fn main() {
     }
 
     // -----------------------------------------------------------------------
-    // 4. Directory entry scan
+    // 4. Directory entry scan (recursive)
     // -----------------------------------------------------------------------
-    out.push(b"Scanning root directory...\n");
+    out.push(b"Scanning directory tree...\n");
 
     let root_buf_ptr = alloc_buf(root_dir_size as usize);
     let root_buf = unsafe { core::slice::from_raw_parts_mut(root_buf_ptr, root_dir_size as usize) };
@@ -457,110 +457,198 @@ pub extern "C" fn main() {
     let mut owner_counter: u16 = 1;
     let mut file_count: u32 = 0;
 
-    let entry_count = root_dir_entries as usize;
-    for i in 0..entry_count {
-        let offset = i * 32;
-        if offset + 32 > root_buf.len() {
-            break;
-        }
+    // Stack of subdirectories to visit: (first_cluster, depth)
+    // We use a fixed-size stack; 128 entries is plenty for FAT12
+    const DIR_STACK_MAX: usize = 128;
+    let dir_stack_ptr = alloc_buf(DIR_STACK_MAX * 4) as *mut u16; // pairs of (cluster, depth)
+    let dir_stack_depth_ptr = alloc_buf(DIR_STACK_MAX * 4) as *mut u16;
+    let mut dir_stack_len: usize = 0;
 
-        let entry: DirEntry = unsafe {
-            core::ptr::read_unaligned(root_buf.as_ptr().add(offset) as *const DirEntry)
-        };
+    // Process root directory first, then iterate through subdirectory stack
+    // Phase 0 = root dir, Phase 1 = subdirectory stack
+    let mut phase: u32 = 0;
+    let mut current_buf: *const u8 = root_buf_ptr;
+    let mut current_buf_len: usize = root_dir_size as usize;
+    let mut current_depth: u16 = 0;
 
-        // End of directory
-        if entry.file_name[0] == 0x00 {
-            break;
-        }
-        // Deleted entry
-        if entry.file_name[0] == 0xE5 {
-            continue;
-        }
-        // Volume label or long name
-        if entry.attributes == DIR_ATTR_LONG_NAME || (entry.attributes & DIR_ATTR_VOLUME_LABEL) != 0 {
-            continue;
-        }
+    loop {
+        let entry_count = current_buf_len / 32;
+        for i in 0..entry_count {
+            let offset = i * 32;
 
-        let first_cluster = entry.first_file_cluster;
-        let byte_size = entry.byte_size;
-        let is_dir = (entry.attributes & DIR_ATTR_DIRECTORY) != 0;
-
-        // Print entry info
-        out.push(b"  ");
-        // Print filename (trim trailing spaces)
-        let mut name_len = 8;
-        while name_len > 0 && entry.file_name[name_len - 1] == b' ' {
-            name_len -= 1;
-        }
-        for j in 0..name_len {
-            out.push_byte(entry.file_name[j]);
-        }
-
-        // Print extension
-        let mut ext_len = 3;
-        while ext_len > 0 && entry.ext[ext_len - 1] == b' ' {
-            ext_len -= 1;
-        }
-        if ext_len > 0 {
-            out.push_byte(b'.');
-            for j in 0..ext_len {
-                out.push_byte(entry.ext[j]);
-            }
-        }
-
-        // Pad to 14 chars
-        let printed = name_len + if ext_len > 0 { 1 + ext_len } else { 0 };
-        for _ in printed..14 {
-            out.push_byte(b' ');
-        }
-
-        if is_dir {
-            out.push(b"<DIR>  ");
-        } else {
-            out.push_u32(byte_size, 6);
-            out.push(b" bytes, ");
-        }
-
-        // Follow chain
-        let owner_id = owner_counter;
-        owner_counter = owner_counter.wrapping_add(1);
-        if owner_counter == 0 { owner_counter = 1; }
-
-        let chain_len = if first_cluster >= 2 {
-            follow_chain(fat1, used_by, first_cluster, owner_id, max_cluster, &mut errors, &mut cross_links, &mut out)
-        } else {
-            0
-        };
-
-        out.push_u32(chain_len, 0);
-        if chain_len == 1 {
-            out.push(b" cluster");
-        } else {
-            out.push(b" clusters");
-        }
-
-        // Verify size vs chain length (files only)
-        if !is_dir && first_cluster >= 2 {
-            let expected_clusters = if byte_size == 0 {
-                0u32
-            } else {
-                (byte_size + bytes_per_cluster - 1) / bytes_per_cluster
+            let entry: DirEntry = unsafe {
+                core::ptr::read_unaligned(current_buf.add(offset) as *const DirEntry)
             };
-            if chain_len != expected_clusters {
-                out.push(b"  SIZE MISMATCH (expected ");
-                out.push_u32(expected_clusters, 0);
-                out.push(b")");
-                errors += 1;
+
+            // End of directory
+            if entry.file_name[0] == 0x00 {
+                break;
+            }
+            // Deleted entry
+            if entry.file_name[0] == 0xE5 {
+                continue;
+            }
+            // Volume label or long name
+            if entry.attributes == DIR_ATTR_LONG_NAME || (entry.attributes & DIR_ATTR_VOLUME_LABEL) != 0 {
+                continue;
+            }
+
+            let first_cluster = entry.first_file_cluster;
+            let byte_size = entry.byte_size;
+            let is_dir = (entry.attributes & DIR_ATTR_DIRECTORY) != 0;
+
+            // Skip . and .. entries in subdirectories
+            if is_dir && entry.file_name[0] == b'.' {
+                let is_dot = entry.file_name[1] == b' ';
+                let is_dotdot = entry.file_name[1] == b'.'
+                    && entry.file_name[2] == b' ';
+                if is_dot || is_dotdot {
+                    continue;
+                }
+            }
+
+            // Print entry info with indentation based on depth
+            out.push(b"  ");
+            for _ in 0..current_depth {
+                out.push(b"  ");
+            }
+
+            // Print filename (trim trailing spaces)
+            let mut name_len = 8;
+            while name_len > 0 && entry.file_name[name_len - 1] == b' ' {
+                name_len -= 1;
+            }
+            for j in 0..name_len {
+                out.push_byte(entry.file_name[j]);
+            }
+
+            // Print extension
+            let mut ext_len = 3;
+            while ext_len > 0 && entry.ext[ext_len - 1] == b' ' {
+                ext_len -= 1;
+            }
+            if ext_len > 0 {
+                out.push_byte(b'.');
+                for j in 0..ext_len {
+                    out.push_byte(entry.ext[j]);
+                }
+            }
+
+            // Pad to 14 chars
+            let printed = name_len + if ext_len > 0 { 1 + ext_len } else { 0 };
+            for _ in printed..14 {
+                out.push_byte(b' ');
+            }
+
+            if is_dir {
+                out.push(b"<DIR>  ");
+            } else {
+                out.push_u32(byte_size, 6);
+                out.push(b" bytes, ");
+            }
+
+            // Follow chain
+            let owner_id = owner_counter;
+            owner_counter = owner_counter.wrapping_add(1);
+            if owner_counter == 0 { owner_counter = 1; }
+
+            let chain_len = if first_cluster >= 2 {
+                follow_chain(fat1, used_by, first_cluster, owner_id, max_cluster, &mut errors, &mut cross_links, &mut out)
+            } else {
+                0
+            };
+
+            out.push_u32(chain_len, 0);
+            if chain_len == 1 {
+                out.push(b" cluster");
+            } else {
+                out.push(b" clusters");
+            }
+
+            // Verify size vs chain length (files only)
+            if !is_dir && first_cluster >= 2 {
+                let expected_clusters = if byte_size == 0 {
+                    0u32
+                } else {
+                    (byte_size + bytes_per_cluster - 1) / bytes_per_cluster
+                };
+                if chain_len != expected_clusters {
+                    out.push(b"  SIZE MISMATCH (expected ");
+                    out.push_u32(expected_clusters, 0);
+                    out.push(b")");
+                    errors += 1;
+                } else {
+                    out.push(b"  OK");
+                }
             } else {
                 out.push(b"  OK");
             }
-        } else if !is_dir && first_cluster < 2 && byte_size == 0 {
-            out.push(b"  OK");
-        } else {
-            out.push(b"  OK");
+            out.push(b"\n");
+            file_count += 1;
+
+            // Queue subdirectory for scanning
+            if is_dir && first_cluster >= 2 && dir_stack_len < DIR_STACK_MAX {
+                unsafe {
+                    *dir_stack_ptr.add(dir_stack_len) = first_cluster;
+                    *dir_stack_depth_ptr.add(dir_stack_len) = current_depth + 1;
+                }
+                dir_stack_len += 1;
+            }
         }
-        out.push(b"\n");
-        file_count += 1;
+
+        // Move to next directory on the stack
+        if phase == 0 {
+            phase = 1;
+        }
+
+        if dir_stack_len == 0 {
+            break;
+        }
+
+        // Pop next subdirectory from stack
+        dir_stack_len -= 1;
+        let subdir_cluster = unsafe { *dir_stack_ptr.add(dir_stack_len) };
+        current_depth = unsafe { *dir_stack_depth_ptr.add(dir_stack_len) };
+
+        // Read subdirectory data: follow FAT chain to determine size, then read clusters
+        let mut cluster_count: u32 = 0;
+        let mut c = subdir_cluster as u32;
+        while c >= 2 && c <= max_cluster && cluster_count < max_cluster {
+            cluster_count += 1;
+            let next = get_fat_entry(fat1, c);
+            if is_eof(next) || is_free(next) || is_bad(next) {
+                break;
+            }
+            c = next as u32;
+        }
+
+        if cluster_count == 0 {
+            continue;
+        }
+
+        let subdir_size = cluster_count * bytes_per_cluster;
+        let subdir_buf = alloc_buf(subdir_size as usize);
+
+        // Read each cluster's data
+        let mut write_offset: usize = 0;
+        c = subdir_cluster as u32;
+        let mut steps: u32 = 0;
+        while c >= 2 && c <= max_cluster && steps < cluster_count {
+            let disk_offset = data_start + (c - 2) * bytes_per_cluster;
+            let dest = unsafe { core::slice::from_raw_parts_mut(subdir_buf.add(write_offset), bytes_per_cluster as usize) };
+            disk.read_bytes(dest, disk_offset);
+            write_offset += bytes_per_cluster as usize;
+
+            let next = get_fat_entry(fat1, c);
+            if is_eof(next) || is_free(next) || is_bad(next) {
+                break;
+            }
+            c = next as u32;
+            steps += 1;
+        }
+
+        current_buf = subdir_buf;
+        current_buf_len = subdir_size as usize;
     }
 
     if file_count == 0 {
