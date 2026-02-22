@@ -131,7 +131,11 @@ pub trait AsyncDriver {
                     core::str::from_utf8(path_slice).ok()?
                 };
                 let flags = message.args[2];
-                Some(self.open(path, flags).map(|file_ref| *file_ref))
+                let result = self.open(path, flags).map(|file_ref| *file_ref);
+                if path_len > 0 {
+                    self.release_buffer(path_ptr, path_len);
+                }
+                Some(result)
             }
             DriverCommand::OpenRaw => {
                 // Convert to str without allocation:
@@ -219,7 +223,11 @@ pub trait AsyncDriver {
                     let path_slice = unsafe { core::slice::from_raw_parts(path_ptr, path_len) };
                     core::str::from_utf8(path_slice).ok()?
                 };
-                Some(self.create_mapping(path).map(|map_token| *map_token))
+                let result = self.create_mapping(path).map(|map_token| *map_token);
+                if path_len > 0 {
+                    self.release_buffer(path_ptr, path_len);
+                }
+                Some(result)
             }
             DriverCommand::RemoveMapping => {
                 let map_token = DriverMappingToken(message.args[0]);

@@ -69,6 +69,20 @@ impl FileIOProvider {
         let _ = self.source_id.swap(source_id, Ordering::SeqCst);
     }
 
+    /// Returns the driver ID and bound instance for this provider, if bound.
+    /// Used during task cleanup to issue close requests directly.
+    pub fn get_binding(&self) -> Option<(DriverID, u32)> {
+        let driver_id = (*self.driver_id.lock())?;
+        let instance = (*self.bound_instance.lock())?;
+        Some((driver_id, instance))
+    }
+
+    /// Generate a new op ID without registering a pending op. Used for
+    /// fire-and-forget close requests during task cleanup.
+    pub fn next_op_id(&self) -> AsyncOpID {
+        self.id_gen.next_id()
+    }
+
     // TODO: this isn't enough. Devices and other things need to handle
     // this properly at the driver level, so that we can ref-count things and
     // not free resources prematurely

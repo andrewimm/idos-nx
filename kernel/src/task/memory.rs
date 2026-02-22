@@ -147,6 +147,12 @@ impl<const U: u32> MappedMemory<U> {
         self.regions.len()
     }
 
+    /// Remove and return all mapped regions. Used during task cleanup to
+    /// collect every region before unmapping them.
+    pub fn drain_regions(&self) -> Vec<MemMappedRegion> {
+        self.regions.values().cloned().collect()
+    }
+
     /// Debug: print all mapped regions to the kernel console
     pub fn dump_regions(&self) {
         crate::kprint!("  Memory map ({} regions, U={:#010X}):\n", self.regions.len(), U);

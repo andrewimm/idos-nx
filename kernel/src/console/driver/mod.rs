@@ -25,14 +25,25 @@ impl ConsoleManager {
                     None => return Some(Err(IoError::NotFound)),
                 };
                 console.add_reader_task(sender);
-                let handle = self.open_io.insert(console_id);
+                let handle = self.open_io.insert((console_id, 1));
                 Some(Ok(handle as u32))
             }
 
             DriverCommand::Close => {
-                let instance = message.args[0];
-                match self.open_io.remove(instance as usize) {
-                    Some(_) => Some(Ok(1)),
+                let instance = message.args[0] as usize;
+                match self.open_io.get_mut(instance) {
+                    Some((console_id, ref_count)) => {
+                        let cid = *console_id;
+                        if let Some(console) = self.consoles.get_mut(cid) {
+                            console.remove_reader_task(sender);
+                        }
+                        if *ref_count > 1 {
+                            *ref_count -= 1;
+                        } else {
+                            self.open_io.remove(instance);
+                        }
+                        Some(Ok(1))
+                    }
                     None => Some(Err(IoError::FileHandleInvalid)),
                 }
             }
@@ -59,21 +70,26 @@ impl ConsoleManager {
             }
 
             DriverCommand::Share => {
-                let instance = message.args[0];
+                let instance = message.args[0] as usize;
                 let dest_task_id = TaskID::new(message.args[1]);
                 let is_move = message.args[2] != 0;
-                if is_move {
-                    // TODO: not sure what to do here
-                } else {
-                    let console_id = match self.open_io.get(instance as usize) {
-                        Some(id) => id,
-                        None => return Some(Err(IoError::FileHandleInvalid)),
-                    };
-
-                    let console = self.consoles.get_mut(*console_id).unwrap();
-                    console.add_reader_task(dest_task_id);
+                match self.open_io.get_mut(instance) {
+                    Some((console_id, ref_count)) => {
+                        let cid = *console_id;
+                        if is_move {
+                            // Move: the source task is giving up ownership.
+                            // Reader task list is updated by the caller.
+                        } else {
+                            // Duplicate: both tasks will share this instance.
+                            *ref_count += 1;
+                        }
+                        if let Some(console) = self.consoles.get_mut(cid) {
+                            console.add_reader_task(dest_task_id);
+                        }
+                        Some(Ok(1))
+                    }
+                    None => Some(Err(IoError::FileHandleInvalid)),
                 }
-                Some(Ok(1))
             }
 
             DriverCommand::Ioctl => {
@@ -105,7 +121,7 @@ impl ConsoleManager {
     /// input is flushed.
     pub fn read(&mut self, request_id: u32, instance: u32, buffer: &mut [u8]) -> Option<IoResult> {
         let console_id = match self.open_io.get(instance as usize) {
-            Some(id) => id,
+            Some((id, _)) => id,
             None => return Some(Err(IoError::FileHandleInvalid)),
         };
 
@@ -157,7 +173,7 @@ impl ConsoleManager {
 
     /// Write text to the console window.
     pub fn write(&mut self, instance: u32, buffer: &[u8]) -> IoResult {
-        let console_id = self
+        let (console_id, _) = self
             .open_io
             .get(instance as usize)
             .ok_or(IoError::FileHandleInvalid)?;
@@ -170,7 +186,7 @@ impl ConsoleManager {
     }
 
     pub fn ioctl(&mut self, instance: u32, ioctl: u32, _arg: u32) -> IoResult {
-        let console_id = self
+        let (console_id, _) = self
             .open_io
             .get(instance as usize)
             .ok_or(IoError::FileHandleInvalid)?;
@@ -192,7 +208,7 @@ impl ConsoleManager {
         arg_ptr: *mut u8,
         arg_len: usize,
     ) -> IoResult {
-        let console_id = self
+        let (console_id, _) = self
             .open_io
             .get(instance as usize)
             .ok_or(IoError::FileHandleInvalid)?;

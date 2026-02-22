@@ -26,8 +26,11 @@ pub struct ConsoleManager {
     pub current_console: usize,
     pub consoles: Vec<Console<COLS, ROWS>>,
 
-    /// mapping of open handles to the consoles they reference
-    pub open_io: SlotList<usize>,
+    /// mapping of open handles to the consoles they reference.
+    /// Each entry is (console_id, ref_count). The ref count is incremented
+    /// on share (duplicate) and decremented on close; the slot is only
+    /// removed when the count reaches zero.
+    pub open_io: SlotList<(usize, u32)>,
     pub pending_reads: SlotList<VecDeque<PendingRead>>,
 }
 

@@ -42,6 +42,9 @@ pub fn cleanup_resident() -> ! {
         while !terminated.is_empty() {
             if let Some(id) = terminated.pop() {
                 crate::task::switching::clean_up_task(id);
+                // Remove the task from the global map. When the last Arc
+                // reference drops, the Task's Drop impl frees the kernel stack.
+                crate::task::map::take_task(id);
             }
         }
     }

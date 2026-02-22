@@ -1,6 +1,7 @@
 use crate::arch::rdtsc;
 use crate::memory::address::{PhysicalAddress, VirtualAddress};
 use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::arch::{asm, global_asm};
 use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
@@ -49,13 +50,127 @@ pub fn update_timeouts(ms: u32) {
     });
 }
 
-pub fn clean_up_task(_id: TaskID) {
-    // iterate over open handles and close them
+pub fn clean_up_task(id: TaskID) {
+    // Step 1: Close all open handles
+    close_task_handles(id);
 
-    // TODO: add cleanup actions here (free remaining memory, etc)
+    // Step 2: Unmap all memory regions (frees physical frames)
+    unmap_task_memory(id);
 
-    // At this point, the Task state will be Dropped, and all heap objects held
-    // within the struct itself will be freed
+    // Step 3: Free page table frames and page directory frame
+    free_task_page_tables(id);
+}
+
+/// Close all open handles for a terminated task. For bound file handles,
+/// issues fire-and-forget close requests to drivers. We don't wait for
+/// results — the async completion would just try to notify a dead task,
+/// and `request_complete` handles missing tasks gracefully.
+fn close_task_handles(id: TaskID) {
+    use crate::io::async_io::IOType;
+    use crate::io::filesystem::driver_close;
+
+    let io_entries: Vec<(u32, Arc<IOType>)> = {
+        let task_lock = match get_task(id) {
+            Some(t) => t,
+            None => return,
+        };
+        let task = task_lock.read();
+        task.open_handles
+            .iter()
+            .filter_map(|(_handle, &io_index)| {
+                task.async_io_table
+                    .get(io_index)
+                    .map(|entry| (io_index, entry.io_type.clone()))
+            })
+            .collect()
+    };
+
+    for (io_index, io_type) in &io_entries {
+        if let IOType::File(ref file_io) = **io_type {
+            let Some((driver_id, instance)) = file_io.get_binding() else {
+                continue;
+            };
+            let op_id = file_io.next_op_id();
+            if let Some(Err(e)) = driver_close(driver_id, instance, (id, *io_index, op_id)) {
+                crate::kprintln!("Task {:?}: close error: {:?}", id, e);
+            }
+        }
+    }
+}
+
+/// Unmap all memory regions for a terminated task, freeing physical frames.
+fn unmap_task_memory(id: TaskID) {
+    use super::actions::memory::unmap_memory_for_task;
+
+    // Collect all region addresses and sizes, then release the lock before unmapping
+    let regions: Vec<(VirtualAddress, u32)> = {
+        let task_lock = match get_task(id) {
+            Some(t) => t,
+            None => return,
+        };
+        let task = task_lock.read();
+        task.memory_mapping
+            .drain_regions()
+            .into_iter()
+            .map(|r| {
+                let size = (r.size + 0xfff) & 0xfffff000; // round up to page boundary
+                (r.address, size)
+            })
+            .collect()
+    };
+
+    for (addr, size) in regions {
+        if let Err(e) = unmap_memory_for_task(id, addr, size) {
+            crate::kprintln!("Task {:?}: unmap error at {:?}: {:?}", id, addr, e);
+        }
+    }
+}
+
+/// Free the page table frames and page directory frame for a terminated task.
+/// Must be called after all user-space pages have been unmapped.
+fn free_task_page_tables(id: TaskID) {
+    use crate::memory::physical::release_frame;
+    use crate::memory::virt::page_table::PageTable;
+    use crate::memory::virt::scratch::UnmappedPage;
+
+    let page_directory_addr = {
+        let task_lock = match get_task(id) {
+            Some(t) => t,
+            None => return,
+        };
+        let addr = task_lock.read().page_directory;
+        addr
+    };
+
+    // Walk user-space page directory entries (0..768) and free any page table frames
+    {
+        let unmapped_dir = UnmappedPage::map(page_directory_addr);
+        let page_dir = PageTable::at_address(unmapped_dir.virtual_address());
+        for i in 0..768 {
+            let entry = page_dir.get(i);
+            if entry.is_present() {
+                let table_frame_addr = entry.get_address();
+                if let Err(e) = release_frame(table_frame_addr) {
+                    crate::kprintln!(
+                        "Task {:?}: failed to free page table frame {:?}: {:?}",
+                        id,
+                        table_frame_addr,
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    // Free the page directory frame itself
+    if let Err(e) = release_frame(page_directory_addr) {
+        crate::kprintln!(
+            "Task {:?}: failed to free page directory {:?}: {:?}",
+            id,
+            page_directory_addr,
+            e
+        );
+    }
 }
 
 /// Execute a context switch to another task. If that task does not exist, the

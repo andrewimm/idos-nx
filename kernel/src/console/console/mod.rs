@@ -34,6 +34,12 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
         self.reader_tasks.push(task_id);
     }
 
+    pub fn remove_reader_task(&mut self, task_id: TaskID) {
+        if let Some(pos) = self.reader_tasks.iter().position(|&id| id == task_id) {
+            self.reader_tasks.remove(pos);
+        }
+    }
+
     pub fn maybe_terminate_task(&mut self) -> Option<TaskID> {
         if self.reader_tasks.len() > 1 {
             let task = self.reader_tasks.pop();

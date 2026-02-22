@@ -72,7 +72,11 @@ struct IdosFatDriver {
 
 impl AsyncDriver for IdosFatDriver {
     fn release_buffer(&mut self, buffer_ptr: *mut u8, buffer_len: usize) {
-        if idos_api::syscall::memory::unmap_memory(buffer_ptr as u32, buffer_len as u32).is_err() {
+        let addr = buffer_ptr as u32;
+        let page_start = addr & 0xfffff000;
+        let page_end = (addr + buffer_len as u32 + 0xfff) & 0xfffff000;
+        let size = page_end - page_start;
+        if idos_api::syscall::memory::unmap_memory(page_start, size).is_err() {
             self.log.log("failed to unmap shared buffer");
         }
     }

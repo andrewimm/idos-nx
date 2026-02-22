@@ -123,7 +123,7 @@ pub fn unmap_memory_for_task(
         let pagedir = ExternalPageDirectory::for_task(task_id);
         for region in unmapped_regions {
             let mut offset = 0;
-            while offset < size {
+            while offset < region.size {
                 let mapping = region.address + offset;
                 if let Some(frame) = pagedir.unmap(mapping) {
                     let released =
