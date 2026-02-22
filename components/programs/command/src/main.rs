@@ -22,7 +22,8 @@ pub extern "C" fn main() {
     let mut env = self::env::Environment::new("C:");
 
     loop {
-        idos_sdk::allocator::reset();
+        // TODO: add a bump allocator and use it for the command shell, since
+        //idos_sdk::allocator::reset();
 
         prompt_len = env.expand_prompt(&mut prompt);
 

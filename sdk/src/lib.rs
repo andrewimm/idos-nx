@@ -1,7 +1,6 @@
 #![no_std]
 #![feature(alloc_error_handler)]
 #![feature(lang_items)]
-#![feature(strict_provenance_atomic_ptr)]
 
 pub mod allocator;
 pub mod env;
@@ -31,8 +30,6 @@ _start:
 
 #[no_mangle]
 pub extern "C" fn sdk_start(argc: u32, argv: *const u32) {
-    allocator::init_allocator();
-
     env::init_args(argc, argv);
 
     unsafe { main() };
