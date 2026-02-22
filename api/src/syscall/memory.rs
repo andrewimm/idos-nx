@@ -19,6 +19,15 @@ pub fn map_memory(
     }
 }
 
+pub fn unmap_memory(address: u32, size: u32) -> Result<(), ()> {
+    let result = syscall(0x32, address, size, 0);
+    if result == 0xffff_ffff {
+        Err(())
+    } else {
+        Ok(())
+    }
+}
+
 pub const MMAP_SHARED: u32 = 1;
 
 #[repr(C)]

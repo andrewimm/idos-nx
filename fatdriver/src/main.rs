@@ -71,9 +71,10 @@ struct IdosFatDriver {
 }
 
 impl AsyncDriver for IdosFatDriver {
-    fn release_buffer(&mut self, _buffer_ptr: *mut u8, _buffer_len: usize) {
-        // In userspace, shared buffers are released by the kernel when the
-        // request completes. No-op here.
+    fn release_buffer(&mut self, buffer_ptr: *mut u8, buffer_len: usize) {
+        if idos_api::syscall::memory::unmap_memory(buffer_ptr as u32, buffer_len as u32).is_err() {
+            self.log.log("failed to unmap shared buffer");
+        }
     }
 
     fn open(&mut self, path: &str, flags: u32) -> Result<DriverFileReference, IoError> {

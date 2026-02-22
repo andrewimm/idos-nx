@@ -94,14 +94,15 @@ pub fn release_buffer(vaddr: VirtualAddress, byte_size: usize) {
         let frame_start =
             get_current_physical_address(page_start).expect("Cannot release unmapped memory");
         let count_remaining = SHARED_MEMORY_REFCOUNT.lock().remove_reference(frame_start);
-        // TODO: this could just be one unmap call. If there are multiple pages
-        // this will make too many unnecessary calls
-        unmap_memory_for_task(cur_task, page_start, 0x1000).unwrap();
         if count_remaining == 0 {
             super::LOGGER.log(format_args!("SHARE: Release frame {:?}", frame_start));
             // TODO: release the frame
         }
     }
+    let page_start = vaddr.prev_page_barrier();
+    let page_end = (vaddr + byte_size as u32).next_page_barrier();
+    let total_size = page_end - page_start;
+    unmap_memory_for_task(cur_task, page_start, total_size).unwrap();
 }
 
 #[cfg(test)]

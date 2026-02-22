@@ -10,7 +10,7 @@ use crate::{
         actions::{
             self,
             lifecycle::InMemoryArgsIterator,
-            memory::{map_file, map_memory},
+            memory::{map_file, map_memory, unmap_memory},
             send_message,
         },
         id::TaskID,
@@ -141,6 +141,7 @@ fn log_syscall(registers: &FullSavedRegisters) {
         0x2b => "dup handle",
         0x30 => "map memory",
         0x31 => "map file",
+        0x32 => "unmap memory",
         0x40 => "get monotonic ms",
         0x41 => "get system time",
         0x50 => "register filesystem",
@@ -428,6 +429,20 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             match map_file(address, size, path, file_offset, shared) {
                 Ok(vaddr) => {
                     registers.eax = vaddr.into();
+                }
+                Err(_e) => {
+                    registers.eax = 0xffff_ffff;
+                }
+            }
+        }
+
+        0x32 => {
+            // unmap memory
+            let address = VirtualAddress::new(registers.ebx);
+            let size = registers.ecx;
+            match unmap_memory(address, size) {
+                Ok(()) => {
+                    registers.eax = 0;
                 }
                 Err(_e) => {
                     registers.eax = 0xffff_ffff;
