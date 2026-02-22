@@ -86,3 +86,14 @@ pub fn read_message_op(message: &mut Message) -> AsyncOp {
         args: [message_ptr, message_len, 0],
     }
 }
+
+pub fn write_op(buffer: &[u8], offset: u32) -> AsyncOp {
+    let buffer_ptr = buffer.as_ptr() as u32;
+    let buffer_len = buffer.len() as u32;
+    AsyncOp {
+        op_code: ASYNC_OP_WRITE,
+        signal: AtomicU32::new(0),
+        return_value: AtomicU32::new(0),
+        args: [buffer_ptr, buffer_len, offset],
+    }
+}

@@ -24,6 +24,7 @@ use idos_api::io::error::{IoError, IoResult};
 use idos_api::io::file::{FileStatus, FileType};
 use idos_api::io::sync::{close_sync, io_sync, open_sync, read_sync, write_sync};
 use idos_api::io::Handle;
+use idos_sdk::log::SysLogger;
 use idos_api::ipc::Message;
 use idos_api::syscall::io::{create_file_handle, create_message_queue_handle, driver_io_complete, register_fs};
 use idos_api::syscall::time::get_system_time;
@@ -66,6 +67,7 @@ fn fat_error_to_io_error(e: FatError) -> IoError {
 /// Wrapper that implements AsyncDriver by delegating to FatDriver
 struct IdosFatDriver {
     inner: FatDriver<IdosDiskIO>,
+    log: SysLogger,
 }
 
 impl AsyncDriver for IdosFatDriver {
@@ -75,6 +77,7 @@ impl AsyncDriver for IdosFatDriver {
     }
 
     fn open(&mut self, path: &str, flags: u32) -> Result<DriverFileReference, IoError> {
+        self.log.log(path);
         self.inner
             .open(path, flags)
             .map(DriverFileReference::new)
@@ -87,6 +90,7 @@ impl AsyncDriver for IdosFatDriver {
         buffer: &mut [u8],
         offset: u32,
     ) -> IoResult {
+        self.log.log("read");
         self.inner
             .read(*file_ref, buffer, offset)
             .map_err(fat_error_to_io_error)
@@ -98,12 +102,14 @@ impl AsyncDriver for IdosFatDriver {
         buffer: &[u8],
         offset: u32,
     ) -> IoResult {
+        self.log.log("write");
         self.inner
             .write(*file_ref, buffer, offset)
             .map_err(fat_error_to_io_error)
     }
 
     fn close(&mut self, file_ref: DriverFileReference) -> IoResult {
+        self.log.log("close");
         self.inner
             .close(*file_ref)
             .map_err(fat_error_to_io_error)
@@ -207,7 +213,10 @@ pub extern "C" fn main() {
     let disk_io = IdosDiskIO::new(dev_name);
     let fat_driver = FatDriver::new(disk_io, get_system_time);
 
-    let mut driver_impl = IdosFatDriver { inner: fat_driver };
+    let mut driver_impl = IdosFatDriver {
+        inner: fat_driver,
+        log: SysLogger::new("FATFS"),
+    };
 
     // Register ourselves as a filesystem driver
     register_fs(drive_letter);

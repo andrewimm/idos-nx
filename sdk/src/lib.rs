@@ -4,6 +4,7 @@
 
 pub mod allocator;
 pub mod env;
+pub mod log;
 pub mod panic;
 
 extern crate alloc;

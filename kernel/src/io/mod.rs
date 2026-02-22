@@ -47,6 +47,9 @@ pub fn init_async_io_system() {
     let sys_fs = self::filesystem::sysfs::SysFS::new();
     self::filesystem::install_kernel_fs("SYS", Box::new(sys_fs));
 
+    let log_fs = self::filesystem::logfs::LogFS::new();
+    self::filesystem::install_kernel_fs("LOG", Box::new(log_fs));
+
     crate::pipes::driver::install();
 }
 

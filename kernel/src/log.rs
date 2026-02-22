@@ -68,6 +68,10 @@ impl TaggedLogger {
         TaggedLogger { tag, color }
     }
 
+    pub fn tag_bytes(&self) -> [u8; 8] {
+        self.tag
+    }
+
     pub fn log(&self, args: fmt::Arguments) {
         kprint!(
             "\x1b[{}m{}\x1b[0m: ",
