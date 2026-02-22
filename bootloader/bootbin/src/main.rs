@@ -14,6 +14,13 @@ use crate::elf::{ElfHeader, SectionHeader};
 static mut KERNEL_MEMORY_END: u32 = 0;
 static mut KERNEL_ENTRY_LOCATION: u32 = 0;
 
+/// Physical address where the FAT driver flat binary is loaded
+const FATDRV_LOAD_PHYS: u32 = 0x20000;
+/// Address where boot info about the FAT driver is stored (within first 0x1000
+/// bytes, which the kernel reserves).
+/// Layout: [u32 phys_addr] [u32 size_in_bytes]
+const FATDRV_BOOT_INFO: u32 = 0x600;
+
 /// Entry point for BOOTBIN, the IDOS bootloader
 /// The bootloader is launched by the MBR code, and is responsible for running
 /// any code that needs BIOS interrupts. Then, it loads the kernel from disk
@@ -263,6 +270,72 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
         total_bytes_copied
     )
     .unwrap();
+
+    // Load the FAT driver flat binary (FATDRV.BIN) into memory at a known
+    // physical address. The kernel will create a userspace task from it.
+    {
+        let fatdrv_info = match disk::find_root_dir_file("FATDRV  BIN") {
+            Some(pair) => pair,
+            None => {
+                video::print_string("FATDRV.BIN not found, skipping.\r\n");
+                // Store zero size to indicate no driver was loaded
+                core::ptr::write_volatile(FATDRV_BOOT_INFO as *mut u32, 0);
+                core::ptr::write_volatile((FATDRV_BOOT_INFO + 4) as *mut u32, 0);
+                (0, 0) // dummy, won't be used
+            }
+        };
+
+        if fatdrv_info.1 > 0 {
+            let (first_cluster, file_size) = fatdrv_info;
+            video::print_string("Loading FATDRV.BIN...\r\n");
+            write!(video::VideoWriter, "FATDRV size: {} bytes\r\n", file_size).unwrap();
+
+            let mut fatdrv_bytes_copied: u32 = 0;
+            let mut fatdrv_cluster = first_cluster;
+
+            while fatdrv_cluster < 0xFF8 {
+                // Find a contiguous run of clusters
+                let run_start = fatdrv_cluster;
+                let mut run_len: u16 = 1;
+                let mut next = disk::fat12_next(fatdrv_cluster);
+                while next == fatdrv_cluster + run_len && run_len < max_clusters_per_copy {
+                    run_len += 1;
+                    next = disk::fat12_next(run_start + run_len - 1);
+                }
+
+                let lba = root_data_sector + (run_start - 2) * sectors_per_cluster;
+                let sector_count = run_len * sectors_per_cluster;
+
+                disk::read_sectors(disk_number, lba, 0x800, 0, sector_count);
+                let copy_size = sector_count as u32 * 512;
+
+                {
+                    let src = 0x8000 as *const u8;
+                    let dst = (FATDRV_LOAD_PHYS + fatdrv_bytes_copied) as *mut u8;
+                    let to_copy = if fatdrv_bytes_copied + copy_size > file_size {
+                        file_size - fatdrv_bytes_copied
+                    } else {
+                        copy_size
+                    };
+                    core::ptr::copy_nonoverlapping(src, dst, to_copy as usize);
+                }
+
+                fatdrv_bytes_copied += copy_size;
+                fatdrv_cluster = next;
+            }
+
+            // Store the boot info for the kernel
+            core::ptr::write_volatile(FATDRV_BOOT_INFO as *mut u32, FATDRV_LOAD_PHYS);
+            core::ptr::write_volatile((FATDRV_BOOT_INFO + 4) as *mut u32, file_size);
+
+            write!(
+                video::VideoWriter,
+                "FATDRV loaded at {:#X}, {} bytes\r\n",
+                FATDRV_LOAD_PHYS, file_size
+            )
+            .unwrap();
+        }
+    }
 
     // Now that the kernel has been copied through the buffer to high memory,
     // we should be able to access free memory found at 0x8000.

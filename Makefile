@@ -9,6 +9,8 @@ command := target/i386-idos/release/command
 diskchk := target/i386-idos/release/diskchk
 doslayer := target/i386-idos/release/doslayer
 elfload := target/i386-idos/release/elfload
+fatdrv_elf := target/i386-idos/release/fatdriver
+fatdrv := build/fatdrv.bin
 gfx := target/i386-idos/release/gfx
 
 kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
@@ -39,10 +41,11 @@ $(userdata): $(colordemo)
 	@mcopy -D o -i $(userdata) userdata/static/*.* ::
 	@mcopy -D o -i $(userdata) $(colordemo) ::COLORS.ELF
 
-bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(gfx) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
+bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
 	@mcopy -D o -i $(diskimage) $(bootbin) ::BOOT.BIN
 	@mcopy -D o -i $(diskimage) $(kernel) ::KERNEL.BIN
+	@mcopy -D o -i $(diskimage) $(fatdrv) ::FATDRV.BIN
 	@mcopy -D o -i $(diskimage) $(command) ::COMMAND.ELF
 	@mcopy -D o -i $(diskimage) $(doslayer) ::DOSLAYER.ELF
 	@mcopy -D o -i $(diskimage) $(elfload) ::ELFLOAD.ELF
@@ -96,6 +99,14 @@ $(colordemo):
 $(diskchk):
 	@cd components/programs/diskchk && \
 	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
+
+$(fatdrv_elf):
+	@cd fatdriver && \
+	cargo build --features idos -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../components/i386-idos.json --release
+
+$(fatdrv): $(fatdrv_elf)
+	@mkdir -p $(shell dirname $@)
+	@objcopy -I elf32-i386 -O binary $(fatdrv_elf) $(fatdrv)
 
 $(gfx):
 	@cd components/programs/gfx && \

@@ -1,3 +1,8 @@
+/// Get the current system time as seconds since 1980-01-01 00:00:00.
+pub fn get_system_time() -> u32 {
+    super::syscall(0x41, 0, 0, 0)
+}
+
 /// Get the number of milliseconds since the kernel started, with sub-tick
 /// precision derived from the PIT counter.
 pub fn get_monotonic_ms() -> u64 {

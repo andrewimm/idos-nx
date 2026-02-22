@@ -527,3 +527,130 @@ fn setup_stack(task_id: TaskID) -> Result<(), ExecError> {
 
     Ok(())
 }
+
+// === Flat Binary Loading ===
+
+/// Physical address where the bootloader stores the FAT driver boot info.
+/// Layout: [u32 phys_addr] [u32 size_in_bytes]
+const FATDRV_BOOT_INFO_ADDR: u32 = 0x600;
+
+/// Virtual address the flat binary is linked at (must match fatdriver/link-script.ld).
+const FATDRV_LOAD_VADDR: u32 = 0x400000;
+
+/// Read the FAT driver boot info written by the bootloader.
+/// Returns (physical_address, size_in_bytes), or (0, 0) if no driver was loaded.
+pub fn get_fatdrv_boot_info() -> (u32, u32) {
+    // The bootloader stores this at physical 0x600, which is identity-mapped
+    // early in boot. After init_memory, it's accessible via 0xC0000000+ offset.
+    let info_addr = (0xC0000000 + FATDRV_BOOT_INFO_ADDR) as *const u32;
+    unsafe {
+        let phys_addr = core::ptr::read_volatile(info_addr);
+        let size = core::ptr::read_volatile(info_addr.add(1));
+        (phys_addr, size)
+    }
+}
+
+/// Set up a task to run the FAT driver from a flat binary that the bootloader
+/// loaded into physical memory. The binary is copied into freshly allocated
+/// pages in the target task's address space at the virtual address it was
+/// linked at (FATDRV_LOAD_VADDR).
+pub fn exec_flat_binary(
+    task_id: TaskID,
+    phys_addr: u32,
+    file_size: u32,
+) -> Result<(), ExecError> {
+    // Verify the target task is in the expected state
+    {
+        let task_lock = get_task(task_id).ok_or(ExecError::InternalError)?;
+        let task = task_lock.read();
+        if !matches!(task.state, crate::task::state::RunState::Uninitialized) {
+            return Err(ExecError::InvalidTaskState);
+        }
+    }
+
+    let load_vaddr = VirtualAddress::new(FATDRV_LOAD_VADDR);
+
+    // Round up to page-aligned size, with extra pages for BSS
+    let total_size = (file_size + 0x1000 + 0xFFF) & !0xFFF;
+
+    // Map memory for the binary code + data + BSS
+    map_memory_for_task(task_id, Some(load_vaddr), total_size, MemoryBacking::FreeMemory)
+        .map_err(|_| ExecError::MappingFailed)?;
+
+    // Set up stack
+    setup_stack(task_id)?;
+
+    // Copy the flat binary from physical memory into the task's address space.
+    // The physical memory is accessible via the kernel's identity mapping at
+    // 0xC0000000 + phys_addr.
+    let pagedir = ExternalPageDirectory::for_task(task_id);
+    let flags = PermissionFlags::new(PermissionFlags::USER_ACCESS | PermissionFlags::WRITE_ACCESS);
+
+    let mut offset = 0u32;
+    while offset < file_size {
+        // Allocate a physical frame for this page
+        let frame = allocate_frame_with_tracking().map_err(|_| ExecError::InternalError)?;
+        let frame_paddr = frame.to_physical_address();
+        pagedir.map(load_vaddr + offset, frame_paddr, flags);
+
+        // Write the binary data into this frame via a scratch page mapping
+        {
+            let scratch = UnmappedPage::map(frame_paddr);
+            let dest_ptr = scratch.virtual_address().as_ptr_mut::<u8>();
+            let dest = unsafe { core::slice::from_raw_parts_mut(dest_ptr, 0x1000) };
+
+            // Zero the page first (handles partial pages and BSS)
+            dest.fill(0);
+
+            // Copy data from the bootloader-loaded physical memory
+            let copy_size = core::cmp::min(file_size - offset, 0x1000) as usize;
+            let src_addr = (0xC0000000 + phys_addr + offset) as *const u8;
+            let src = unsafe { core::slice::from_raw_parts(src_addr, copy_size) };
+            dest[..copy_size].copy_from_slice(src);
+        }
+
+        offset += 0x1000;
+    }
+
+    // Set up the task's registers and mark it runnable.
+    // The SDK's _start reads argc from [esp] and argv from [esp+4].
+    // The stack pages are demand-paged FreeMemory, so they read as zero,
+    // giving argc=0 and argv=null.
+    {
+        let task_lock = get_task(task_id).ok_or(ExecError::InternalError)?;
+        let mut task = task_lock.write();
+
+        task.set_filename(&alloc::string::String::from("FATDRV"));
+
+        // Push interrupt frame onto kernel stack.
+        // ESP is set to STACK_TOP - 4 so that [esp] lands within the mapped
+        // stack region. The stack pages are demand-paged FreeMemory (zeroed),
+        // so [esp] reads as 0 = argc, which is what the SDK's _start expects.
+        task.stack_push_u32(0); // GS
+        task.stack_push_u32(0); // FS
+        task.stack_push_u32(0x20 | 3); // ES (user data segment)
+        task.stack_push_u32(0x20 | 3); // DS
+        task.stack_push_u32(0x20 | 3); // SS
+        task.stack_push_u32(STACK_TOP - 4); // ESP
+        task.stack_push_u32(0); // EFLAGS
+        task.stack_push_u32(0x18 | 3); // CS (user code segment)
+        task.stack_push_u32(FATDRV_LOAD_VADDR); // EIP — flat binary entry
+        task.stack_push_u32(0); // EDI
+        task.stack_push_u32(0); // ESI
+        task.stack_push_u32(0); // EBP
+        task.stack_push_u32(0); // EBX
+        task.stack_push_u32(0); // EDX
+        task.stack_push_u32(0); // ECX
+        task.stack_push_u32(0); // EAX
+
+        task.make_runnable();
+        crate::task::scheduling::reenqueue_task(task.id);
+    }
+
+    LOGGER.log(format_args!(
+        "exec_flat_binary {:?}: ready, EIP={:#010X} size={}",
+        task_id, FATDRV_LOAD_VADDR, file_size
+    ));
+
+    Ok(())
+}

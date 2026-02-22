@@ -47,6 +47,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "fatdriver"
+version = "0.1.0"
+dependencies = [
+ "idos_api",
+ "idos_sdk",
+]
+
+[[package]]
 name = "gamedemo"
 version = "0.1.0"
 dependencies = [

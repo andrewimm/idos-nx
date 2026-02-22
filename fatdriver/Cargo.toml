@@ -1,0 +1,21 @@
+[package]
+name = "fatdriver"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+idos = ["idos_api", "idos_sdk"]
+
+[dependencies]
+idos_api = { path = "../api", optional = true }
+idos_sdk = { path = "../sdk", optional = true }
+
+[lib]
+name = "fatdriver"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fatdriver"
+path = "src/main.rs"
+required-features = ["idos"]

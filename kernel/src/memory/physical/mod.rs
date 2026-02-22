@@ -110,6 +110,29 @@ pub fn init_allocator(
         .allocate_range(FrameRange::new(BIOS_MEMORY_MAP_LOCATION, 0x1000))
         .unwrap();
 
+    // Reserve the physical frames used by the FAT driver flat binary, which
+    // the bootloader loaded at a known address. The boot info is stored at
+    // physical 0x600 (within the first 0x1000 bytes, already reserved above).
+    {
+        let info_ptr = 0x600 as *const u32;
+        let fatdrv_phys = unsafe { core::ptr::read_volatile(info_ptr) };
+        let fatdrv_size = unsafe { core::ptr::read_volatile(info_ptr.add(1)) };
+        if fatdrv_phys != 0 && fatdrv_size != 0 {
+            let aligned_size = (fatdrv_size + 0xFFF) & !0xFFF;
+            bitmap
+                .allocate_range(FrameRange::new(
+                    PhysicalAddress::new(fatdrv_phys),
+                    aligned_size,
+                ))
+                .unwrap();
+            crate::kprint!(
+                "Reserved FATDRV at {:#X}, {} bytes\n",
+                fatdrv_phys,
+                fatdrv_size
+            );
+        }
+    }
+
     crate::kprint!(
         "Total Memory: {} KiB\nFree Memory: {} KiB\n",
         bitmap.total_frame_count() * 4,

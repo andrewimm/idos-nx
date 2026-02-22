@@ -51,7 +51,18 @@ unsafe impl GlobalAlloc for Allocator {
         }
 
         if current_pointer.add(size) >= self.heap_end.load(Ordering::Relaxed) {
-            return core::ptr::null_mut();
+            // Try to grow the heap by mapping more pages
+            let needed = current_pointer.add(size) as usize
+                - self.heap_end.load(Ordering::Relaxed) as usize;
+            let grow_size = (needed + 0xfff) & !0xfff; // round up to page
+            let grow_size = grow_size.max(0x2000); // grow by at least 8 KiB
+            let heap_end = self.heap_end.load(Ordering::Relaxed);
+            match map_memory(Some(heap_end as u32), grow_size as u32, None) {
+                Ok(_) => {
+                    self.heap_end.store(heap_end.add(grow_size), Ordering::Relaxed);
+                }
+                Err(_) => return core::ptr::null_mut(),
+            }
         }
 
         let result = current_pointer;

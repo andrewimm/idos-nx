@@ -20,8 +20,8 @@ use crate::task::actions::memory::map_memory;
 use crate::task::actions::sync::{block_on_wake_set, create_wake_set};
 use crate::task::id::TaskID;
 use crate::task::memory::MemoryBacking;
-use idos_api::ipc::Message;
 use crate::time::system::get_system_ticks;
+use idos_api::ipc::Message;
 
 use self::graphics::framebuffer::Framebuffer;
 use self::input::KeyAction;
@@ -76,15 +76,28 @@ pub fn manager_task() -> ! {
     };
 
     let bytes_per_pixel = (vbe_mode_info.bpp / 8) as usize;
-    let bytes_per_pixel = if bytes_per_pixel == 0 { 1 } else { bytes_per_pixel };
+    let bytes_per_pixel = if bytes_per_pixel == 0 {
+        1
+    } else {
+        bytes_per_pixel
+    };
 
     {
         let buffer = fb.get_buffer_mut();
         for row in 0..vbe_mode_info.height as usize {
             let offset = row * vbe_mode_info.pitch as usize;
             for col in 0..vbe_mode_info.width as usize {
-                let color: u32 = if (row ^ col) & 2 == 0 { 0x000000 } else { 0xFFFFFF };
-                graphics::write_pixel(buffer, offset + col * bytes_per_pixel, color, bytes_per_pixel);
+                let color: u32 = if (row ^ col) & 2 == 0 {
+                    0x000000
+                } else {
+                    0xFFFFFF
+                };
+                graphics::write_pixel(
+                    buffer,
+                    offset + col * bytes_per_pixel,
+                    color,
+                    bytes_per_pixel,
+                );
             }
         }
     }

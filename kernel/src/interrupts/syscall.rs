@@ -142,6 +142,8 @@ fn log_syscall(registers: &FullSavedRegisters) {
         0x30 => "map memory",
         0x31 => "map file",
         0x40 => "get monotonic ms",
+        0x41 => "get system time",
+        0x50 => "register filesystem",
         0xffff => "internal debug",
         _ => "unknown",
     };
@@ -274,7 +276,17 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
         }
         0x12 => {
             // driver io complete
-            unimplemented!()
+            let request_id = registers.ebx;
+            let return_value = if registers.ecx & 0x80000000 != 0 {
+                // error
+                let io_error =
+                    idos_api::io::error::IoError::try_from(registers.ecx & 0x7fffffff)
+                        .unwrap_or(idos_api::io::error::IoError::Unknown);
+                Err(io_error)
+            } else {
+                Ok(registers.ecx)
+            };
+            crate::io::driver::pending::request_complete(request_id, return_value);
         }
         0x13 => {
             // futex wait
@@ -430,6 +442,26 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             let ms = crate::time::system::get_monotonic_ms();
             registers.eax = ms as u32;
             registers.ebx = (ms >> 32) as u32;
+        }
+
+        0x41 => {
+            // get system time
+            // Returns Timestamp::now().as_u32() (seconds since 1980-01-01) in eax
+            let ts = crate::time::system::Timestamp::now();
+            registers.eax = ts.as_u32();
+        }
+
+        0x50 => {
+            // register filesystem driver
+            // ebx = pointer to name string, ecx = name length
+            let name_ptr = registers.ebx as *const u8;
+            let name_len = registers.ecx as usize;
+            let name = unsafe {
+                core::str::from_utf8_unchecked(core::slice::from_raw_parts(name_ptr, name_len))
+            };
+            let caller_id = crate::task::switching::get_current_id();
+            let driver_id = crate::io::filesystem::install_task_fs(name, caller_id);
+            registers.eax = *driver_id;
         }
 
         0xffff => {
