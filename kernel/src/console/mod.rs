@@ -241,7 +241,6 @@ pub fn init_console() {
 }
 
 pub fn console_ready() {
-    //crate::command::start_command(0);
     let _command_task_handle = start_command(0);
 }
 
