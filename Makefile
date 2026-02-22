@@ -16,7 +16,7 @@ gfx := target/i386-idos/release/gfx
 kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
 
 
-.PHONY: all clean run libc
+.PHONY: all clean run runlogs libc
 
 all: bootdisk
 
@@ -25,6 +25,11 @@ clean:
 
 run: bootdisk
 	@qemu-system-i386 -m 8M -drive format=raw,file=$(diskimage) -serial stdio -fda $(userdata) -device floppy,unit=1,drive= -device isa-debug-exit,iobase=0xf4,iosize=4 -display sdl; \
+	EXIT_CODE=$$?; \
+	exit $$(($$EXIT_CODE >> 1))
+
+runlogs: bootdisk logview
+	@qemu-system-i386 -m 8M -drive format=raw,file=$(diskimage) -serial stdio -fda $(userdata) -device floppy,unit=1,drive= -device isa-debug-exit,iobase=0xf4,iosize=4 -display sdl 2>&1 | target/release/logview; \
 	EXIT_CODE=$$?; \
 	exit $$(($$EXIT_CODE >> 1))
 
@@ -111,6 +116,9 @@ $(fatdrv): $(fatdrv_elf)
 $(gfx):
 	@cd components/programs/gfx && \
 	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
+
+logview:
+	cargo build -p logview --release
 
 libc:
 	cargo build -p idos-libc --target components/i386-idos.json \
