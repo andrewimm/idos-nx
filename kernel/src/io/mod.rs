@@ -41,6 +41,9 @@ pub fn init_async_io_system() {
     let zero_dev = self::devices::zero::ZeroDev::new();
     self::filesystem::install_kernel_dev("ZERO", Box::new(zero_dev));
 
+    let random_dev = self::devices::random::RandomDev::new();
+    self::filesystem::install_kernel_dev("RANDOM", Box::new(random_dev));
+
     let task_fs = self::filesystem::taskfs::TaskFileSystem::new();
     self::filesystem::install_kernel_fs("TASK", Box::new(task_fs));
 

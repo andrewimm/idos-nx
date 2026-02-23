@@ -78,6 +78,7 @@ pub fn ps2_driver_task() -> ! {
                     yield_coop()
                 }
             }
+            super::device::push_port_1_data(&keyboard_bytes);
             keyboard_bytes.clear();
         }
 

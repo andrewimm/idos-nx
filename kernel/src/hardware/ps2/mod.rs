@@ -1,17 +1,19 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
+use alloc::boxed::Box;
+
 use crate::{
-    interrupts::pic::install_interrupt_handler, memory::address::VirtualAddress,
-    sync::futex::futex_wake, task::actions::lifecycle::create_kernel_task,
+    interrupts::pic::install_interrupt_handler, io::filesystem::install_kernel_dev,
+    memory::address::VirtualAddress, pipes::driver::install, sync::futex::futex_wake,
+    task::actions::lifecycle::create_kernel_task,
 };
 
 pub mod controller;
+pub mod device;
 pub mod driver;
 pub mod keyboard;
 pub mod keycodes;
 pub mod mouse;
-
-static DRIVER_ID: AtomicU32 = AtomicU32::new(0);
 
 pub fn install_drivers() {
     crate::kprint!("Initialize PS/2\n");
@@ -58,8 +60,13 @@ pub fn install_drivers() {
         install_interrupt_handler(12, mouse_handler, None);
     }
 
-    let task_id = create_kernel_task(self::driver::ps2_driver_task, Some("PS2DEV"));
-    DRIVER_ID.store(task_id.into(), Ordering::SeqCst);
+    let _task_id = create_kernel_task(self::driver::ps2_driver_task, Some("PS2DEV"));
+
+    install_kernel_dev(
+        "KEYBOARD",
+        Box::new(self::device::create_ps2_keyboard_driver()),
+    );
+    install_kernel_dev("MOUSE", Box::new(self::device::create_ps2_mouse_driver()));
 
     crate::kprint!("PS/2 set up complete.\n");
 }
