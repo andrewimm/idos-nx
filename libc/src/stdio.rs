@@ -33,6 +33,10 @@ pub struct FILE {
     is_console: bool,
     /// Unget buffer (-1 if empty)
     unget: c_int,
+    /// Write buffer — accumulates bytes to reduce syscalls
+    wbuf: [u8; FILE_BUF_SIZE],
+    /// Number of valid bytes in wbuf
+    wbuf_pos: usize,
 }
 
 // Fixed file table
@@ -67,6 +71,8 @@ pub fn init() {
             is_open: true,
             is_console: true,
             unget: -1,
+            wbuf: [0; FILE_BUF_SIZE],
+            wbuf_pos: 0,
         };
         // stdout = file table entry 1
         FILE_TABLE[1] = FILE {
@@ -77,6 +83,8 @@ pub fn init() {
             is_open: true,
             is_console: true,
             unget: -1,
+            wbuf: [0; FILE_BUF_SIZE],
+            wbuf_pos: 0,
         };
         // stderr = same as stdout for now
         FILE_TABLE[2] = FILE {
@@ -87,6 +95,8 @@ pub fn init() {
             is_open: true,
             is_console: true,
             unget: -1,
+            wbuf: [0; FILE_BUF_SIZE],
+            wbuf_pos: 0,
         };
     }
 }
@@ -228,6 +238,7 @@ pub unsafe extern "C" fn fopen(path: *const c_char, mode: *const c_char) -> *mut
     (*f).is_open = true;
     (*f).is_console = false;
     (*f).unget = -1;
+    (*f).wbuf_pos = 0;
 
     // If mode contains 'a' (append), seek to end
     let mut m = mode;
@@ -299,6 +310,7 @@ pub unsafe extern "C" fn freopen(
     (*stream).is_open = true;
     (*stream).is_console = false;
     (*stream).unget = -1;
+    (*stream).wbuf_pos = 0;
     stream
 }
 
@@ -307,6 +319,8 @@ pub unsafe extern "C" fn fclose(f: *mut FILE) -> c_int {
     if f.is_null() || !(*f).is_open {
         return EOF;
     }
+    // Flush any buffered writes
+    flush_wbuf(f);
     if !(*f).is_console {
         io_sync((*f).handle, ASYNC_OP_CLOSE, 0, 0, 0).ok();
     }
@@ -323,6 +337,11 @@ pub unsafe extern "C" fn fread(
 ) -> usize {
     if f.is_null() || !(*f).is_open || size == 0 || nmemb == 0 {
         return 0;
+    }
+
+    // Flush buffered writes so position is correct
+    if (*f).wbuf_pos > 0 {
+        flush_wbuf(f);
     }
 
     let total = size * nmemb;
@@ -362,6 +381,13 @@ pub unsafe extern "C" fn fwrite(
         return 0;
     }
 
+    // Flush any buffered data first so ordering is preserved
+    if (*f).wbuf_pos > 0 {
+        if flush_wbuf(f) == EOF {
+            return 0;
+        }
+    }
+
     let total = size * nmemb;
     let result = io_sync(
         (*f).handle,
@@ -387,6 +413,11 @@ pub unsafe extern "C" fn fwrite(
 pub unsafe extern "C" fn fseek(f: *mut FILE, offset: c_int, whence: c_int) -> c_int {
     if f.is_null() || !(*f).is_open {
         return -1;
+    }
+
+    // Flush buffered writes before seeking
+    if (*f).wbuf_pos > 0 {
+        flush_wbuf(f);
     }
 
     (*f).eof = 0;
@@ -444,9 +475,38 @@ pub unsafe extern "C" fn clearerr(f: *mut FILE) {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn fflush(_f: *mut FILE) -> c_int {
-    // No buffering in our implementation, so this is a no-op
-    0
+pub unsafe extern "C" fn fflush(f: *mut FILE) -> c_int {
+    if f.is_null() || !(*f).is_open {
+        return 0;
+    }
+    flush_wbuf(f)
+}
+
+/// Flush the write buffer for a FILE. Returns 0 on success, EOF on error.
+unsafe fn flush_wbuf(f: *mut FILE) -> c_int {
+    let n = (*f).wbuf_pos;
+    if n == 0 {
+        return 0;
+    }
+    let result = io_sync(
+        (*f).handle,
+        ASYNC_OP_WRITE,
+        (*f).wbuf.as_ptr() as u32,
+        n as u32,
+        (*f).pos,
+    );
+    match result {
+        Ok(bytes_written) => {
+            (*f).pos += bytes_written;
+            (*f).wbuf_pos = 0;
+            0
+        }
+        Err(_) => {
+            (*f).error = 1;
+            (*f).wbuf_pos = 0;
+            EOF
+        }
+    }
 }
 
 #[no_mangle]
@@ -528,23 +588,18 @@ pub unsafe extern "C" fn fputc(c: c_int, f: *mut FILE) -> c_int {
         return EOF;
     }
     let byte = c as u8;
-    let result = io_sync(
-        (*f).handle,
-        ASYNC_OP_WRITE,
-        &byte as *const u8 as u32,
-        1,
-        (*f).pos,
-    );
-    match result {
-        Ok(_) => {
-            (*f).pos += 1;
-            c
-        }
-        Err(_) => {
-            (*f).error = 1;
-            EOF
+
+    // Append to write buffer
+    (*f).wbuf[(*f).wbuf_pos] = byte;
+    (*f).wbuf_pos += 1;
+
+    // Flush when buffer is full, or on newline for console streams
+    if (*f).wbuf_pos >= FILE_BUF_SIZE || ((*f).is_console && byte == b'\n') {
+        if flush_wbuf(f) == EOF {
+            return EOF;
         }
     }
+    c
 }
 
 #[no_mangle]
@@ -717,9 +772,14 @@ unsafe fn format_to(
                 } else {
                     0
                 };
-                let slen = s.len() + if prefix != 0 { 1 } else { 0 };
+                // Precision for integers = minimum number of digits
+                let prec_pad = match precision {
+                    Some(p) if p > s.len() => p - s.len(),
+                    _ => 0,
+                };
+                let slen = s.len() + prec_pad + if prefix != 0 { 1 } else { 0 };
                 let pad = if width > slen { width - slen } else { 0 };
-                let pad_char = if zero_pad && !left_justify { b'0' } else { b' ' };
+                let pad_char = if zero_pad && !left_justify && precision.is_none() { b'0' } else { b' ' };
 
                 if !left_justify && pad_char == b' ' {
                     for _ in 0..pad {
@@ -733,6 +793,9 @@ unsafe fn format_to(
                     for _ in 0..pad {
                         emit(&mut write_fn, &mut count, b'0');
                     }
+                }
+                for _ in 0..prec_pad {
+                    emit(&mut write_fn, &mut count, b'0');
                 }
                 for &b in s {
                     emit(&mut write_fn, &mut count, b);
@@ -962,13 +1025,18 @@ fn format_float(val: f64, precision: usize, buf: &mut [u8]) -> usize {
 #[no_mangle]
 pub unsafe extern "C" fn vfprintf(f: *mut FILE, fmt: *const c_char, args: VaList) -> c_int {
     let mut f_ptr = f;
-    format_to(
+    let result = format_to(
         |b| {
             fputc(b as c_int, f_ptr);
         },
         fmt,
         args,
-    )
+    );
+    // Flush after printf for console streams so output appears immediately
+    if !f.is_null() && (*f).is_console && (*f).wbuf_pos > 0 {
+        flush_wbuf(f);
+    }
+    result
 }
 
 #[no_mangle]
