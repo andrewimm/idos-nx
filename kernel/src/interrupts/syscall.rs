@@ -388,10 +388,16 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             let size = registers.ecx;
             let backing = match registers.edx {
                 0xffff_ffff => MemoryBacking::FreeMemory,
+                0xffff_fffe => MemoryBacking::IsaDma,
                 address => MemoryBacking::Direct(PhysicalAddress::new(address)),
             };
             match map_memory(address, size, backing) {
                 Ok(vaddr) => {
+                    // For contiguous (IsaDma) allocations, trigger paging
+                    // immediately so all frames are allocated now.
+                    if registers.edx == 0xffff_fffe {
+                        crate::task::paging::page_on_demand(vaddr);
+                    }
                     registers.eax = vaddr.into();
                 }
                 Err(_e) => {

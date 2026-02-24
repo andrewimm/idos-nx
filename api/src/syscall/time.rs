@@ -20,26 +20,14 @@ fn kernel_sleep(ms: u32) {
 /// rounded up to the next multiple of this value.
 const TICK_MS: u64 = 10;
 
-/// Sleep for the specified number of milliseconds with sub-tick precision.
-/// Uses the kernel sleep syscall for the bulk of the wait (yielding the CPU),
-/// then spin-waits on the monotonic clock for the final tick period.
+/// Sleep for the specified number of milliseconds.
+/// Always yields the CPU to other tasks via kernel_sleep, even for short
+/// durations. The kernel rounds up to the next scheduler tick (~10ms),
+/// so very short sleeps may sleep slightly longer than requested.
 pub fn sleep_ms(ms: u32) {
     if ms == 0 {
         return;
     }
 
-    let start = get_monotonic_ms();
-    let target = start + ms as u64;
-
-    // For durations longer than one tick, kernel-sleep for the bulk and
-    // yield the CPU to other tasks. We subtract one full tick period so
-    // the kernel never overshoots our target.
-    if ms as u64 > TICK_MS {
-        kernel_sleep(ms - TICK_MS as u32);
-    }
-
-    // Spin for the remainder
-    while get_monotonic_ms() < target {
-        core::hint::spin_loop();
-    }
+    kernel_sleep(ms);
 }

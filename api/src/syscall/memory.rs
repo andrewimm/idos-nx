@@ -1,5 +1,10 @@
 use super::syscall;
 
+/// Sentinel: no physical address, pages allocated on demand.
+const MMAP_FREE: u32 = 0xffff_ffff;
+/// Sentinel: allocate physically contiguous pages at map time.
+const MMAP_CONTIGUOUS: u32 = 0xffff_fffe;
+
 pub fn map_memory(
     virtual_address: Option<u32>,
     size: u32,
@@ -7,9 +12,27 @@ pub fn map_memory(
 ) -> Result<u32, ()> {
     let result = syscall(
         0x30,
-        virtual_address.unwrap_or(0xffff_ffff),
+        virtual_address.unwrap_or(MMAP_FREE),
         size,
-        physical_address.unwrap_or(0xffff_ffff),
+        physical_address.unwrap_or(MMAP_FREE),
+    );
+
+    if result == 0xffff_ffff {
+        Err(())
+    } else {
+        Ok(result)
+    }
+}
+
+/// Allocate a region of physically contiguous memory. Pages are allocated
+/// and mapped immediately (not on demand), making this safe for DMA and
+/// for sharing with device drivers.
+pub fn map_memory_contiguous(size: u32) -> Result<u32, ()> {
+    let result = syscall(
+        0x30,
+        MMAP_FREE,
+        size,
+        MMAP_CONTIGUOUS,
     );
 
     if result == 0xffff_ffff {
