@@ -59,7 +59,8 @@ pub extern "C" fn init_fat(disk_number: u16) {
             table_count -= 1;
         }
         FAT_DATA.root_dir_sector = sector_count;
-        // TODO: set root cluster
+        // 16 dir entries per sector (512/32), shift right by 4
+        FAT_DATA.root_cluster_sector = sector_count + ((fat_header.max_root_dir_entries + 15) >> 4);
     }
 }
 

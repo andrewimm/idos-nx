@@ -31,7 +31,7 @@ pub extern "C" fn mbr_start(disk_number: u16) -> ! {
             let expected_char = *expected.get_unchecked(i);
             let found_char = *first_dir_entry.offset(i as isize);
             if expected_char != found_char {
-                print_string("BOOT.BIN not found!");
+                print_string("No BOOT.BIN");
                 loop {}
             }
         }
