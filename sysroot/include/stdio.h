@@ -59,6 +59,8 @@ int vsprintf(char *str, const char *format, va_list ap);
 int vsnprintf(char *str, size_t size, const char *format, va_list ap);
 
 int sscanf(const char *str, const char *format, ...);
+int vsscanf(const char *str, const char *format, va_list ap);
+int fscanf(FILE *stream, const char *format, ...);
 
 int remove(const char *pathname);
 int rename(const char *oldpath, const char *newpath);

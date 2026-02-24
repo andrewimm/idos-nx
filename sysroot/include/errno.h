@@ -10,6 +10,7 @@ int *__errno_location(void);
 #define ENOMEM  12
 #define EACCES  13
 #define EEXIST  17
+#define EISDIR  21
 #define ENOTDIR 20
 #define EINVAL  22
 #define EMFILE  24

@@ -77,6 +77,16 @@ static inline void __syscall2(int num, int arg0, int arg1, int arg2, int *out0, 
 /* Console IOCTL codes */
 #define TSETGFX  0x6001
 #define TSETTEXT 0x6002
+#define TGETPAL  0x6003
+#define TSETPAL  0x6004
+
+/* Graphics mode request structure (matches kernel GraphicsMode) */
+struct graphics_mode {
+    unsigned short width;
+    unsigned short height;
+    unsigned int bpp_flags;
+    unsigned int framebuffer;  /* filled by kernel on TSETGFX */
+};
 
 /* Async I/O operation structure */
 struct async_op {
