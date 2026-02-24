@@ -179,6 +179,9 @@ impl ConsoleManager {
             .ok_or(IoError::FileHandleInvalid)?;
 
         let console = self.consoles.get_mut(*console_id).unwrap();
+        if !buffer.is_empty() {
+            console.dirty = true;
+        }
         for ch in buffer.iter() {
             console.terminal.write_character(*ch);
         }

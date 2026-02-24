@@ -109,11 +109,18 @@ impl ConsoleManager {
         let bpp = (fb.stride / fb.width) as usize;
         let bpp = if bpp == 0 { 1 } else { bpp };
 
+        // In text mode, skip rendering if nothing changed
+        if console.terminal.graphics_buffer.is_none() && !console.dirty {
+            // Return current dimensions but no dirty region
+            return (640, 400, None);
+        }
+
         self::decor::draw_window_bar(fb, window_pos, 180, font, "C:\\COMMAND.ELF", bpp);
 
         let (width, height) = if let Some(graphics_buffer) = &console.terminal.graphics_buffer {
             let width = graphics_buffer.width as usize;
             let height = graphics_buffer.height as usize;
+
             // clear screen
             let buffer = fb.get_buffer_mut();
             for row in 0..height {

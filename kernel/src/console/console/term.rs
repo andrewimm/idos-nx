@@ -41,8 +41,34 @@ pub struct GraphicsBuffer {
 }
 
 impl GraphicsBuffer {
+    /// Returns the full buffer including the 8-byte dirty rect header.
     pub fn get_buffer(&self) -> &mut [u8] {
         unsafe { core::slice::from_raw_parts_mut(self.vaddr.as_ptr_mut(), self.allocated_size) }
+    }
+
+    /// Returns just the pixel data (after the 8-byte header).
+    pub fn get_pixels(&self) -> &mut [u8] {
+        &mut self.get_buffer()[8..]
+    }
+
+    /// Read the dirty rect header as (x, y, w, h). Returns None if all zeros (clean).
+    pub fn read_dirty_rect(&self) -> Option<(u16, u16, u16, u16)> {
+        let buf = self.get_buffer();
+        let x = u16::from_le_bytes([buf[0], buf[1]]);
+        let y = u16::from_le_bytes([buf[2], buf[3]]);
+        let w = u16::from_le_bytes([buf[4], buf[5]]);
+        let h = u16::from_le_bytes([buf[6], buf[7]]);
+        if w == 0 && h == 0 {
+            None
+        } else {
+            Some((x, y, w, h))
+        }
+    }
+
+    /// Clear the dirty rect header (mark as clean).
+    pub fn clear_dirty_rect(&self) {
+        let buf = self.get_buffer();
+        buf[0..8].fill(0);
     }
 }
 

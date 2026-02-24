@@ -17,6 +17,10 @@ pub struct Console<const COLS: usize, const ROWS: usize> {
     pub flushed_input: VecDeque<u8>,
 
     reader_tasks: Vec<TaskID>,
+
+    /// Set when display content has changed and needs re-rendering.
+    /// Cleared by the compositor after drawing.
+    pub dirty: bool,
 }
 
 impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
@@ -27,6 +31,7 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
             pending_input: Vec::new(),
             flushed_input: VecDeque::new(),
             reader_tasks: Vec::new(),
+            dirty: true,
         }
     }
 
@@ -55,6 +60,10 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
     /// input will be moved to the flushed input buffer.
     pub fn send_input(&mut self, input: &[u8]) {
         let mut should_flush = false;
+        // Input may trigger echo or backspace, both modify display
+        if !input.is_empty() {
+            self.dirty = true;
+        }
         for ch in input {
             match *ch {
                 0x00 => continue,
@@ -100,6 +109,9 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
     }
 
     pub fn send_output(&mut self, output: &[u8]) {
+        if !output.is_empty() {
+            self.dirty = true;
+        }
         for ch in output {
             self.terminal.write_character(*ch);
         }

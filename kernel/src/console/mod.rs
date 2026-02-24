@@ -133,8 +133,10 @@ pub fn manager_task() -> ! {
     compositor.add_window(con1);
 
     let mut last_action_type: u8 = 0;
+    let mut prev_mouse_x = mouse_x;
+    let mut prev_mouse_y = mouse_y;
     loop {
-        //draw_desktop(&fb, &console_font);
+        let frame_start = crate::time::system::get_monotonic_ms();
 
         loop {
             // read input actions and pass them to the current console
@@ -213,21 +215,35 @@ pub fn manager_task() -> ! {
             let _ = send_io_op(messages_handle, &message_read, Some(wake_set));
         }
 
-        /*
-        conman.draw_window(con1, &mut fb, &console_font);
+        // Check if any console is in graphics mode
+        let any_graphics = conman.consoles.iter().any(|c| c.terminal.graphics_buffer.is_some());
+        // Check if anything needs redrawing: dirty text consoles or mouse movement.
+        // Graphics mode always redraws at 60fps (the app controls its own
+        // framerate by writing to the shared buffer).
+        let mouse_moved = mouse_x != prev_mouse_x || mouse_y != prev_mouse_y;
+        let any_dirty = mouse_moved || any_graphics || conman.consoles.iter().any(|c| c.dirty);
 
-        loop {
-            let _next_action = match mouse_buffer.read() {
-                Some(action) => action,
-                None => break,
-            };
+        if any_dirty {
+            compositor.render(mouse_x as u16, mouse_y as u16, &conman, &console_font);
+
+            // Clear dirty flags after rendering
+            for console in conman.consoles.iter_mut() {
+                console.dirty = false;
+            }
+            prev_mouse_x = mouse_x;
+            prev_mouse_y = mouse_y;
         }
-        draw_mouse(&mut fb, mouse_x, mouse_y);
-        */
 
-        compositor.render(mouse_x as u16, mouse_y as u16, &conman, &console_font);
-
-        block_on_wake_set(wake_set, None);
+        // In graphics mode, poll at ~60fps so we notice dirty rects promptly.
+        // In text mode, block indefinitely until an event wakes us.
+        let timeout = if any_graphics {
+            let elapsed = crate::time::system::get_monotonic_ms() - frame_start;
+            let remaining = 16u64.saturating_sub(elapsed);
+            Some(remaining as u32)
+        } else {
+            None
+        };
+        block_on_wake_set(wake_set, timeout);
     }
 }
 
