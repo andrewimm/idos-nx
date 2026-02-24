@@ -24,7 +24,7 @@ clean:
 	@rm -r build
 
 run: bootdisk
-	@qemu-system-i386 -m 8M -drive format=raw,file=$(diskimage) -serial stdio -fda $(userdata) -device floppy,unit=1,drive= -device isa-debug-exit,iobase=0xf4,iosize=4 -display sdl; \
+	@qemu-system-i386 -m 64M -drive format=raw,file=$(diskimage) -serial stdio -fda $(userdata) -device floppy,unit=1,drive= -device isa-debug-exit,iobase=0xf4,iosize=4 -display sdl; \
 	EXIT_CODE=$$?; \
 	exit $$(($$EXIT_CODE >> 1))
 
@@ -35,7 +35,7 @@ runlogs: bootdisk logview
 
 $(diskimage):
 	@mkdir -p $(shell dirname $@)
-	@mkfs.msdos -C $(diskimage) 1440
+	@mkfs.msdos -F 12 -C $(diskimage) 16384
 
 $(userdata): $(colordemo)
 	@mkdir -p $(shell dirname $@)

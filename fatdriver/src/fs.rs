@@ -11,7 +11,7 @@ pub struct FatFS<D: DiskIO> {
 
 impl<D: DiskIO> FatFS<D> {
     pub fn new(disk_io: D) -> Self {
-        let mut disk = DiskAccess::new(disk_io, 4096);
+        let mut disk = DiskAccess::new(disk_io, 65536);
 
         let mut bpb = BiosParamBlock::new();
         disk.read_struct_from_disk(0xb, &mut bpb);
