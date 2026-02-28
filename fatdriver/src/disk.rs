@@ -194,36 +194,22 @@ impl<D: DiskIO> DiskAccess<D> {
             slots[i] = self.allocate_slot(lba);
         }
 
-        // Read into the staging area in chunks that fit the block device's
-        // DMA buffer (floppy can only do 4KB/8 sectors per transfer).
+        // Read all sectors into the staging area, then distribute into cache slots.
         let staging_offset = self.get_max_cache_entries() * 512;
-        const MAX_SECTORS_PER_READ: usize = 8;
+        let read_size = count * 512;
 
-        let mut sectors_done = 0;
-        while sectors_done < count {
-            let chunk = (count - sectors_done).min(MAX_SECTORS_PER_READ);
-            let chunk_bytes = chunk * 512;
-            let disk_offset = (start_lba + sectors_done as u32) * 512;
+        let staging = unsafe {
+            core::slice::from_raw_parts_mut(self.buffer_ptr.add(staging_offset), STAGING_SIZE)
+        };
+        self.disk_io.read(&mut staging[..read_size], start_lba * 512);
 
-            let staging = unsafe {
-                core::slice::from_raw_parts_mut(
-                    self.buffer_ptr.add(staging_offset),
-                    STAGING_SIZE,
-                )
-            };
-            self.disk_io.read(&mut staging[..chunk_bytes], disk_offset);
-
-            // Distribute this chunk's sectors into their cache slots
-            let buf = unsafe {
-                core::slice::from_raw_parts_mut(self.buffer_ptr, self.buffer_size)
-            };
-            for j in 0..chunk {
-                let src_start = staging_offset + j * 512;
-                let dst_start = slots[sectors_done + j] * 512;
-                buf.copy_within(src_start..src_start + 512, dst_start);
-            }
-
-            sectors_done += chunk;
+        let buf = unsafe {
+            core::slice::from_raw_parts_mut(self.buffer_ptr, self.buffer_size)
+        };
+        for i in 0..count {
+            let src_start = staging_offset + i * 512;
+            let dst_start = slots[i] * 512;
+            buf.copy_within(src_start..src_start + 512, dst_start);
         }
     }
 
