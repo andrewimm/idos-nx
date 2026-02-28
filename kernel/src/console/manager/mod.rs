@@ -121,6 +121,13 @@ impl ConsoleManager {
             let width = graphics_buffer.width as usize;
             let height = graphics_buffer.height as usize;
 
+            // Check the dirty rect header — skip if the app hasn't signaled changes
+            // (but always render if the console is freshly dirty, e.g. just entered graphics mode)
+            if !console.dirty && graphics_buffer.read_dirty_rect().is_none() {
+                return (width as u16, height as u16, None);
+            }
+            graphics_buffer.clear_dirty_rect();
+
             // clear screen
             let buffer = fb.get_buffer_mut();
             for row in 0..height {
@@ -132,7 +139,7 @@ impl ConsoleManager {
 
             let copy_width = width.min(graphics_buffer.width as usize);
             let copy_height = height.min(graphics_buffer.height as usize);
-            let raw_buffer = graphics_buffer.get_buffer();
+            let raw_buffer = graphics_buffer.get_pixels();
             let src_bpp = (graphics_buffer.bits_per_pixel + 7) / 8;
 
             for row in 0..copy_height {

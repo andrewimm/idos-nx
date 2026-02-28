@@ -217,11 +217,14 @@ pub fn manager_task() -> ! {
 
         // Check if any console is in graphics mode
         let any_graphics = conman.consoles.iter().any(|c| c.terminal.graphics_buffer.is_some());
-        // Check if anything needs redrawing: dirty text consoles or mouse movement.
-        // Graphics mode always redraws at 60fps (the app controls its own
-        // framerate by writing to the shared buffer).
+        // Check if anything needs redrawing: dirty text consoles, graphics
+        // dirty rects signaled by apps, or mouse movement.
         let mouse_moved = mouse_x != prev_mouse_x || mouse_y != prev_mouse_y;
-        let any_dirty = mouse_moved || any_graphics || conman.consoles.iter().any(|c| c.dirty);
+        let any_gfx_dirty = conman.consoles.iter().any(|c| {
+            c.terminal.graphics_buffer.as_ref()
+                .map_or(false, |gb| gb.read_dirty_rect().is_some())
+        });
+        let any_dirty = mouse_moved || any_gfx_dirty || conman.consoles.iter().any(|c| c.dirty);
 
         if any_dirty {
             compositor.render(mouse_x as u16, mouse_y as u16, &conman, &console_font);

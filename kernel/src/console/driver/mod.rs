@@ -240,6 +240,7 @@ impl ConsoleManager {
                 }
                 let gfx_struct = unsafe { &mut *(arg_ptr as *mut termios::GraphicsMode) };
                 console.terminal.set_graphics_mode(gfx_struct);
+                console.dirty = true;
                 Ok(1)
             }
             termios::TGETPAL => {

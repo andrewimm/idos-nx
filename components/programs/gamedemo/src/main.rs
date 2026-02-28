@@ -73,7 +73,10 @@ pub extern "C" fn main() {
     idos_api::io::sync::write_sync(serial, &hex_buf, 0).ok();
     idos_api::io::sync::write_sync(serial, b"\n", 0).ok();
 
-    let framebuffer_vaddr = match idos_api::syscall::memory::map_memory(None, 200 * 200, Some(framebuffer_phys)) {
+    // The kernel allocates 8 + width*height bytes: an 8-byte dirty rect
+    // header followed by pixel data.
+    let total_size = 8 + 200 * 200;
+    let framebuffer_vaddr = match idos_api::syscall::memory::map_memory(None, total_size, Some(framebuffer_phys)) {
         Ok(v) => v,
         Err(_) => {
             idos_api::io::sync::write_sync(serial, b"[gamedemo] map_memory FAILED!\n", 0).ok();
@@ -82,12 +85,19 @@ pub extern "C" fn main() {
     };
 
     let framebuffer_ptr = framebuffer_vaddr as *mut u8;
-    let framebuffer_size = 200 * 200;
-    let framebuffer = unsafe { core::slice::from_raw_parts_mut(framebuffer_ptr, framebuffer_size) };
+    let full_buffer = unsafe { core::slice::from_raw_parts_mut(framebuffer_ptr, total_size as usize) };
+    // Dirty rect header is bytes 0..8, pixel data starts at byte 8
+    let header = unsafe { core::slice::from_raw_parts_mut(framebuffer_ptr as *mut u16, 4) };
+    let framebuffer = &mut full_buffer[8..];
 
     for byte in framebuffer.iter_mut() {
         *byte = 0x0c;
     }
+    // Signal full dirty rect
+    header[0] = 0;    // x
+    header[1] = 0;    // y
+    header[2] = 200;  // width
+    header[3] = 200;  // height
 
     let mut read_buffer: [u8; 1] = [0; 1];
     let mut read_op = AsyncOp::new(
@@ -116,6 +126,9 @@ pub extern "C" fn main() {
                         // draw a pixel at a random position
                         framebuffer[pixel_offset] = 0x0f;
                         pixel_offset += 10;
+                        // Signal dirty
+                        header[2] = 200;
+                        header[3] = 200;
                     }
                     i += 1;
                 }
