@@ -19,6 +19,7 @@ pub mod acpi;
 pub mod arch;
 pub mod cleanup;
 pub mod collections;
+pub mod config;
 pub mod conman;
 pub mod console;
 pub mod exec;
@@ -90,58 +91,120 @@ fn init_system() -> ! {
 
     let id = task::switching::get_current_id();
     crate::kprintln!("INIT task: {:?}", id);
-    // initialize drivers that rely on multitasking
-    {
-        //let con = task::actions::handle::create_file_handle();
-        //task::actions::io::open_sync(con, "DEV:\\CON1", 0).unwrap();
 
-        hardware::ps2::install_drivers();
+    // Bootstrap: these must be hardcoded because they're needed to read
+    // the config file from C:\.
+    hardware::ps2::install_drivers();
 
-        logger.log("Installing ATA Drivers...\n");
-        hardware::ata::install();
+    logger.log("Installing ATA Drivers...\n");
+    hardware::ata::install();
 
-        logger.log("Installing Floppy Drivers...\n");
+    logger.log("Mounting C:\\ ...\n");
+    io::filesystem::fatfs::mount_fat_fs_single("C", "ATA1");
+
+    // Read config file now that C:\ is available
+    logger.log("Reading DRIVERS.CFG...\n");
+    let directives = config::read_config("C:\\DRIVERS.CFG");
+
+    if directives.is_empty() {
+        logger.log("Warning: no directives found in DRIVERS.CFG, using defaults\n");
+        // Fallback: run the old hardcoded sequence for everything after C:\ mount
         hardware::floppy::install();
-
-        logger.log("Installing Network Device Drivers...\n");
         hardware::ethernet::dev::install_driver();
-
-        logger.log("Initializing Net Stack...\n");
         net::start_net_stack();
-
-        logger.log("Mounting FAT FS...\n");
-        io::filesystem::fatfs::mount_fat_fs();
-
-        logger.log("Initializing Graphics Driver...\n");
+        io::filesystem::fatfs::mount_fat_fs_single("A", "FD1");
         graphics::register_graphics_driver("C:\\GFX.ELF");
-
         console::init_console();
-
-        let con = task::actions::handle::create_file_handle();
-        task::actions::io::open_sync(con, "DEV:\\CON1", 0).unwrap();
-
-        logger.log("\nSystem ready! Welcome to IDOS\n\n");
-        logger.flush_to_file(con);
-        console::console_ready();
+    } else {
+        for directive in &directives {
+            execute_directive(&mut logger, directive);
+        }
     }
 
-    /*{
-        // tcp test 2
-        task::actions::sleep(1000);
-        let socket_handle = task::actions::handle::create_tcp_socket();
-        let dest = "gopher.floodgap.com";
-        let open_op = idos_api::io::AsyncOp {
-            op_code: idos_api::io::ASYNC_OP_OPEN,
-            return_value: core::sync::atomic::AtomicU32::new(0),
-            signal: core::sync::atomic::AtomicU32::new(0),
-            args: [dest.as_ptr() as u32, dest.len() as u32, 70],
-        };
-        let _ = task::actions::io::send_io_op(socket_handle, &open_op, None);
-    }*/
+    let con = task::actions::handle::create_file_handle();
+    task::actions::io::open_sync(con, "DEV:\\CON1", 0).unwrap();
+
+    logger.log("\nSystem ready! Welcome to IDOS\n\n");
+    logger.flush_to_file(con);
+    console::console_ready();
 
     let wake_set = task::actions::sync::create_wake_set();
     loop {
         task::actions::sync::block_on_wake_set(wake_set, None);
+    }
+}
+
+fn execute_directive(logger: &mut log::BufferedLogger, directive: &config::Directive) {
+    use config::Directive;
+    match directive {
+        Directive::Driver(name) => {
+            match name.as_str() {
+                "ps2" => {
+                    // PS2 is already installed in bootstrap, skip
+                    logger.log("Driver ps2 already installed (bootstrap)\n");
+                }
+                "ata" => {
+                    // ATA is already installed in bootstrap, skip
+                    logger.log("Driver ata already installed (bootstrap)\n");
+                }
+                "floppy" => {
+                    logger.log("Installing Floppy Drivers...\n");
+                    hardware::floppy::install();
+                }
+                "ethernet" => {
+                    logger.log("Installing Network Device Drivers...\n");
+                    hardware::ethernet::dev::install_driver();
+                }
+                _ => {
+                    logger.log("Unknown driver: ");
+                    logger.log(name.as_str());
+                    logger.log("\n");
+                }
+            }
+        }
+        Directive::Pci {
+            vendor_id: _,
+            device_id: _,
+            path: _,
+            busmaster: _,
+        } => {
+            // PCI userspace driver launching will be implemented when we have
+            // a userspace ELF that uses the PCI syscalls
+            logger.log("PCI directive: not yet implemented\n");
+        }
+        Directive::Mount {
+            drive_letter,
+            fs_type,
+            device,
+        } => {
+            match fs_type.as_str() {
+                "FAT" => {
+                    logger.log("Mounting ");
+                    logger.log(drive_letter.as_str());
+                    logger.log(":\\ ...\n");
+                    io::filesystem::fatfs::mount_fat_fs_single(
+                        drive_letter.as_str(),
+                        device.as_str(),
+                    );
+                }
+                _ => {
+                    logger.log("Unknown filesystem type: ");
+                    logger.log(fs_type.as_str());
+                    logger.log("\n");
+                }
+            }
+        }
+        Directive::Graphics(path) => {
+            logger.log("Initializing Graphics Driver...\n");
+            graphics::register_graphics_driver(path.as_str());
+        }
+        Directive::Console => {
+            console::init_console();
+        }
+        Directive::Net => {
+            logger.log("Initializing Net Stack...\n");
+            net::start_net_stack();
+        }
     }
 }
 

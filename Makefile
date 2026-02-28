@@ -57,6 +57,7 @@ bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(diskim
 	@mcopy -D o -i $(diskimage) $(diskchk) ::DISKCHK.ELF
 	@mcopy -D o -i $(diskimage) $(gfx) ::GFX.ELF
 	@mcopy -D o -i $(diskimage) resources/ter-i14n.psf ::TERM14.PSF
+	@mcopy -D o -i $(diskimage) resources/DRIVERS.CFG ::DRIVERS.CFG
 
 $(bootsector):
 	@mkdir -p $(shell dirname $@)
