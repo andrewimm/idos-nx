@@ -264,80 +264,120 @@ impl FloppyDeviceDriver {
             return Ok(0);
         }
 
-        let position = offset as usize;
         let drive_select = match self.open_instances.get(&instance) {
             Some(file) => file.drive,
             None => return Err(IoError::FileHandleInvalid),
         };
 
-        let dma_buf_size = 0x1000;
-        let first_sector = position / super::geometry::SECTOR_SIZE;
-        let read_offset = position % super::geometry::SECTOR_SIZE;
-        let last_sector = (position + buffer.len() - 1) / super::geometry::SECTOR_SIZE;
-        let sector_count = last_sector - first_sector + 1;
+        let mut buf_offset = 0usize;
+        let mut position = offset as usize;
+        let total = buffer.len();
 
-        // Clamp to what fits in the DMA buffer
-        if sector_count * super::geometry::SECTOR_SIZE > dma_buf_size {
-            return Err(IoError::InvalidArgument);
-        }
+        while buf_offset < total {
+            let first_sector = position / super::geometry::SECTOR_SIZE;
+            let read_offset = position % super::geometry::SECTOR_SIZE;
+            let remaining = total - buf_offset;
+            let last_sector = (position + remaining - 1) / super::geometry::SECTOR_SIZE;
+            let mut sector_count = last_sector - first_sector + 1;
 
-        self.dma_prepare(sector_count, 0x56);
-        let chs = ChsGeometry::from_lba(first_sector);
-        self.dma_read(drive_select, chs)
-            .await
-            .map_err(|_| IoError::FileSystemError)?;
+            // Clamp to DMA buffer size
+            let dma_buf_size = 0x1000;
+            let max_sectors = dma_buf_size / super::geometry::SECTOR_SIZE;
+            if sector_count > max_sectors {
+                sector_count = max_sectors;
+            }
 
-        let dma_buffer = self.get_dma_buffer();
-        let copy_len = buffer.len().min(dma_buf_size - read_offset);
-
-        for i in 0..copy_len {
-            buffer[i] = dma_buffer[read_offset + i];
-        }
-
-        Ok(copy_len as u32)
-    }
-
-    pub async fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
-        let position = offset as usize;
-        let drive_select = match self.open_instances.get(&instance) {
-            Some(file) => file.drive,
-            None => return Err(IoError::FileHandleInvalid),
-        };
-
-        let dma_buf_size = 0x1000;
-        let first_sector = position / super::geometry::SECTOR_SIZE;
-        let write_offset = position % super::geometry::SECTOR_SIZE;
-        let last_sector = (position + buffer.len() - 1) / super::geometry::SECTOR_SIZE;
-        let sector_count = last_sector - first_sector + 1;
-
-        // Clamp to what fits in the DMA buffer
-        if sector_count * super::geometry::SECTOR_SIZE > dma_buf_size {
-            return Err(IoError::InvalidArgument);
-        }
-
-        // If writing a partial sector, read-modify-write: read existing data first
-        if write_offset != 0 || buffer.len() % super::geometry::SECTOR_SIZE != 0 {
-            self.dma_prepare(sector_count, 0x56);
+            // Clamp to track boundary: don't read past the last sector on the
+            // current track, since the floppy controller can't cross tracks in
+            // a single DMA transfer.
             let chs = ChsGeometry::from_lba(first_sector);
+            let sectors_left_on_track = super::geometry::SECTORS_PER_TRACK + 1 - chs.sector;
+            if sector_count > sectors_left_on_track {
+                sector_count = sectors_left_on_track;
+            }
+
+            self.dma_prepare(sector_count, 0x56);
             self.dma_read(drive_select, chs)
                 .await
                 .map_err(|_| IoError::FileSystemError)?;
+
+            let dma_buffer = self.get_dma_buffer();
+            let available = sector_count * super::geometry::SECTOR_SIZE - read_offset;
+            let copy_len = remaining.min(available);
+
+            for i in 0..copy_len {
+                buffer[buf_offset + i] = dma_buffer[read_offset + i];
+            }
+
+            buf_offset += copy_len;
+            position += copy_len;
         }
 
-        let dma_buffer = self.get_dma_buffer();
-        let copy_len = buffer.len().min(dma_buf_size - write_offset);
-        for i in 0..copy_len {
-            dma_buffer[write_offset + i] = buffer[i];
+        Ok(total as u32)
+    }
+
+    pub async fn write(&mut self, instance: u32, buffer: &[u8], offset: u32) -> IoResult {
+        if buffer.is_empty() {
+            return Ok(0);
         }
 
-        // DMA mode 0x5A = channel 2, single transfer, memory→peripheral
-        self.dma_prepare(sector_count, 0x5A);
-        let chs = ChsGeometry::from_lba(first_sector);
-        self.dma_write(drive_select, chs)
-            .await
-            .map_err(|_| IoError::FileSystemError)?;
+        let drive_select = match self.open_instances.get(&instance) {
+            Some(file) => file.drive,
+            None => return Err(IoError::FileHandleInvalid),
+        };
 
-        Ok(copy_len as u32)
+        let mut buf_offset = 0usize;
+        let mut position = offset as usize;
+        let total = buffer.len();
+
+        while buf_offset < total {
+            let first_sector = position / super::geometry::SECTOR_SIZE;
+            let write_offset = position % super::geometry::SECTOR_SIZE;
+            let remaining = total - buf_offset;
+            let last_sector = (position + remaining - 1) / super::geometry::SECTOR_SIZE;
+            let mut sector_count = last_sector - first_sector + 1;
+
+            // Clamp to DMA buffer size
+            let dma_buf_size = 0x1000;
+            let max_sectors = dma_buf_size / super::geometry::SECTOR_SIZE;
+            if sector_count > max_sectors {
+                sector_count = max_sectors;
+            }
+
+            // Clamp to track boundary
+            let chs = ChsGeometry::from_lba(first_sector);
+            let sectors_left_on_track = super::geometry::SECTORS_PER_TRACK + 1 - chs.sector;
+            if sector_count > sectors_left_on_track {
+                sector_count = sectors_left_on_track;
+            }
+
+            let available = sector_count * super::geometry::SECTOR_SIZE - write_offset;
+            let copy_len = remaining.min(available);
+
+            // If writing a partial sector, read-modify-write: read existing data first
+            if write_offset != 0 || copy_len % super::geometry::SECTOR_SIZE != 0 {
+                self.dma_prepare(sector_count, 0x56);
+                self.dma_read(drive_select, chs)
+                    .await
+                    .map_err(|_| IoError::FileSystemError)?;
+            }
+
+            let dma_buffer = self.get_dma_buffer();
+            for i in 0..copy_len {
+                dma_buffer[write_offset + i] = buffer[buf_offset + i];
+            }
+
+            // DMA mode 0x5A = channel 2, single transfer, memory→peripheral
+            self.dma_prepare(sector_count, 0x5A);
+            self.dma_write(drive_select, chs)
+                .await
+                .map_err(|_| IoError::FileSystemError)?;
+
+            buf_offset += copy_len;
+            position += copy_len;
+        }
+
+        Ok(total as u32)
     }
 
     pub fn close(&mut self, instance: u32) -> IoResult {
