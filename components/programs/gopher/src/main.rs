@@ -178,9 +178,12 @@ pub extern "C" fn main() {
                 GOPHER_PORT,
             );
 
-            // Navigate to the link
-            host_len = link.host_len.min(64);
-            current_host[..host_len].copy_from_slice(&link.host[..host_len]);
+            // Navigate to the link (keep current host if link host is "0.0.0.0" or "0")
+            let link_host = &link.host[..link.host_len];
+            if link_host != b"0.0.0.0" && link_host != b"0" && !link_host.is_empty() {
+                host_len = link.host_len.min(64);
+                current_host[..host_len].copy_from_slice(&link.host[..host_len]);
+            }
             sel_len = link.selector_len.min(256);
             current_selector[..sel_len].copy_from_slice(&link.selector[..sel_len]);
         } else {

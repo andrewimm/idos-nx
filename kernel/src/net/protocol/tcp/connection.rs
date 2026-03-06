@@ -108,6 +108,10 @@ impl TcpConnection {
         let action = self.action_for_tcp_packet(header);
         let packet_to_send = match action {
             TcpAction::Close => {
+                // Complete any pending reads with Ok(0) to unblock waiting tasks
+                while let Some(read) = self.pending_reads.pop_front() {
+                    complete_op(read.callback, Ok(0));
+                }
                 // TODO: the socket connection needs to be cleaned up
                 None
             }
@@ -157,7 +161,7 @@ impl TcpConnection {
                     return;
                 }
                 if self.pending_reads.is_empty() {
-                    unimplemented!();
+                    self.available_data.extend_from_slice(data);
                 } else {
                     // copy the buffer directly to the read buffer
                     let read = self.pending_reads.pop_front().unwrap();
@@ -172,7 +176,10 @@ impl TcpConnection {
 
                     buffer[..write_length].copy_from_slice(&data[..write_length]);
 
-                    // TODO: if we didn't write all the data, store the rest for the next read
+                    // Save any data that didn't fit for the next read
+                    if write_length < data.len() {
+                        self.available_data.extend_from_slice(&data[write_length..]);
+                    }
                     complete_op(read.callback, Ok(write_length as u32));
                 }
 
@@ -190,8 +197,31 @@ impl TcpConnection {
                 ))
             }
             TcpAction::FinAck => {
+                // Deliver any data payload that came with the FIN
+                if !data.is_empty() {
+                    if self.pending_reads.is_empty() {
+                        self.available_data.extend_from_slice(data);
+                    } else {
+                        let read = self.pending_reads.pop_front().unwrap();
+                        let buffer_offset = read.buffer_paddr.as_u32() & 0xfff;
+                        let mapping = UnmappedPage::map(read.buffer_paddr & 0xfffff000);
+                        let buffer_ptr = (mapping.virtual_address() + buffer_offset).as_ptr_mut::<u8>();
+                        let page_remaining = 0x1000 - buffer_offset as usize;
+                        let usable_len = read.buffer_len.min(page_remaining);
+                        let buffer =
+                            unsafe { core::slice::from_raw_parts_mut(buffer_ptr, usable_len) };
+                        let write_length = data.len().min(buffer.len());
+                        buffer[..write_length].copy_from_slice(&data[..write_length]);
+                        if write_length < data.len() {
+                            self.available_data.extend_from_slice(&data[write_length..]);
+                        }
+                        complete_op(read.callback, Ok(write_length as u32));
+                    }
+                    self.last_sequence_received = u32::from_be(header.sequence_number) + data.len() as u32;
+                }
+
                 self.state = TcpState::LastAck;
-                // Complete any pending reads with Ok(0) to signal EOF
+                // Complete any remaining pending reads with Ok(0) to signal EOF
                 while let Some(read) = self.pending_reads.pop_front() {
                     complete_op(read.callback, Ok(0));
                 }
@@ -201,7 +231,7 @@ impl TcpConnection {
                     remote_addr,
                     self.remote_port,
                     self.last_sequence_sent,
-                    u32::from_be(header.sequence_number) + 1,
+                    self.last_sequence_received + 1,
                     TcpHeader::FLAG_FIN | TcpHeader::FLAG_ACK,
                     &[],
                 ))
@@ -276,19 +306,22 @@ impl TcpConnection {
     }
 
     pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {
+        if !self.available_data.is_empty() {
+            let copy_len = buffer.len().min(self.available_data.len());
+            buffer[..copy_len].copy_from_slice(&self.available_data[..copy_len]);
+            self.available_data.drain(..copy_len);
+            return Some(Ok(copy_len as u32));
+        }
         if matches!(self.state, TcpState::LastAck) {
             return Some(Ok(0));
         }
-        if self.available_data.is_empty() {
-            let buffer_vaddr = VirtualAddress::new(buffer.as_ptr() as u32);
-            let buffer_paddr = get_current_physical_address(buffer_vaddr).unwrap();
-            self.pending_reads.push_back(PendingRead {
-                buffer_paddr,
-                buffer_len: buffer.len(),
-                callback,
-            });
-            return None;
-        }
-        Some(Err(IoError::Unknown))
+        let buffer_vaddr = VirtualAddress::new(buffer.as_ptr() as u32);
+        let buffer_paddr = get_current_physical_address(buffer_vaddr).unwrap();
+        self.pending_reads.push_back(PendingRead {
+            buffer_paddr,
+            buffer_len: buffer.len(),
+            callback,
+        });
+        None
     }
 }
