@@ -177,6 +177,23 @@ impl TcpConnection {
                     // Pure ACK — nothing to enqueue, don't respond
                     return;
                 }
+                // Check sequence number — discard duplicates and out-of-order packets
+                let actual_seq = u32::from_be(header.sequence_number);
+                if actual_seq != self.last_sequence_received {
+                    // Re-ACK with what we have so the remote knows where we are
+                    let ack = TcpHeader::create_packet(
+                        local_addr,
+                        self.local_port,
+                        remote_addr,
+                        self.remote_port,
+                        self.last_sequence_sent,
+                        self.last_sequence_received,
+                        TcpHeader::FLAG_ACK,
+                        &[],
+                    );
+                    net_respond(remote_addr, ack);
+                    return;
+                }
                 if self.pending_reads.is_empty() {
                     self.available_data.extend_from_slice(data);
                 } else {
@@ -214,27 +231,36 @@ impl TcpConnection {
                 ))
             }
             TcpAction::FinAck => {
+                // Process ACK for any pending writes
+                if header.is_ack() {
+                    self.process_ack(u32::from_be(header.ack_number));
+                }
                 // Deliver any data payload that came with the FIN
                 if !data.is_empty() {
-                    if self.pending_reads.is_empty() {
-                        self.available_data.extend_from_slice(data);
+                    let actual_seq = u32::from_be(header.sequence_number);
+                    if actual_seq != self.last_sequence_received {
+                        // Out-of-order FIN+data — discard data but still process the FIN below
                     } else {
-                        let read = self.pending_reads.pop_front().unwrap();
-                        let buffer_offset = read.buffer_paddr.as_u32() & 0xfff;
-                        let mapping = UnmappedPage::map(read.buffer_paddr & 0xfffff000);
-                        let buffer_ptr = (mapping.virtual_address() + buffer_offset).as_ptr_mut::<u8>();
-                        let page_remaining = 0x1000 - buffer_offset as usize;
-                        let usable_len = read.buffer_len.min(page_remaining);
-                        let buffer =
-                            unsafe { core::slice::from_raw_parts_mut(buffer_ptr, usable_len) };
-                        let write_length = data.len().min(buffer.len());
-                        buffer[..write_length].copy_from_slice(&data[..write_length]);
-                        if write_length < data.len() {
-                            self.available_data.extend_from_slice(&data[write_length..]);
+                        if self.pending_reads.is_empty() {
+                            self.available_data.extend_from_slice(data);
+                        } else {
+                            let read = self.pending_reads.pop_front().unwrap();
+                            let buffer_offset = read.buffer_paddr.as_u32() & 0xfff;
+                            let mapping = UnmappedPage::map(read.buffer_paddr & 0xfffff000);
+                            let buffer_ptr = (mapping.virtual_address() + buffer_offset).as_ptr_mut::<u8>();
+                            let page_remaining = 0x1000 - buffer_offset as usize;
+                            let usable_len = read.buffer_len.min(page_remaining);
+                            let buffer =
+                                unsafe { core::slice::from_raw_parts_mut(buffer_ptr, usable_len) };
+                            let write_length = data.len().min(buffer.len());
+                            buffer[..write_length].copy_from_slice(&data[..write_length]);
+                            if write_length < data.len() {
+                                self.available_data.extend_from_slice(&data[write_length..]);
+                            }
+                            complete_op(read.callback, Ok(write_length as u32));
                         }
-                        complete_op(read.callback, Ok(write_length as u32));
+                        self.last_sequence_received = u32::from_be(header.sequence_number) + data.len() as u32;
                     }
-                    self.last_sequence_received = u32::from_be(header.sequence_number) + data.len() as u32;
                 }
 
                 self.state = TcpState::LastAck;
@@ -366,6 +392,36 @@ impl TcpConnection {
             callback,
         });
         None
+    }
+
+    /// Send a FIN and complete any pending reads/writes with errors.
+    pub fn close(&mut self) {
+        // Complete pending reads with Ok(0) (EOF)
+        while let Some(read) = self.pending_reads.pop_front() {
+            complete_op(read.callback, Ok(0));
+        }
+        // Complete pending writes with error
+        while let Some(write) = self.pending_writes.pop_front() {
+            complete_op(write.callback, Err(IoError::OperationFailed));
+        }
+
+        if matches!(self.state, TcpState::Established) {
+            let packet = TcpHeader::create_packet(
+                self.local_address,
+                self.local_port,
+                self.remote_address,
+                self.remote_port,
+                self.last_sequence_sent,
+                self.last_sequence_received,
+                TcpHeader::FLAG_FIN | TcpHeader::FLAG_ACK,
+                &[],
+            );
+            net_respond(self.remote_address, packet);
+        }
+    }
+
+    pub fn local_port(&self) -> SocketPort {
+        self.local_port
     }
 
     pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {

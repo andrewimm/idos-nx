@@ -18,7 +18,7 @@ use crate::{
     io::{async_io::AsyncOpID, handle::Handle},
     net::{
         protocol::ipv4::Ipv4Address,
-        socket::{socket_io_bind, socket_io_read, socket_io_write, SocketId, SocketProtocol},
+        socket::{socket_io_bind, socket_io_close, socket_io_read, socket_io_write, SocketId, SocketProtocol},
     },
     task::switching::get_current_id,
 };
@@ -51,6 +51,13 @@ impl SocketIOProvider {
 
             id_gen: OpIdGenerator::new(),
             pending_ops: RwLock::new(BTreeMap::new()),
+        }
+    }
+
+    pub fn close_socket(&self) {
+        let socket_id = *self.socket_id.read();
+        if let Some(socket_id) = socket_id {
+            socket_io_close(SocketId::new(socket_id));
         }
     }
 }
@@ -143,6 +150,11 @@ impl IOProvider for SocketIOProvider {
         } else {
             Some(Err(IoError::FileHandleInvalid))
         }
+    }
+
+    fn close(&self, _provider_index: u32, _id: AsyncOpID, _op: UnmappedAsyncOp) -> Option<IoResult> {
+        self.close_socket();
+        Some(Ok(0))
     }
 
     fn extended_op(

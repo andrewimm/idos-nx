@@ -274,6 +274,37 @@ pub fn socket_io_write(
     }
 }
 
+pub fn socket_io_close(socket_id: SocketId) {
+    let mut socket_map = SOCKET_MAP.write();
+    let socket_type = match socket_map.remove(&socket_id) {
+        Some(s) => s,
+        None => return,
+    };
+    match socket_type {
+        SocketType::Udp(_listener) => {
+            // Just remove from active connections
+        }
+        SocketType::TcpListener(listener) => {
+            // TODO: send FIN to all child connections before dropping them
+            let child_ids = listener.connections.all_connection_ids();
+            for child_id in child_ids {
+                if let Some(SocketType::TcpConnection(mut conn)) = socket_map.remove(&child_id) {
+                    conn.close();
+                    ACTIVE_CONNECTIONS.write().remove(&conn.local_port());
+                }
+            }
+        }
+        SocketType::TcpConnection(mut connection) => {
+            connection.close();
+            ACTIVE_CONNECTIONS.write().remove(&connection.local_port());
+            return; // Already removed from socket_map above
+        }
+    }
+    // Remove the port binding for UDP/TcpListener
+    // We need to find which port maps to this socket_id
+    ACTIVE_CONNECTIONS.write().retain(|_, id| *id != socket_id);
+}
+
 pub fn handle_udp_packet(local_port: u16, remote_addr: Ipv4Address, remote_port: u16, data: &[u8]) {
     let port = SocketPort::new(local_port);
     let socket_id = {

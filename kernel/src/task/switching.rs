@@ -86,14 +86,20 @@ fn close_task_handles(id: TaskID) {
     };
 
     for (io_index, io_type) in &io_entries {
-        if let IOType::File(ref file_io) = **io_type {
-            let Some((driver_id, instance)) = file_io.get_binding() else {
-                continue;
-            };
-            let op_id = file_io.next_op_id();
-            if let Some(Err(e)) = driver_close(driver_id, instance, (id, *io_index, op_id)) {
-                crate::kprintln!("Task {:?}: close error: {:?}", id, e);
+        match &**io_type {
+            IOType::File(ref file_io) => {
+                let Some((driver_id, instance)) = file_io.get_binding() else {
+                    continue;
+                };
+                let op_id = file_io.next_op_id();
+                if let Some(Err(e)) = driver_close(driver_id, instance, (id, *io_index, op_id)) {
+                    crate::kprintln!("Task {:?}: close error: {:?}", id, e);
+                }
             }
+            IOType::Socket(ref socket_io) => {
+                socket_io.close_socket();
+            }
+            _ => {}
         }
     }
 }

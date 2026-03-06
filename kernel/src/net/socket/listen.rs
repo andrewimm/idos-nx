@@ -157,6 +157,10 @@ impl ListenerConnections {
         };
         self.lookup.get(&endpoint).copied()
     }
+
+    pub fn all_connection_ids(&self) -> alloc::vec::Vec<SocketId> {
+        self.lookup.values().copied().collect()
+    }
 }
 
 pub struct TcpListener {
