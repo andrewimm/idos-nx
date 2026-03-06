@@ -109,8 +109,8 @@ $(diskchk):
 	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
 
 $(fatdrv_elf):
-	@cd fatdriver && \
-	cargo build --features idos -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../components/i386-idos.json --release
+	@cd components/drivers/fatdriver && \
+	cargo build --features idos -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
 
 $(fatdrv): $(fatdrv_elf)
 	@mkdir -p $(shell dirname $@)
@@ -121,8 +121,8 @@ $(gfx):
 	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
 
 $(e1000):
-	@cd e1000 && \
-	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../components/i386-idos.json --release
+	@cd components/drivers/e1000 && \
+	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
 
 logview:
 	cargo build -p logview --release
