@@ -329,20 +329,6 @@ async fn get_next_hop(
     }
 }
 
-async fn send_packet(
-    destination: String,
-    payload: Vec<u8>,
-    net_dev_lock: Arc<RwLock<NetDevice>>,
-    waker_registry: WakerRegistry<NetEvent>,
-) -> Result<(), ()> {
-    let dest_ip = if let Ok(ip) = Ipv4Address::from_str(&destination) {
-        ip
-    } else {
-        dns_lookup(destination, net_dev_lock.clone(), waker_registry.clone()).await?
-    };
-    send_packet_direct(dest_ip, payload, net_dev_lock, waker_registry).await
-}
-
 async fn send_udp(
     local_port: SocketPort,
     destination: String,
@@ -388,10 +374,6 @@ async fn send_packet_direct(
     net_dev_lock: Arc<RwLock<NetDevice>>,
     waker_registry: WakerRegistry<NetEvent>,
 ) -> Result<(), ()> {
-    crate::kprintln!("SEND DIRECT");
-    let local_ip = get_local_ip(net_dev_lock.clone(), waker_registry.clone())
-        .await
-        .ok_or(())?;
     let next_hop = match get_next_hop(destination, net_dev_lock.clone(), waker_registry).await {
         Some(mac) => mac,
         None => {
