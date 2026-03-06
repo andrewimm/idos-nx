@@ -223,7 +223,8 @@ dependencies = [
 name = "gopher"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "idos_api",
+ "idos_sdk",
 ]
 
 [[package]]

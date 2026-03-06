@@ -75,7 +75,7 @@ impl NetDevice {
     pub fn new(device_path: &str, mac: HardwareAddress, wake_set: Handle) -> Self {
         let device_driver_handle = create_file_handle();
 
-        let mut read_buffer = Vec::with_capacity(1024);
+        let mut read_buffer = Vec::with_capacity(1536);
         for _ in 0..read_buffer.capacity() {
             read_buffer.push(0);
         }

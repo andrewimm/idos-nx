@@ -114,6 +114,7 @@ impl TcpConnection {
             TcpAction::Connect | TcpAction::ConnectAck => {
                 self.state = TcpState::Established;
                 self.local_address = local_addr;
+                self.remote_address = remote_addr;
                 self.last_sequence_sent += 1;
                 self.last_sequence_received = u32::from_be(header.sequence_number) + 1;
                 if let Some((callback, should_create_provider)) = self.on_connect.take() {
@@ -163,8 +164,10 @@ impl TcpConnection {
                     let buffer_offset = read.buffer_paddr.as_u32() & 0xfff;
                     let mapping = UnmappedPage::map(read.buffer_paddr & 0xfffff000);
                     let buffer_ptr = (mapping.virtual_address() + buffer_offset).as_ptr_mut::<u8>();
-                    let mut buffer =
-                        unsafe { core::slice::from_raw_parts_mut(buffer_ptr, read.buffer_len) };
+                    let page_remaining = 0x1000 - buffer_offset as usize;
+                    let usable_len = read.buffer_len.min(page_remaining);
+                    let buffer =
+                        unsafe { core::slice::from_raw_parts_mut(buffer_ptr, usable_len) };
                     let write_length = data.len().min(buffer.len());
 
                     buffer[..write_length].copy_from_slice(&data[..write_length]);
@@ -188,6 +191,10 @@ impl TcpConnection {
             }
             TcpAction::FinAck => {
                 self.state = TcpState::LastAck;
+                // Complete any pending reads with Ok(0) to signal EOF
+                while let Some(read) = self.pending_reads.pop_front() {
+                    complete_op(read.callback, Ok(0));
+                }
                 Some(TcpHeader::create_packet(
                     local_addr,
                     self.local_port,
@@ -269,6 +276,9 @@ impl TcpConnection {
     }
 
     pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {
+        if matches!(self.state, TcpState::LastAck) {
+            return Some(Ok(0));
+        }
         if self.available_data.is_empty() {
             let buffer_vaddr = VirtualAddress::new(buffer.as_ptr() as u32);
             let buffer_paddr = get_current_physical_address(buffer_vaddr).unwrap();
