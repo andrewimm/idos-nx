@@ -4,7 +4,10 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::vec::Vec;
 use idos_api::io::error::{IoError, IoResult};
 
+use crate::memory::address::{PhysicalAddress, VirtualAddress};
+use crate::memory::virt::scratch::UnmappedPage;
 use crate::task::map::get_task;
+use crate::task::paging::get_current_physical_address;
 
 use super::{
     super::protocol::{
@@ -17,24 +20,59 @@ use super::{
     AsyncCallback, SocketId, SocketType,
 };
 
+struct UdpPendingRead {
+    buffer_paddr: PhysicalAddress,
+    buffer_len: usize,
+    callback: AsyncCallback,
+}
+
 pub struct UdpListener {
     port: SocketPort,
+    pending_reads: VecDeque<UdpPendingRead>,
+    buffered_datagrams: VecDeque<Vec<u8>>,
 }
 
 impl UdpListener {
     pub fn new(port: SocketPort) -> Self {
-        Self { port }
+        Self {
+            port,
+            pending_reads: VecDeque::new(),
+            buffered_datagrams: VecDeque::new(),
+        }
     }
 
-    pub fn handle_packet(&self, _remote_addr: Ipv4Address, _remote_port: u16, _data: &[u8]) {}
+    /// Called when a UDP packet arrives on this port.
+    /// The read buffer format is: [sender_ip: 4][sender_port: 2 BE][payload]
+    pub fn handle_packet(&mut self, remote_addr: Ipv4Address, remote_port: u16, data: &[u8]) {
+        let mut datagram = Vec::with_capacity(6 + data.len());
+        datagram.extend_from_slice(&remote_addr.0);
+        datagram.extend_from_slice(&remote_port.to_be_bytes());
+        datagram.extend_from_slice(data);
 
-    /// Block until the next packet is received on this UDP listener.
-    /// If the packet is open, incoming reads will be queued up and can be
-    /// immediately resolved. Otherwise, the method will return and the next
-    /// incoming packet will use the async callback info to resolve the read
-    /// operation.
-    pub fn read(&self, _buffer: &mut [u8], _callback: AsyncCallback) -> Option<IoResult> {
-        Some(Err(IoError::Unknown))
+        if let Some(read) = self.pending_reads.pop_front() {
+            let written = deliver_to_buffer(read.buffer_paddr, read.buffer_len, &datagram);
+            complete_op(read.callback, Ok(written as u32));
+        } else {
+            self.buffered_datagrams.push_back(datagram);
+        }
+    }
+
+    /// Read the next datagram. Returns [sender_ip: 4][sender_port: 2 BE][payload].
+    /// If no datagram is buffered, queues the read for async completion.
+    pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {
+        if let Some(datagram) = self.buffered_datagrams.pop_front() {
+            let copy_len = buffer.len().min(datagram.len());
+            buffer[..copy_len].copy_from_slice(&datagram[..copy_len]);
+            return Some(Ok(copy_len as u32));
+        }
+        let buffer_vaddr = VirtualAddress::new(buffer.as_ptr() as u32);
+        let buffer_paddr = get_current_physical_address(buffer_vaddr).unwrap();
+        self.pending_reads.push_back(UdpPendingRead {
+            buffer_paddr,
+            buffer_len: buffer.len(),
+            callback,
+        });
+        None
     }
 
     /// Write a UDP datagram. The buffer format is:
@@ -67,6 +105,20 @@ impl UdpListener {
             None
         }
     }
+}
+
+/// Copy data into a userspace buffer via its physical address.
+/// Caps at page boundary to avoid cross-page faults.
+fn deliver_to_buffer(buffer_paddr: PhysicalAddress, buffer_len: usize, data: &[u8]) -> usize {
+    let buffer_offset = buffer_paddr.as_u32() & 0xfff;
+    let mapping = UnmappedPage::map(buffer_paddr & 0xfffff000);
+    let buffer_ptr = (mapping.virtual_address() + buffer_offset).as_ptr_mut::<u8>();
+    let page_remaining = 0x1000 - buffer_offset as usize;
+    let usable_len = buffer_len.min(page_remaining);
+    let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_ptr, usable_len) };
+    let write_length = data.len().min(buffer.len());
+    buffer[..write_length].copy_from_slice(&data[..write_length]);
+    write_length
 }
 
 pub struct PendingUdpWrite {
