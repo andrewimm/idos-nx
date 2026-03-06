@@ -270,7 +270,7 @@ pub fn socket_io_write(
             listener.write(buffer, local_ip, callback)
         }
         SocketType::TcpListener(_) => Some(Err(IoError::UnsupportedOperation)),
-        SocketType::TcpConnection(connection) => connection.write(buffer),
+        SocketType::TcpConnection(connection) => connection.write(buffer, callback),
     }
 }
 

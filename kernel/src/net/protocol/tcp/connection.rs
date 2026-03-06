@@ -55,6 +55,14 @@ struct PendingRead {
     callback: AsyncCallback,
 }
 
+struct PendingWrite {
+    /// The sequence number at which this write is fully acknowledged
+    end_sequence: u32,
+    /// Total bytes written (for the callback return value)
+    total_len: u32,
+    callback: AsyncCallback,
+}
+
 pub struct TcpConnection {
     own_id: SocketId,
     local_address: Ipv4Address,
@@ -67,6 +75,7 @@ pub struct TcpConnection {
 
     on_connect: Option<(AsyncCallback, bool)>,
     pending_reads: VecDeque<PendingRead>,
+    pending_writes: VecDeque<PendingWrite>,
     available_data: Vec<u8>,
 }
 
@@ -94,6 +103,7 @@ impl TcpConnection {
             last_sequence_received: 0,
             on_connect,
             pending_reads: VecDeque::new(),
+            pending_writes: VecDeque::new(),
             available_data: Vec::new(),
         }
     }
@@ -111,6 +121,9 @@ impl TcpConnection {
                 // Complete any pending reads with Ok(0) to unblock waiting tasks
                 while let Some(read) = self.pending_reads.pop_front() {
                     complete_op(read.callback, Ok(0));
+                }
+                while let Some(write) = self.pending_writes.pop_front() {
+                    complete_op(write.callback, Err(IoError::OperationFailed));
                 }
                 // TODO: the socket connection needs to be cleaned up
                 None
@@ -156,6 +169,10 @@ impl TcpConnection {
             }
             TcpAction::Discard => None,
             TcpAction::Enqueue => {
+                // Process ACK for any pending writes
+                if header.is_ack() {
+                    self.process_ack(u32::from_be(header.ack_number));
+                }
                 if data.is_empty() {
                     // Pure ACK — nothing to enqueue, don't respond
                     return;
@@ -296,7 +313,22 @@ impl TcpConnection {
 
     const MSS: usize = 1460;
 
-    pub fn write(&mut self, data: &[u8]) -> Option<IoResult> {
+    /// Complete any pending writes whose data has been fully acknowledged.
+    fn process_ack(&mut self, ack_number: u32) {
+        while let Some(front) = self.pending_writes.front() {
+            // Check if the ACK covers this write's end sequence.
+            // Use wrapping subtraction to handle sequence number wraparound.
+            let acked = ack_number.wrapping_sub(front.end_sequence) < 0x80000000;
+            if acked {
+                let write = self.pending_writes.pop_front().unwrap();
+                complete_op(write.callback, Ok(write.total_len));
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn write(&mut self, data: &[u8], callback: AsyncCallback) -> Option<IoResult> {
         if !matches!(self.state, TcpState::Established) {
             return Some(Err(IoError::OperationFailed));
         }
@@ -328,7 +360,12 @@ impl TcpConnection {
             offset = end;
         }
 
-        Some(Ok(data.len() as u32))
+        self.pending_writes.push_back(PendingWrite {
+            end_sequence: self.last_sequence_sent,
+            total_len: data.len() as u32,
+            callback,
+        });
+        None
     }
 
     pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {
