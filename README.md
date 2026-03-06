@@ -2,6 +2,8 @@
 
 A 32-bit operating system that asks: what if DOS never died?
 
+https://github.com/user-attachments/assets/cfffd480-0cad-439c-9fc7-7e51ae5141fc
+
 IDOS-NX is a from-scratch OS written in Rust that takes the DOS philosophy -
 boot fast, run programs, get out of the way - and drags it kicking and
 screaming into protected mode. It's not DPMI. It's not POSIX-compatible. It's
