@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-idos_api = {path = "../api"}
+idos_api = { workspace = true }
 spin = "0.9.4"

@@ -4,7 +4,8 @@ members = [
   "api",
   "bootloader/bootbin",
   "bootloader/mbr",
-  "components/drivers/testdriver",
+  "components/drivers/e1000",
+  "components/drivers/fatdriver",
   "components/programs/colordemo",
   "components/programs/command",
   "components/programs/diskchk",
@@ -14,10 +15,12 @@ members = [
   "components/programs/gfx",
   "components/programs/gopher",
   "components/programs/netcat",
-  "e1000",
-  "fatdriver",
   "kernel",
   "libc",
   "sdk",
   "tools/logview",
 ]
+
+[workspace.dependencies]
+idos_api = { path = "api" }
+idos_sdk = { path = "sdk" }

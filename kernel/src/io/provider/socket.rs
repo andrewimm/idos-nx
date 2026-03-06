@@ -18,7 +18,7 @@ use crate::{
     io::{async_io::AsyncOpID, handle::Handle},
     net::{
         protocol::ipv4::Ipv4Address,
-        socket::{socket_io_bind, socket_io_read, SocketId, SocketProtocol},
+        socket::{socket_io_bind, socket_io_read, socket_io_write, SocketId, SocketProtocol},
     },
     task::switching::get_current_id,
 };
@@ -105,7 +105,11 @@ impl IOProvider for SocketIOProvider {
         let binding_port = op.args[2] as u16;
 
         let callback = (get_current_id(), provider_index, id);
-        socket_io_bind(self.protocol, binding_slice, binding_port, callback)
+        let result = socket_io_bind(self.protocol, binding_slice, binding_port, callback);
+        if let Some(Ok(socket_id)) = &result {
+            self.socket_id.write().replace(*socket_id);
+        }
+        result
     }
 
     fn read(&self, provider_index: u32, id: AsyncOpID, op: UnmappedAsyncOp) -> Option<IoResult> {
@@ -124,11 +128,21 @@ impl IOProvider for SocketIOProvider {
 
     fn write(
         &self,
-        _provider_index: u32,
-        _id: AsyncOpID,
-        _op: UnmappedAsyncOp,
+        provider_index: u32,
+        id: AsyncOpID,
+        op: UnmappedAsyncOp,
     ) -> Option<IoResult> {
-        panic!("Not implemented");
+        let socket_id = *self.socket_id.read();
+        if let Some(socket_id) = socket_id {
+            let buffer_start = op.args[0] as usize;
+            let buffer_len = op.args[1] as usize;
+            let buffer =
+                unsafe { core::slice::from_raw_parts(buffer_start as *const u8, buffer_len) };
+            let callback = (get_current_id(), provider_index, id);
+            socket_io_write(SocketId::new(socket_id), buffer, callback)
+        } else {
+            Some(Err(IoError::FileHandleInvalid))
+        }
     }
 
     fn extended_op(

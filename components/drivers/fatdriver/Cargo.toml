@@ -8,8 +8,8 @@ default = []
 idos = ["idos_api", "idos_sdk"]
 
 [dependencies]
-idos_api = { path = "../api", optional = true }
-idos_sdk = { path = "../sdk", optional = true }
+idos_api = { workspace = true, optional = true }
+idos_sdk = { workspace = true, optional = true }
 
 [lib]
 name = "fatdriver"

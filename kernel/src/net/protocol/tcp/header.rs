@@ -30,6 +30,7 @@ impl TcpHeader {
     pub const FLAG_FIN: u8 = 0x01;
     pub const FLAG_SYN: u8 = 0x02;
     pub const FLAG_RST: u8 = 0x04;
+    pub const FLAG_PSH: u8 = 0x08;
     pub const FLAG_ACK: u8 = 0x10;
 
     pub fn byte_size(&self) -> usize {
@@ -60,10 +61,6 @@ impl TcpHeader {
         dest_ip: Ipv4Address,
         data: &[u8],
     ) -> u16 {
-        let mut data_length = data.len();
-        if data_length & 1 != 0 {
-            data_length += 1; // pad to even length
-        }
         let checksum_header = IpChecksumHeader {
             source_ip,
             dest_ip,
@@ -86,11 +83,11 @@ impl TcpHeader {
         }
 
         let mut i = 0;
-        while i < data_length {
-            let word = if i + 1 < data_length {
-                u16::from_be_bytes([data[i], data[i + 1]])
+        while i < data.len() {
+            let word = if i + 1 < data.len() {
+                u16::from_ne_bytes([data[i], data[i + 1]])
             } else {
-                u16::from_be_bytes([data[i], 0]) // pad with zero if odd length
+                u16::from_ne_bytes([data[i], 0]) // pad with zero if odd length
             };
             checksum.add_u16(word);
             i += 2;

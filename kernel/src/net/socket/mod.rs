@@ -259,7 +259,19 @@ pub fn socket_io_write(
     buffer: &[u8],
     callback: AsyncCallback,
 ) -> Option<Result<u32, IoError>> {
-    Some(Err(IoError::Unknown))
+    let mut socket_map = SOCKET_MAP.write();
+    let socket_type = match socket_map.get_mut(&socket_id) {
+        Some(socket_type) => socket_type,
+        None => return Some(Err(IoError::FileHandleInvalid)),
+    };
+    match socket_type {
+        SocketType::Udp(_listener) => {
+            // TODO: UDP write needs destination address in the buffer
+            Some(Err(IoError::UnsupportedOperation))
+        }
+        SocketType::TcpListener(_) => Some(Err(IoError::UnsupportedOperation)),
+        SocketType::TcpConnection(connection) => connection.write(buffer),
+    }
 }
 
 pub fn handle_udp_packet(local_port: u16, remote_addr: Ipv4Address, remote_port: u16, data: &[u8]) {

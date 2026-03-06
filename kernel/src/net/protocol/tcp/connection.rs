@@ -57,6 +57,7 @@ struct PendingRead {
 
 pub struct TcpConnection {
     own_id: SocketId,
+    local_address: Ipv4Address,
     local_port: SocketPort,
     remote_address: Ipv4Address,
     remote_port: SocketPort,
@@ -80,6 +81,7 @@ impl TcpConnection {
     ) -> Self {
         Self {
             own_id,
+            local_address: Ipv4Address([0, 0, 0, 0]),
             local_port,
             remote_address,
             remote_port,
@@ -111,7 +113,9 @@ impl TcpConnection {
             }
             TcpAction::Connect | TcpAction::ConnectAck => {
                 self.state = TcpState::Established;
+                self.local_address = local_addr;
                 self.last_sequence_sent += 1;
+                self.last_sequence_received = u32::from_be(header.sequence_number) + 1;
                 if let Some((callback, should_create_provider)) = self.on_connect.take() {
                     if should_create_provider {
                         let mut provider = SocketIOProvider::create_tcp();
@@ -147,6 +151,10 @@ impl TcpConnection {
             }
             TcpAction::Discard => None,
             TcpAction::Enqueue => {
+                if data.is_empty() {
+                    // Pure ACK — nothing to enqueue, don't respond
+                    return;
+                }
                 if self.pending_reads.is_empty() {
                     unimplemented!();
                 } else {
@@ -165,13 +173,15 @@ impl TcpConnection {
                     complete_op(read.callback, Ok(write_length as u32));
                 }
 
+                self.last_sequence_received = u32::from_be(header.sequence_number) + data.len() as u32;
+
                 Some(TcpHeader::create_packet(
                     local_addr,
                     self.local_port,
                     remote_addr,
                     self.remote_port,
                     self.last_sequence_sent,
-                    u32::from_be(header.sequence_number) + data.len() as u32,
+                    self.last_sequence_received,
                     TcpHeader::FLAG_ACK,
                     &[],
                 ))
@@ -234,6 +244,28 @@ impl TcpConnection {
 
             TcpState::LastAck => TcpAction::Close,
         }
+    }
+
+    pub fn write(&mut self, data: &[u8]) -> Option<IoResult> {
+        if !matches!(self.state, TcpState::Established) {
+            return Some(Err(IoError::OperationFailed));
+        }
+
+        let packet = TcpHeader::create_packet(
+            self.local_address,
+            self.local_port,
+            self.remote_address,
+            self.remote_port,
+            self.last_sequence_sent,
+            self.last_sequence_received,
+            TcpHeader::FLAG_ACK | TcpHeader::FLAG_PSH,
+            data,
+        );
+        self.last_sequence_sent += data.len() as u32;
+
+        net_respond(self.remote_address, packet);
+
+        Some(Ok(data.len() as u32))
     }
 
     pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {

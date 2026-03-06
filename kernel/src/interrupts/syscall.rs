@@ -356,11 +356,13 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
         }
         0x25 => {
             // create udp socket handle
-            unimplemented!()
+            let handle = actions::handle::create_udp_socket();
+            registers.eax = *handle as u32;
         }
         0x26 => {
             // create tcp socket handle
-            unimplemented!()
+            let handle = actions::handle::create_tcp_socket();
+            registers.eax = *handle as u32;
         }
 
         0x2a => {

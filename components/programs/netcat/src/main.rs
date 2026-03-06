@@ -7,141 +7,226 @@ extern crate idos_sdk;
 use core::fmt::Write;
 
 use idos_api::{
-    syscall::{
-        exec::{read_message_blocking, send_message, yield_coop},
-        io::{read, write},
-        net::{create_socket, bind_socket, socket_accept, socket_read},
+    io::{
+        sync::{read_sync, write_sync, open_sync},
+        Handle, AsyncOp, ASYNC_OP_READ,
     },
-    io::handle::FileHandle,
+    syscall::{
+        io::{append_io_op, block_on_wake_set, create_wake_set},
+        net::create_tcp_handle,
+    },
 };
-use idos_sdk::driver::{AsyncDriver, IOError};
+
+const STDIN: Handle = Handle::new(0);
+const STDOUT: Handle = Handle::new(1);
 
 #[no_mangle]
-pub extern fn main() {
-    let stdin = FileHandle(0);
-    let mut stdout = FileHandle(1);
+pub extern "C" fn main() {
+    let stdout = STDOUT;
 
     let config = match build_config() {
         Ok(c) => c,
         Err(err) => {
-            stdout.write_str(err);
-            stdout.write_char('\n');
+            let _ = write_sync(stdout, err.as_bytes(), 0);
+            let _ = write_sync(stdout, b"\n", 0);
             return;
-        },
+        }
     };
 
-    match config.host {
-        Host::Local => run_local(stdin, stdout, config),
-        Host::Remote(ip) => run_remote(stdin, stdout, config, ip),
-    }
+    let socket = create_tcp_handle();
 
-    let mut buffer: [u8; 256] = [0; 256];
-    loop {
-        let read_len = read(stdin, &mut buffer);
-
-        write(stdout, &buffer[..read_len]);
+    match config.mode {
+        Mode::Listen => run_listen(stdout, socket, &config),
+        Mode::Connect => run_connect(stdout, socket, &config),
     }
 }
 
 struct Config {
-    host: Host,
+    mode: Mode,
+    host: [u8; 64],
+    host_len: usize,
     port: u16,
+}
+
+enum Mode {
+    Listen,
+    Connect,
 }
 
 fn build_config() -> Result<Config, &'static str> {
     let mut args = idos_sdk::env::args();
+    // skip argv[0]
+    args.next();
+
     let mut config = Config {
-        host: Host::Remote([0, 0, 0, 0]),
+        mode: Mode::Connect,
+        host: [0; 64],
+        host_len: 0,
         port: 0,
     };
 
+    let mut got_host = false;
+
     loop {
         match args.next() {
-            Some(option) => {
-                match option {
-                    "-l" => {
-                        config.host = Host::Local;
-                    },
-                    _ => {
-                        config.port = option.parse::<u16>().map_err(|_| "Invalid port number")?;
-                    },
+            Some("-l") => {
+                config.mode = Mode::Listen;
+            }
+            Some(arg) => {
+                if !got_host {
+                    if let Mode::Connect = config.mode {
+                        let bytes = arg.as_bytes();
+                        let len = bytes.len().min(64);
+                        config.host[..len].copy_from_slice(&bytes[..len]);
+                        config.host_len = len;
+                        got_host = true;
+                        continue;
+                    }
                 }
-            },
+                config.port = parse_u16(arg).ok_or("Invalid port number")?;
+            }
             None => break,
         }
     }
 
-    if let Host::Remote([0, 0, 0, 0]) = config.host {
-        return Err("Must specify a host, or use listener mode");
-    }
     if config.port == 0 {
-        return Err("Must specify a port number");
+        return Err("Usage: netcat [-l] [host] <port>");
     }
 
-    return Ok(config);
+    if let Mode::Connect = config.mode {
+        if !got_host {
+            return Err("Must specify a host for connect mode");
+        }
+    }
+
+    Ok(config)
 }
 
-enum Host {
-    Local,
-    Remote([u8; 4]),
+fn parse_u16(s: &str) -> Option<u16> {
+    let mut result: u32 = 0;
+    for b in s.as_bytes() {
+        if *b < b'0' || *b > b'9' {
+            return None;
+        }
+        result = result * 10 + (*b - b'0') as u32;
+        if result > 65535 {
+            return None;
+        }
+    }
+    if result == 0 {
+        return None;
+    }
+    Some(result as u16)
 }
 
-fn run_local(stdin: FileHandle, mut stdout: FileHandle, config: Config) {
-    stdout.write_fmt(format_args!("Listening on local port {}\n", config.port));
+fn run_listen(stdout: Handle, socket: Handle, config: &Config) {
+    let mut msg_buf = [0u8; 64];
+    let msg_len = fmt_to_buf(&mut msg_buf, format_args!("Listening on port {}...\n", config.port));
+    let _ = write_sync(stdout, &msg_buf[..msg_len], 0);
 
-    // create tcp socket
-    let listener = create_socket(1);
-    // bind to local port
-    bind_socket(listener, [127, 0, 0, 1], config.port, [0, 0, 0, 0], 0);
-
-    let connection = loop {
-        match socket_accept(listener) {
-            Some(conn) => break conn,
-            None => (),
-        }
-    };
-    stdout.write_str("Accepted connection\n");
-
-    let mut buffer: [u8; 512] = [0; 512];
-    loop {
-        if let Some(len) = socket_read(connection, &mut buffer) {
-            let s = core::str::from_utf8(&buffer[..len]).unwrap();
-            stdout.write_str(s);
-        }
-        yield_coop();
+    // Bind to local address
+    let bind_result = open_sync(socket, "0.0.0.0", config.port as u32);
+    if bind_result.is_err() {
+        let _ = write_sync(stdout, b"Failed to bind socket\n", 0);
+        return;
     }
 
-    /*
-    let sock = net::socket::create_socket(net::socket::SocketProtocol::TCP);
-    net::socket::bind_socket(sock, IPV4Address([127, 0, 0, 1]), SocketPort::new(84), IPV4Address([0, 0, 0, 0]), SocketPort::new(0)).unwrap();
-
-    crate::kprintln!("Listening on 127.0.0.1:84");
-    let connection = loop {
-        match net::socket::socket_accept(sock) {
-            Some(handle) => break handle,
-            None => crate::task::actions::yield_coop(),
+    // For a TCP listener, the first read blocks until a connection arrives.
+    // The return value is the handle ID of the new connection socket.
+    let mut conn_buf = [0u8; 4];
+    match read_sync(socket, &mut conn_buf, 0) {
+        Ok(new_handle_id) => {
+            let _ = write_sync(stdout, b"Connection accepted\n", 0);
+            let conn = Handle::new(new_handle_id);
+            relay_bidirectional(stdout, conn);
         }
-    };
-    crate::kprintln!("Accepted connection from remote endpoint");
-        
-    let mut buffer = alloc::vec::Vec::new();
-    for _ in 0..1024 {
-        buffer.push(0);
-    }
-    loop {
-        if let Some(len) = net::socket::socket_read(connection, buffer.as_mut_slice()) {
-            crate::kprintln!("GOT PAYLOAD");
-            let s = core::str::from_utf8(&buffer[..len]).unwrap();
-            crate::kprintln!("\"{}\"", s);
+        Err(_) => {
+            let _ = write_sync(stdout, b"Accept failed\n", 0);
         }
-        task::actions::yield_coop();
     }
-    */
 }
 
-fn run_remote(stdin: FileHandle, mut stdout: FileHandle, config: Config, ip: [u8; 4]) {
-    stdout.write_fmt(format_args!("Connected to remote host {}.{}.{}.{}:{}", ip[0], ip[1], ip[2], ip[3], config.port));
+fn run_connect(stdout: Handle, socket: Handle, config: &Config) {
+    let host = unsafe { core::str::from_utf8_unchecked(&config.host[..config.host_len]) };
+    let mut msg_buf = [0u8; 128];
+    let msg_len = fmt_to_buf(&mut msg_buf, format_args!("Connecting to {}:{}...\n", host, config.port));
+    let _ = write_sync(stdout, &msg_buf[..msg_len], 0);
+
+    // Open/bind initiates the TCP handshake for remote addresses
+    match open_sync(socket, host, config.port as u32) {
+        Ok(_) => {
+            let _ = write_sync(stdout, b"Connected\n", 0);
+        }
+        Err(_) => {
+            let _ = write_sync(stdout, b"Connection failed\n", 0);
+            return;
+        }
+    }
+
+    relay_bidirectional(stdout, socket);
+}
+
+/// Relay data between stdin and the socket, using a wake set to multiplex.
+fn relay_bidirectional(stdout: Handle, socket: Handle) {
+    let stdin = STDIN;
+
+    let wake_set = create_wake_set();
+
+    let mut stdin_buf = [0u8; 512];
+    let mut net_buf = [0u8; 512];
+
+    let mut stdin_read = AsyncOp::new(ASYNC_OP_READ, stdin_buf.as_mut_ptr() as u32, stdin_buf.len() as u32, 0);
+    append_io_op(stdin, &stdin_read, Some(wake_set));
+
+    let mut net_read = AsyncOp::new(ASYNC_OP_READ, net_buf.as_mut_ptr() as u32, net_buf.len() as u32, 0);
+    append_io_op(socket, &net_read, Some(wake_set));
 
     loop {
+        block_on_wake_set(wake_set, None);
+
+        if stdin_read.is_complete() {
+            let ret = stdin_read.return_value.load(core::sync::atomic::Ordering::SeqCst);
+            if ret & 0x80000000 != 0 || ret == 0 {
+                break;
+            }
+            let _ = write_sync(socket, &stdin_buf[..ret as usize], 0);
+
+            stdin_read = AsyncOp::new(ASYNC_OP_READ, stdin_buf.as_mut_ptr() as u32, stdin_buf.len() as u32, 0);
+            append_io_op(stdin, &stdin_read, Some(wake_set));
+        }
+
+        if net_read.is_complete() {
+            let ret = net_read.return_value.load(core::sync::atomic::Ordering::SeqCst);
+            if ret & 0x80000000 != 0 || ret == 0 {
+                let _ = write_sync(stdout, b"Connection closed\n", 0);
+                break;
+            }
+            let _ = write_sync(stdout, &net_buf[..ret as usize], 0);
+
+            net_read = AsyncOp::new(ASYNC_OP_READ, net_buf.as_mut_ptr() as u32, net_buf.len() as u32, 0);
+            append_io_op(socket, &net_read, Some(wake_set));
+        }
+    }
+}
+
+fn fmt_to_buf(buf: &mut [u8], args: core::fmt::Arguments) -> usize {
+    let mut writer = BufWriter { buf, pos: 0 };
+    let _ = core::fmt::write(&mut writer, args);
+    writer.pos
+}
+
+struct BufWriter<'a> {
+    buf: &'a mut [u8],
+    pos: usize,
+}
+
+impl<'a> core::fmt::Write for BufWriter<'a> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let bytes = s.as_bytes();
+        let remaining = self.buf.len() - self.pos;
+        let to_write = bytes.len().min(remaining);
+        self.buf[self.pos..self.pos + to_write].copy_from_slice(&bytes[..to_write]);
+        self.pos += to_write;
+        Ok(())
     }
 }

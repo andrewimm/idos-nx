@@ -602,14 +602,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "testdriver"
-version = "0.1.0"
-dependencies = [
- "idos_api",
- "idos_sdk",
-]
-
-[[package]]
 name = "tokio"
 version = "1.49.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -13,6 +13,7 @@ fatdrv_elf := target/i386-idos/release/fatdriver
 fatdrv := build/fatdrv.bin
 gfx := target/i386-idos/release/gfx
 e1000 := target/i386-idos/release/e1000
+netcat := target/i386-idos/release/netcat
 
 kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
 
@@ -47,7 +48,7 @@ $(userdata): $(colordemo)
 	@mcopy -D o -i $(userdata) userdata/static/*.* ::
 	@mcopy -D o -i $(userdata) $(colordemo) ::COLORS.ELF
 
-bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
+bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000) $(netcat) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
 	@mcopy -D o -i $(diskimage) $(bootbin) ::BOOT.BIN
 	@mcopy -D o -i $(diskimage) $(kernel) ::KERNEL.BIN
@@ -58,6 +59,7 @@ bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000)
 	@mcopy -D o -i $(diskimage) $(diskchk) ::DISKCHK.ELF
 	@mcopy -D o -i $(diskimage) $(gfx) ::GFX.ELF
 	@mcopy -D o -i $(diskimage) $(e1000) ::E1000.ELF
+	@mcopy -D o -i $(diskimage) $(netcat) ::NETCAT.ELF
 	@mcopy -D o -i $(diskimage) resources/ter-i14n.psf ::TERM14.PSF
 	@mcopy -D o -i $(diskimage) resources/DRIVERS.CFG ::DRIVERS.CFG
 
@@ -122,6 +124,10 @@ $(gfx):
 
 $(e1000):
 	@cd components/drivers/e1000 && \
+	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
+
+$(netcat):
+	@cd components/programs/netcat && \
 	cargo build -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
 
 logview:
