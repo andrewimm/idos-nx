@@ -9,6 +9,7 @@ pub enum HitTarget {
     DesktopTab(u8),          // desktop number 1-6
     WindowButton(u8, u8),    // (window_index, button_index: 0=float/tile, 2=close)
     WindowTitleBar(u8),      // (window_index) — drag handle
+    WindowContent(u8),       // (window_index) — content area click-to-focus
 }
 
 pub struct HitZone {

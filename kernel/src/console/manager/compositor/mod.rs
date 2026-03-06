@@ -67,6 +67,10 @@ pub struct Compositor<const COLOR_DEPTH: ColorDepth> {
     dirty_regions: Vec<Region>,
 
     windows: Vec<Window>,
+    /// Index of the focused window (receives keyboard input)
+    pub focused_window: usize,
+    /// Z-order for floating windows (indices into `windows`, bottom to top)
+    float_order: Vec<usize>,
 
     pub hit_map: HitMap,
     pub topbar_state: TopBarState,
@@ -100,6 +104,8 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
             dirty_regions: Vec::new(),
 
             windows: Vec::new(),
+            focused_window: 0,
+            float_order: Vec::new(),
 
             hit_map: HitMap::new(),
             topbar_state: TopBarState::new(),
@@ -216,15 +222,60 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
         let scratch_vaddr = self.scratch_buffer_vaddr;
         let bpp = COLOR_DEPTH.to_usize();
 
-        for (win_idx, window) in self.windows.iter_mut().enumerate() {
+        // Compute tiling geometry
+        let desk_h = screen_height - TOP_BAR_HEIGHT;
+        let tiled_indices: Vec<usize> = self.windows.iter().enumerate()
+            .filter(|(_, w)| w.mode == WindowMode::Tiled)
+            .map(|(i, _)| i)
+            .collect();
+        let tiled_count = tiled_indices.len();
+
+        // Build draw order: tiled windows first, then floating in z-order
+        let mut draw_order: Vec<usize> = tiled_indices.clone();
+        for &fi in &self.float_order {
+            if fi < self.windows.len() && self.windows[fi].mode == WindowMode::Floating {
+                draw_order.push(fi);
+            }
+        }
+
+        for &win_idx in &draw_order {
+            let window = &self.windows[win_idx];
+
             // Compute per-window position and available content area
             let (win_x, win_y, avail_w, avail_h) = match window.mode {
                 WindowMode::Tiled => {
-                    let x = 0u16;
-                    let y = TOP_BAR_HEIGHT;
-                    let w = screen_width - decor::DECOR_EXTRA_W;
-                    let h = (screen_height - TOP_BAR_HEIGHT) - decor::DECOR_EXTRA_H;
-                    (x, y, w, h)
+                    let tile_pos = tiled_indices.iter().position(|&i| i == win_idx).unwrap_or(0);
+                    if tiled_count <= 1 {
+                        let x = 0u16;
+                        let y = TOP_BAR_HEIGHT;
+                        let w = screen_width - decor::DECOR_EXTRA_W;
+                        let h = desk_h - decor::DECOR_EXTRA_H;
+                        (x, y, w, h)
+                    } else if tiled_count == 2 {
+                        let cell_h = desk_h / 2;
+                        let x = 0u16;
+                        let y = TOP_BAR_HEIGHT + (tile_pos as u16) * cell_h;
+                        let w = screen_width - decor::DECOR_EXTRA_W;
+                        let h = cell_h - decor::DECOR_EXTRA_H;
+                        (x, y, w, h)
+                    } else {
+                        // Grid layout for 3+
+                        let cols = {
+                            let mut c = 1usize;
+                            while c * c < tiled_count { c += 1; }
+                            c
+                        };
+                        let rows_count = (tiled_count + cols - 1) / cols;
+                        let cell_w = screen_width / cols as u16;
+                        let cell_h = desk_h / rows_count as u16;
+                        let row = tile_pos / cols;
+                        let col = tile_pos % cols;
+                        let x = col as u16 * cell_w;
+                        let y = TOP_BAR_HEIGHT + row as u16 * cell_h;
+                        let w = cell_w - decor::DECOR_EXTRA_W;
+                        let h = cell_h - decor::DECOR_EXTRA_H;
+                        (x, y, w, h)
+                    }
                 }
                 WindowMode::Floating => {
                     (window.x, window.y, 640, 400)
@@ -248,14 +299,14 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
                 _ => None,
             };
 
-            let (new_width, new_height, dirty_region) =
-                conman.draw_window(console, &mut sub_buffer, font, avail_w, avail_h, self.force_redraw, hover_button);
+            let focused = win_idx == self.focused_window;
 
+            let (new_width, new_height, dirty_region) =
+                conman.draw_window(console, &mut sub_buffer, font, avail_w, avail_h, self.force_redraw, hover_button, focused);
+
+            let window = &mut self.windows[win_idx];
             let screen_dirty = if new_width != window.last_width || new_height != window.last_height
             {
-                // When force_redraw is active, the full screen background was
-                // already repainted — no need to clear the old window area here
-                // (and the old dimensions may exceed this sub_buffer's bounds).
                 if !self.force_redraw {
                     if new_width < window.last_width && new_height < window.last_height {
                         draw_bg(
@@ -325,10 +376,19 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
                 }
             }
 
-            // Register hit zones for this window's buttons and title bar
-            // Title bar zone first, then buttons on top (reverse iteration in test())
+            // Register hit zones: content area first (lowest priority),
+            // then title bar, then buttons on top (reverse iteration in test())
             let inner_width = avail_w;
             let total_width = inner_width + decor::DECOR_EXTRA_W;
+            self.hit_map.add(
+                Region {
+                    x: win_x,
+                    y: win_y + decor::CONTENT_Y,
+                    width: total_width,
+                    height: avail_h + decor::DECOR_EXTRA_H - decor::CONTENT_Y,
+                },
+                HitTarget::WindowContent(win_idx as u8),
+            );
             self.hit_map.add(
                 Region {
                     x: win_x,
@@ -356,13 +416,27 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
                     window.x = (self.fb.width.saturating_sub(content_w)) / 2;
                     window.y = TOP_BAR_HEIGHT
                         + (self.fb.height - TOP_BAR_HEIGHT).saturating_sub(content_h) / 2;
+                    self.float_order.push(idx);
                 }
                 WindowMode::Floating => {
                     window.mode = WindowMode::Tiled;
+                    self.float_order.retain(|&i| i != idx);
                 }
             }
             self.force_redraw = true;
         }
+    }
+
+    pub fn raise_window(&mut self, idx: usize) {
+        if self.windows.get(idx).map_or(false, |w| w.mode == WindowMode::Floating) {
+            self.float_order.retain(|&i| i != idx);
+            self.float_order.push(idx);
+            self.force_redraw = true;
+        }
+    }
+
+    pub fn focused_console(&self) -> usize {
+        self.windows.get(self.focused_window).map_or(0, |w| w.console_index)
     }
 
     pub fn move_window(&mut self, idx: usize, x: u16, y: u16) {

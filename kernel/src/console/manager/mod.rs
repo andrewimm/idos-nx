@@ -106,6 +106,7 @@ impl ConsoleManager {
         avail_h: u16,
         force: bool,
         hover_button: Option<u8>,
+        focused: bool,
     ) -> (u16, u16, Option<Region>) {
         let window_pos = Point { x: 0, y: 0 };
         let bpp = (fb.stride / fb.width) as usize;
@@ -118,7 +119,6 @@ impl ConsoleManager {
 
         let content_y = decor::CONTENT_Y as usize;
         let content_x = decor::CONTENT_X as usize;
-        let focused = true; // TODO: track focus per window
 
         let inner_width = avail_w;
         self::decor::draw_window_bar(fb, window_pos, inner_width, font, "C:\\COMMAND.ELF", focused, bpp, hover_button);
@@ -168,9 +168,17 @@ impl ConsoleManager {
                 }
             }
         } else {
+            let font_row_height = font.get_height() as usize;
+            let visible_rows = if font_row_height > 0 {
+                ROWS.min(outer_h / font_row_height)
+            } else {
+                ROWS
+            };
+            let start_row = ROWS - visible_rows;
+
             let palette = console.terminal.get_palette();
-            for row in 0..ROWS {
-                let colored_chars = console.row_cells_iter(row).map(|cell| {
+            for r in start_row..ROWS {
+                let colored_chars = console.row_cells_iter(r).map(|cell| {
                     let fg_index = (cell.color.0 & 0x0F) as usize;
                     let bg_index = ((cell.color.0 >> 4) & 0x0F) as usize;
                     (cell.glyph, palette[fg_index], palette[bg_index])
@@ -178,7 +186,7 @@ impl ConsoleManager {
                 font.draw_colored_string(
                     fb,
                     window_pos.x + content_x as u16,
-                    (window_pos.y + content_y as u16) + (row as u16 * 16),
+                    (window_pos.y + content_y as u16) + ((r - start_row) as u16 * font_row_height as u16),
                     colored_chars,
                     bpp,
                 );

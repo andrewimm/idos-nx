@@ -118,6 +118,7 @@ pub fn manager_task() -> ! {
 
     let mut conman = ConsoleManager::new();
     let con1 = conman.add_console(); // create the first console (CON1)
+    let con2 = conman.add_console(); // create the second console (CON2)
 
     let _ = write_sync(response_writer, &[0], 0);
     let _ = close_sync(response_writer);
@@ -137,6 +138,7 @@ pub fn manager_task() -> ! {
         manager::compositor::Compositor::<{ manager::compositor::ColorDepth::Color888 }>::new(fb);
 
     compositor.add_window(con1);
+    compositor.add_window(con2);
 
     // Set initial window name
     compositor.topbar_state.set_window_name(b"C:\\COMMAND.ELF");
@@ -248,6 +250,20 @@ pub fn manager_task() -> ! {
         }
 
         if mouse_left_clicked {
+            // Click-to-focus: any click on a window focuses it
+            let focus_idx = match current_hover {
+                Some(manager::hit::HitTarget::WindowTitleBar(idx))
+                | Some(manager::hit::HitTarget::WindowButton(idx, _))
+                | Some(manager::hit::HitTarget::WindowContent(idx)) => Some(idx),
+                _ => None,
+            };
+            if let Some(idx) = focus_idx {
+                compositor.focused_window = idx as usize;
+                conman.current_console = compositor.focused_console();
+                compositor.raise_window(idx as usize);
+                compositor.force_redraw = true;
+            }
+
             match current_hover {
                 Some(manager::hit::HitTarget::DesktopTab(n)) => {
                     compositor.topbar_state.active_desktop = n;
@@ -342,7 +358,8 @@ pub fn init_console() {
 }
 
 pub fn console_ready() {
-    let _command_task_handle = start_command(0);
+    let _cmd1 = start_command(0);
+    let _cmd2 = start_command(1);
 }
 
 fn start_command(console_index: usize) -> Handle {
