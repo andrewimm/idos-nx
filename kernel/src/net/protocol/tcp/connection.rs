@@ -236,7 +236,18 @@ impl TcpConnection {
                     &[],
                 ))
             }
-            TcpAction::Reset => None,
+            TcpAction::Reset => {
+                Some(TcpHeader::create_packet(
+                    local_addr,
+                    self.local_port,
+                    remote_addr,
+                    self.remote_port,
+                    self.last_sequence_sent,
+                    u32::from_be(header.sequence_number) + 1,
+                    TcpHeader::FLAG_RST | TcpHeader::FLAG_ACK,
+                    &[],
+                ))
+            }
         };
 
         if let Some(packet) = packet_to_send {
