@@ -3,8 +3,8 @@
 use super::super::graphics::font::Font;
 use super::super::graphics::framebuffer::Framebuffer;
 use super::super::graphics::{
-    write_pixel, Point, ACCENT, BAR_TEXT, WIN_BORDER, WIN_TITLEBAR, WIN_TITLEBAR_ACTIVE,
-    WIN_TITLE_TEXT,
+    write_pixel, Point, Region, ACCENT, BAR_TEXT, BTN_CLOSE_HOVER_BG, BTN_CLOSE_HOVER_BORDER,
+    BTN_HOVER_BG, BTN_HOVER_BORDER, WIN_BORDER, WIN_TITLEBAR, WIN_TITLEBAR_ACTIVE, WIN_TITLE_TEXT,
 };
 
 pub const BORDER_WIDTH: usize = 1;
@@ -19,12 +19,12 @@ pub const CONTENT_Y: u16 = (WINDOW_BAR_HEIGHT + BORDER_WIDTH) as u16;
 /// X offset from window top-left to content area
 pub const CONTENT_X: u16 = BORDER_WIDTH as u16;
 
-const BTN_W: usize = 18;
-const BTN_H: usize = 16;
-const BTN_GAP: usize = 4;
-const BTN_COUNT: usize = 3;
-const BTN_PAD_RIGHT: usize = 8;
-const BTN_AREA_W: usize = BTN_COUNT * BTN_W + (BTN_COUNT - 1) * BTN_GAP;
+pub const BTN_W: usize = 18;
+pub const BTN_H: usize = 16;
+pub const BTN_GAP: usize = 4;
+pub const BTN_COUNT: usize = 3;
+pub const BTN_PAD_RIGHT: usize = 8;
+pub const BTN_AREA_W: usize = BTN_COUNT * BTN_W + (BTN_COUNT - 1) * BTN_GAP;
 
 pub fn draw_window_bar<F: Font>(
     fb: &mut Framebuffer,
@@ -34,6 +34,7 @@ pub fn draw_window_bar<F: Font>(
     title: &str,
     focused: bool,
     bytes_per_pixel: usize,
+    hover_button: Option<u8>,
 ) {
     let total_width = inner_width as usize + BORDER_WIDTH * 2;
     let bar_bg = if focused { WIN_TITLEBAR_ACTIVE } else { WIN_TITLEBAR };
@@ -68,7 +69,17 @@ pub fn draw_window_bar<F: Font>(
 
     for i in 0..BTN_COUNT {
         let bx = buttons_x + i * (BTN_W + BTN_GAP);
-        draw_button_outline(framebuffer, fb.stride as usize, bx, buttons_y, bpp, WIN_BORDER);
+        let is_hovered = hover_button == Some(i as u8);
+        if is_hovered {
+            let (bg, border) = if i == 2 {
+                (BTN_CLOSE_HOVER_BG, BTN_CLOSE_HOVER_BORDER)
+            } else {
+                (BTN_HOVER_BG, BTN_HOVER_BORDER)
+            };
+            draw_button_filled(framebuffer, fb.stride as usize, bx, buttons_y, bpp, bg, border);
+        } else {
+            draw_button_outline(framebuffer, fb.stride as usize, bx, buttons_y, bpp, WIN_BORDER);
+        }
     }
 }
 
@@ -96,6 +107,27 @@ fn draw_button_outline(
         let row_offset = (y + row) * stride + x * bpp;
         write_pixel(buffer, row_offset, color, bpp);
         write_pixel(buffer, row_offset + (BTN_W - 1) * bpp, color, bpp);
+    }
+}
+
+/// Draw a filled button rectangle with a 1px border
+fn draw_button_filled(
+    buffer: &mut [u8],
+    stride: usize,
+    x: usize,
+    y: usize,
+    bpp: usize,
+    bg: u32,
+    border: u32,
+) {
+    for row in 0..BTN_H {
+        let row_offset = (y + row) * stride + x * bpp;
+        let is_edge_row = row == 0 || row == BTN_H - 1;
+        for col in 0..BTN_W {
+            let is_edge = is_edge_row || col == 0 || col == BTN_W - 1;
+            let color = if is_edge { border } else { bg };
+            write_pixel(buffer, row_offset + col * bpp, color, bpp);
+        }
     }
 }
 
@@ -141,5 +173,19 @@ pub fn draw_window_border(
             write_pixel(framebuffer, fb_offset + x * bpp, border_color, bpp);
         }
         fb_offset += fb.stride as usize;
+    }
+}
+
+/// Return the screen-space rect for a title bar button.
+pub fn button_screen_rect(win_x: u16, win_y: u16, inner_width: u16, button_index: usize) -> Region {
+    let total_width = inner_width as usize + BORDER_WIDTH * 2;
+    let buttons_x = win_x as usize + total_width - BTN_PAD_RIGHT - BTN_AREA_W;
+    let buttons_y = win_y as usize + (WINDOW_BAR_HEIGHT - BTN_H) / 2;
+    let bx = buttons_x + button_index * (BTN_W + BTN_GAP);
+    Region {
+        x: bx as u16,
+        y: buttons_y as u16,
+        width: BTN_W as u16,
+        height: BTN_H as u16,
     }
 }

@@ -6,7 +6,9 @@ use crate::console::graphics::Region;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum HitTarget {
-    DesktopTab(u8), // desktop number 1-6
+    DesktopTab(u8),          // desktop number 1-6
+    WindowButton(u8, u8),    // (window_index, button_index: 0=float/tile, 2=close)
+    WindowTitleBar(u8),      // (window_index) — drag handle
 }
 
 pub struct HitZone {

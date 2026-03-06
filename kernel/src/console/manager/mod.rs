@@ -102,48 +102,52 @@ impl ConsoleManager {
         console: &Console<COLS, ROWS>,
         fb: &mut Framebuffer,
         font: &F,
+        avail_w: u16,
+        avail_h: u16,
+        force: bool,
+        hover_button: Option<u8>,
     ) -> (u16, u16, Option<Region>) {
         let window_pos = Point { x: 0, y: 0 };
-        // Determine bytes_per_pixel from the framebuffer stride and width
-        // stride is in bytes per scanline; for the compositor sub_buffer,
-        // the parent's bpp is reflected in the stride vs width ratio
         let bpp = (fb.stride / fb.width) as usize;
         let bpp = if bpp == 0 { 1 } else { bpp };
 
         // In text mode, skip rendering if nothing changed
-        if console.terminal.graphics_buffer.is_none() && !console.dirty {
-            // Return current dimensions but no dirty region
-            return (640, 400, None);
+        if !force && console.terminal.graphics_buffer.is_none() && !console.dirty {
+            return (avail_w, avail_h, None);
         }
 
         let content_y = decor::CONTENT_Y as usize;
         let content_x = decor::CONTENT_X as usize;
         let focused = true; // TODO: track focus per window
 
-        self::decor::draw_window_bar(fb, window_pos, 640, font, "C:\\COMMAND.ELF", focused, bpp);
+        let inner_width = avail_w;
+        self::decor::draw_window_bar(fb, window_pos, inner_width, font, "C:\\COMMAND.ELF", focused, bpp, hover_button);
 
-        let (width, height) = if let Some(graphics_buffer) = &console.terminal.graphics_buffer {
-            let width = graphics_buffer.width as usize;
-            let height = graphics_buffer.height as usize;
+        // The outer area is always avail_w × avail_h (border + black fill).
+        // The terminal content is drawn at its natural size within that.
+        let outer_w = avail_w as usize;
+        let outer_h = avail_h as usize;
 
-            // Check the dirty rect header — skip if the app hasn't signaled changes
-            // (but always render if the console is freshly dirty, e.g. just entered graphics mode)
-            if !console.dirty && graphics_buffer.read_dirty_rect().is_none() {
-                return (width as u16, height as u16, None);
+        // Fill the entire content area with black
+        let buffer = fb.get_buffer_mut();
+        for row in 0..outer_h {
+            let offset = (content_y + row) * fb.stride as usize + content_x * bpp;
+            for px in 0..outer_w {
+                crate::console::graphics::write_pixel(buffer, offset + px * bpp, 0x000000, bpp);
+            }
+        }
+
+        if let Some(graphics_buffer) = &console.terminal.graphics_buffer {
+            let gfx_w = (graphics_buffer.width as usize).min(outer_w);
+            let gfx_h = (graphics_buffer.height as usize).min(outer_h);
+
+            if !force && !console.dirty && graphics_buffer.read_dirty_rect().is_none() {
+                return (avail_w, avail_h, None);
             }
             graphics_buffer.clear_dirty_rect();
 
-            // clear screen
-            let buffer = fb.get_buffer_mut();
-            for row in 0..height {
-                let offset = (content_y + row) * fb.stride as usize + content_x * bpp;
-                for px in 0..width {
-                    crate::console::graphics::write_pixel(buffer, offset + px * bpp, 0x000000, bpp);
-                }
-            }
-
-            let copy_width = width.min(graphics_buffer.width as usize);
-            let copy_height = height.min(graphics_buffer.height as usize);
+            let copy_width = gfx_w.min(graphics_buffer.width as usize);
+            let copy_height = gfx_h.min(graphics_buffer.height as usize);
             let raw_buffer = graphics_buffer.get_pixels();
             let src_bpp = (graphics_buffer.bits_per_pixel + 7) / 8;
 
@@ -163,19 +167,7 @@ impl ConsoleManager {
                     }
                 }
             }
-
-            (width, height)
         } else {
-            let width = 640;
-            let height = 400;
-            let buffer = fb.get_buffer_mut();
-            for row in 0..height {
-                let offset = (content_y + row) * fb.stride as usize + content_x * bpp;
-                for px in 0..width {
-                    crate::console::graphics::write_pixel(buffer, offset + px * bpp, 0x000000, bpp);
-                }
-            }
-
             let palette = console.terminal.get_palette();
             for row in 0..ROWS {
                 let colored_chars = console.row_cells_iter(row).map(|cell| {
@@ -191,19 +183,18 @@ impl ConsoleManager {
                     bpp,
                 );
             }
-            (width, height)
         };
 
-        self::decor::draw_window_border(fb, window_pos, width as u16, height as u16, focused, bpp);
+        self::decor::draw_window_border(fb, window_pos, avail_w, avail_h, focused, bpp);
 
         (
-            width as u16,
-            height as u16,
+            avail_w,
+            avail_h,
             Some(Region {
                 x: window_pos.x,
                 y: window_pos.y,
-                width: width as u16 + decor::DECOR_EXTRA_W,
-                height: height as u16 + decor::DECOR_EXTRA_H,
+                width: avail_w + decor::DECOR_EXTRA_W,
+                height: avail_h + decor::DECOR_EXTRA_H,
             }),
         )
     }

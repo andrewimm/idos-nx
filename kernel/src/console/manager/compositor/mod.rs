@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::decor;
-use super::hit::HitMap;
+use super::hit::{HitMap, HitTarget};
 use super::topbar::{self, TopBarState, TOP_BAR_HEIGHT};
 use super::ui::UiSurface;
 use super::ConsoleManager;
@@ -34,9 +34,17 @@ impl ColorDepth {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum WindowMode {
+    Tiled,
+    Floating,
+}
+
 struct Window {
     console_index: usize,
-
+    mode: WindowMode,
+    x: u16,
+    y: u16,
     last_width: u16,
     last_height: u16,
 }
@@ -50,7 +58,7 @@ pub struct Compositor<const COLOR_DEPTH: ColorDepth> {
     scratch_buffer_size: usize,
 
     /// If true, on the next render force redraw of all elements
-    force_redraw: bool,
+    pub force_redraw: bool,
 
     cursor_x: u16,
     cursor_y: u16,
@@ -137,12 +145,14 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
         self.hit_map.clear();
 
         if self.force_redraw {
-            self.dirty_regions.push(Region {
+            let full = Region {
                 x: 0,
                 y: 0,
                 width: self.fb.width,
                 height: self.fb.height,
-            });
+            };
+            self.draw_bg(full);
+            self.dirty_regions.push(full);
             self.topbar_state.needs_full_draw = true;
         }
 
@@ -200,30 +210,53 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
     }
 
     pub fn draw_windows<F: Font>(&mut self, conman: &ConsoleManager, font: &F) {
-        let window_y_offset = TOP_BAR_HEIGHT + 4; // 4px gap below top bar
-        let window_x_offset: u16 = 4;
-        let Self {
-            ref mut windows,
-            ref mut dirty_regions,
-            ..
-        } = self;
-        windows
-            .iter_mut()
-            .filter_map(|window| {
-                let console_index = window.console_index;
-                let mut sub_buffer = Framebuffer {
-                    width: self.fb.width - window_x_offset,
-                    height: self.fb.height - window_y_offset,
-                    stride: self.fb.stride,
-                    buffer: self.scratch_buffer_vaddr + (window_y_offset as u32 * self.fb.stride as u32) + window_x_offset as u32 * COLOR_DEPTH.to_usize() as u32,
-                };
+        let screen_width = self.fb.width;
+        let screen_height = self.fb.height;
+        let stride = self.fb.stride;
+        let scratch_vaddr = self.scratch_buffer_vaddr;
+        let bpp = COLOR_DEPTH.to_usize();
 
-                let console = conman.consoles.get(console_index).unwrap();
+        for (win_idx, window) in self.windows.iter_mut().enumerate() {
+            // Compute per-window position and available content area
+            let (win_x, win_y, avail_w, avail_h) = match window.mode {
+                WindowMode::Tiled => {
+                    let x = 0u16;
+                    let y = TOP_BAR_HEIGHT;
+                    let w = screen_width - decor::DECOR_EXTRA_W;
+                    let h = (screen_height - TOP_BAR_HEIGHT) - decor::DECOR_EXTRA_H;
+                    (x, y, w, h)
+                }
+                WindowMode::Floating => {
+                    (window.x, window.y, 640, 400)
+                }
+            };
 
-                let (new_width, new_height, dirty_region) =
-                    conman.draw_window(console, &mut sub_buffer, font);
-                if new_width != window.last_width || new_height != window.last_height {
-                    // window size changed, may need to redraw background
+            let mut sub_buffer = Framebuffer {
+                width: screen_width - win_x,
+                height: screen_height - win_y,
+                stride,
+                buffer: scratch_vaddr
+                    + (win_y as u32 * stride as u32)
+                    + win_x as u32 * bpp as u32,
+            };
+
+            let console = conman.consoles.get(window.console_index).unwrap();
+
+            // Determine if a button on this window is hovered
+            let hover_button = match self.topbar_state.hover {
+                Some(HitTarget::WindowButton(idx, btn)) if idx as usize == win_idx => Some(btn),
+                _ => None,
+            };
+
+            let (new_width, new_height, dirty_region) =
+                conman.draw_window(console, &mut sub_buffer, font, avail_w, avail_h, self.force_redraw, hover_button);
+
+            let screen_dirty = if new_width != window.last_width || new_height != window.last_height
+            {
+                // When force_redraw is active, the full screen background was
+                // already repainted — no need to clear the old window area here
+                // (and the old dimensions may exceed this sub_buffer's bounds).
+                if !self.force_redraw {
                     if new_width < window.last_width && new_height < window.last_height {
                         draw_bg(
                             &mut sub_buffer,
@@ -258,35 +291,102 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
                             },
                         );
                     }
-
-                    let dirty = Region {
-                        x: 0,
-                        y: 0,
-                        width: window.last_width.max(new_width) + 4,
-                        height: window.last_height.max(new_height) + 22,
-                    };
-                    window.last_width = new_width;
-                    window.last_height = new_height;
-                    Some(dirty)
-                } else {
-                    dirty_region
                 }
-            })
-            // remap dirty region to screen space
-            .map(|r| Region {
-                x: r.x + window_x_offset,
-                y: r.y + window_y_offset,
-                width: r.width,
-                height: r.height,
-            })
-            .for_each(|dirty| {
-                if !dirty_regions
+
+                let dirty = Region {
+                    x: 0,
+                    y: 0,
+                    width: window.last_width.max(new_width) + decor::DECOR_EXTRA_W,
+                    height: window.last_height.max(new_height) + decor::DECOR_EXTRA_H,
+                };
+                window.last_width = new_width;
+                window.last_height = new_height;
+                Some(dirty)
+            } else {
+                dirty_region
+            };
+
+            // Remap dirty region to screen space, clamped to screen bounds
+            if let Some(r) = screen_dirty {
+                let dx = r.x + win_x;
+                let dy = r.y + win_y;
+                let dirty = Region {
+                    x: dx,
+                    y: dy,
+                    width: r.width.min(screen_width - dx),
+                    height: r.height.min(screen_height - dy),
+                };
+                if !self
+                    .dirty_regions
                     .iter()
                     .any(|existing| existing.fully_contains(&dirty))
                 {
-                    dirty_regions.push(dirty);
+                    self.dirty_regions.push(dirty);
                 }
-            });
+            }
+
+            // Register hit zones for this window's buttons and title bar
+            // Title bar zone first, then buttons on top (reverse iteration in test())
+            let inner_width = avail_w;
+            let total_width = inner_width + decor::DECOR_EXTRA_W;
+            self.hit_map.add(
+                Region {
+                    x: win_x,
+                    y: win_y,
+                    width: total_width,
+                    height: decor::WINDOW_BAR_HEIGHT as u16,
+                },
+                HitTarget::WindowTitleBar(win_idx as u8),
+            );
+            for btn in 0..decor::BTN_COUNT {
+                let rect = decor::button_screen_rect(win_x, win_y, inner_width, btn);
+                self.hit_map.add(rect, HitTarget::WindowButton(win_idx as u8, btn as u8));
+            }
+        }
+    }
+
+    pub fn toggle_window_mode(&mut self, idx: usize) {
+        if let Some(window) = self.windows.get_mut(idx) {
+            match window.mode {
+                WindowMode::Tiled => {
+                    window.mode = WindowMode::Floating;
+                    // Center on desktop
+                    let content_w = 640 + decor::DECOR_EXTRA_W;
+                    let content_h = 400 + decor::DECOR_EXTRA_H;
+                    window.x = (self.fb.width.saturating_sub(content_w)) / 2;
+                    window.y = TOP_BAR_HEIGHT
+                        + (self.fb.height - TOP_BAR_HEIGHT).saturating_sub(content_h) / 2;
+                }
+                WindowMode::Floating => {
+                    window.mode = WindowMode::Tiled;
+                }
+            }
+            self.force_redraw = true;
+        }
+    }
+
+    pub fn move_window(&mut self, idx: usize, x: u16, y: u16) {
+        if let Some(window) = self.windows.get_mut(idx) {
+            let total_w = window.last_width + decor::DECOR_EXTRA_W;
+            let total_h = window.last_height + decor::DECOR_EXTRA_H;
+            let max_x = self.fb.width.saturating_sub(total_w);
+            let max_y = self.fb.height.saturating_sub(total_h);
+            window.x = x.min(max_x);
+            window.y = y.clamp(TOP_BAR_HEIGHT, max_y);
+            self.force_redraw = true;
+        }
+    }
+
+    pub fn get_window_x(&self, idx: usize) -> u16 {
+        self.windows.get(idx).map_or(0, |w| w.x)
+    }
+
+    pub fn get_window_y(&self, idx: usize) -> u16 {
+        self.windows.get(idx).map_or(0, |w| w.y)
+    }
+
+    pub fn is_window_floating(&self, idx: usize) -> bool {
+        self.windows.get(idx).map_or(false, |w| w.mode == WindowMode::Floating)
     }
 
     pub fn blit_scratch_to_fb(&mut self) {
@@ -366,6 +466,9 @@ impl<const COLOR_DEPTH: ColorDepth> Compositor<COLOR_DEPTH> {
     pub fn add_window(&mut self, console_index: usize) {
         self.windows.push(Window {
             console_index,
+            mode: WindowMode::Tiled,
+            x: 0,
+            y: TOP_BAR_HEIGHT,
             last_width: 0,
             last_height: 0,
         });

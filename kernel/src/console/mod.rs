@@ -25,6 +25,13 @@ use idos_api::ipc::Message;
 use self::graphics::framebuffer::Framebuffer;
 use self::input::KeyAction;
 use self::manager::ConsoleManager;
+use self::manager::topbar::TOP_BAR_HEIGHT;
+
+struct DragState {
+    window_index: u8,
+    offset_x: i16,
+    offset_y: i16,
+}
 
 pub mod buffers;
 pub mod console;
@@ -145,7 +152,9 @@ pub fn manager_task() -> ! {
     let mut prev_mouse_x = mouse_x;
     let mut prev_mouse_y = mouse_y;
     let mut prev_hover: Option<manager::hit::HitTarget> = None;
+    let mut mouse_left_down = false;
     let mut mouse_left_was_down = false;
+    let mut drag_state: Option<DragState> = None;
     loop {
         let frame_start = crate::time::system::get_monotonic_ms();
 
@@ -168,7 +177,6 @@ pub fn manager_task() -> ! {
             }
         }
 
-        let mut mouse_left_down = false;
         loop {
             let next_mouse_byte = match mouse_buffer.read() {
                 Some(byte) => byte,
@@ -214,6 +222,12 @@ pub fn manager_task() -> ! {
         // Mouse hover/click handling
         let current_hover = compositor.hit_map.test(mouse_x as u16, mouse_y as u16);
         if current_hover != prev_hover {
+            // Force window redraw when hovering over/off window buttons
+            let was_win_btn = matches!(prev_hover, Some(manager::hit::HitTarget::WindowButton(..)));
+            let is_win_btn = matches!(current_hover, Some(manager::hit::HitTarget::WindowButton(..)));
+            if was_win_btn || is_win_btn {
+                compositor.force_redraw = true;
+            }
             compositor.topbar_state.hover = current_hover;
             prev_hover = current_hover;
         }
@@ -222,9 +236,39 @@ pub fn manager_task() -> ! {
         let mouse_left_clicked = mouse_left_down && !mouse_left_was_down;
         mouse_left_was_down = mouse_left_down;
 
+        // Drag handling (every frame while left held)
+        if mouse_left_down {
+            if let Some(ref ds) = drag_state {
+                let new_x = (mouse_x as i16 - ds.offset_x).max(0) as u16;
+                let new_y = (mouse_y as i16 - ds.offset_y).max(TOP_BAR_HEIGHT as i16) as u16;
+                compositor.move_window(ds.window_index as usize, new_x, new_y);
+            }
+        } else {
+            drag_state = None;
+        }
+
         if mouse_left_clicked {
-            if let Some(manager::hit::HitTarget::DesktopTab(n)) = current_hover {
-                compositor.topbar_state.active_desktop = n;
+            match current_hover {
+                Some(manager::hit::HitTarget::DesktopTab(n)) => {
+                    compositor.topbar_state.active_desktop = n;
+                }
+                Some(manager::hit::HitTarget::WindowButton(idx, 0)) => {
+                    compositor.toggle_window_mode(idx as usize);
+                    compositor.topbar_state.hover = None;
+                    prev_hover = None;
+                }
+                Some(manager::hit::HitTarget::WindowTitleBar(idx)) => {
+                    if compositor.is_window_floating(idx as usize) {
+                        let win_x = compositor.get_window_x(idx as usize);
+                        let win_y = compositor.get_window_y(idx as usize);
+                        drag_state = Some(DragState {
+                            window_index: idx,
+                            offset_x: mouse_x as i16 - win_x as i16,
+                            offset_y: mouse_y as i16 - win_y as i16,
+                        });
+                    }
+                }
+                _ => {}
             }
         }
 
@@ -262,7 +306,7 @@ pub fn manager_task() -> ! {
             c.terminal.graphics_buffer.as_ref()
                 .map_or(false, |gb| gb.read_dirty_rect().is_some())
         });
-        let any_dirty = mouse_moved || any_gfx_dirty || conman.consoles.iter().any(|c| c.dirty);
+        let any_dirty = mouse_moved || any_gfx_dirty || compositor.force_redraw || conman.consoles.iter().any(|c| c.dirty);
 
         if any_dirty {
             compositor.render(mouse_x as u16, mouse_y as u16, &conman, &console_font);

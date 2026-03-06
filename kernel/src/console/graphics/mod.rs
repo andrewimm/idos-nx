@@ -20,6 +20,10 @@ pub const WIN_BODY_BG: u32 = 0x0c0c14;
 pub const ACCENT: u32 = 0x6a7abb;
 pub const ACCENT_ACTIVE: u32 = 0xe8ecff;
 pub const DESKTOP_HOVER_BG: u32 = 0x3a3a50;
+pub const BTN_HOVER_BG: u32 = 0x2e2e44;
+pub const BTN_HOVER_BORDER: u32 = 0x8a8a9e;
+pub const BTN_CLOSE_HOVER_BG: u32 = 0x6b2020;
+pub const BTN_CLOSE_HOVER_BORDER: u32 = 0xd06060;
 
 #[inline]
 pub fn write_pixel(buffer: &mut [u8], offset: usize, color: u32, bytes_per_pixel: usize) {
