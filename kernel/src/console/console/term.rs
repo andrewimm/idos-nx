@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 
 use crate::{memory::address::VirtualAddress, task::switching::get_current_id};
 
-use super::textmode::{Color, ColorCode, TextBuffer};
+use super::textmode::{Color, ColorCode, TextBuffer, TextCell};
 use alloc::vec::Vec;
 use idos_api::io::termios;
 
@@ -122,9 +122,13 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
     pub fn write_character(&mut self, ch: u8) {
         match self.parse_state {
             AnsiParseState::Normal => {
-                if ch == 0x0a {
+                if ch == 0x08 {
+                    self.backspace();
+                } else if ch == 0x0a {
                     self.carriage_return();
                     self.newline();
+                } else if ch == 0x0d {
+                    self.carriage_return();
                 } else if ch == 0x1b {
                     // Handle ANSI escape codes
                     self.parse_state = AnsiParseState::Escape;
@@ -262,6 +266,11 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
                 self.cursor_y = (row as u8).min((ROWS - 1) as u8);
                 self.cursor_x = (col as u8).min((COLS - 1) as u8);
             }
+            b'G' => {
+                // Cursor horizontal absolute: ESC[nG
+                let col = params.first().copied().unwrap_or(1).max(1) - 1;
+                self.cursor_x = (col as u8).min((COLS - 1) as u8);
+            }
             b'J' => {
                 // Erase in display
                 let mode = params.first().copied().unwrap_or(0);
@@ -271,6 +280,37 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
                         self.clear_buffer();
                         self.cursor_x = 0;
                         self.cursor_y = 0;
+                    }
+                    _ => {}
+                }
+            }
+            b'K' => {
+                // Erase in line
+                let mode = params.first().copied().unwrap_or(0);
+                let buffer = self.text_buffer.get_text_buffer();
+                let row_start = self.cursor_y as usize * COLS;
+                let blank = TextCell {
+                    glyph: 0x20,
+                    color: self.current_color,
+                };
+                match mode {
+                    0 => {
+                        // Cursor to end of line
+                        for i in (row_start + self.cursor_x as usize)..(row_start + COLS) {
+                            buffer[i] = blank;
+                        }
+                    }
+                    1 => {
+                        // Start of line to cursor
+                        for i in row_start..=(row_start + self.cursor_x as usize) {
+                            buffer[i] = blank;
+                        }
+                    }
+                    2 => {
+                        // Entire line
+                        for i in row_start..(row_start + COLS) {
+                            buffer[i] = blank;
+                        }
                     }
                     _ => {}
                 }
