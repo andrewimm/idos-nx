@@ -80,6 +80,8 @@ pub fn draw_window_bar<F: Font>(
         } else {
             draw_button_outline(framebuffer, fb.stride as usize, bx, buttons_y, bpp, WIN_BORDER);
         }
+        let icon_color = if is_hovered { 0xFFFFFF } else { BAR_TEXT };
+        draw_button_icon(framebuffer, fb.stride as usize, bx, buttons_y, bpp, i, icon_color);
     }
 }
 
@@ -127,6 +129,70 @@ fn draw_button_filled(
             let is_edge = is_edge_row || col == 0 || col == BTN_W - 1;
             let color = if is_edge { border } else { bg };
             write_pixel(buffer, row_offset + col * bpp, color, bpp);
+        }
+    }
+}
+
+/// Draw a button icon (1bpp bitmap centered in the button interior).
+/// Button indices: 0 = tile, 1 = fullscreen, 2 = close.
+fn draw_button_icon(
+    buffer: &mut [u8],
+    stride: usize,
+    bx: usize,
+    by: usize,
+    bpp: usize,
+    button_index: usize,
+    color: u32,
+) {
+    // Each icon is 8x8 pixels, stored as 8 bytes (one byte per row, MSB = leftmost pixel)
+    const ICON_CLOSE: [u8; 8] = [
+        0b11000011,
+        0b01100110,
+        0b00111100,
+        0b00011000,
+        0b00011000,
+        0b00111100,
+        0b01100110,
+        0b11000011,
+    ];
+    const ICON_FULLSCREEN: [u8; 8] = [
+        0b11111111,
+        0b10000001,
+        0b10111101,
+        0b10111101,
+        0b10111101,
+        0b10111101,
+        0b10000001,
+        0b11111111,
+    ];
+    const ICON_TILE: [u8; 8] = [
+        0b11100111,
+        0b11100111,
+        0b11100111,
+        0b00000000,
+        0b00000000,
+        0b11100111,
+        0b11100111,
+        0b11100111,
+    ];
+
+    let icon = match button_index {
+        0 => &ICON_TILE,
+        1 => &ICON_FULLSCREEN,
+        2 => &ICON_CLOSE,
+        _ => return,
+    };
+
+    // Center the 8x8 icon inside the button (18x16 with 1px border → 16x14 interior)
+    let ox = bx + (BTN_W - 8) / 2;
+    let oy = by + (BTN_H - 8) / 2;
+
+    for (row, &bits) in icon.iter().enumerate() {
+        let row_offset = (oy + row) * stride + ox * bpp;
+        for col in 0..8u8 {
+            if bits & (0x80 >> col) != 0 {
+                write_pixel(buffer, row_offset + col as usize * bpp, color, bpp);
+            }
         }
     }
 }
