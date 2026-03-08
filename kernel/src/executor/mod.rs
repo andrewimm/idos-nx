@@ -1,3 +1,68 @@
+//! A generic, event-driven async executor for the kernel.
+//!
+//! This module provides a cooperative async runtime that can be parameterized
+//! by an event enum `E`. Each instantiation of [`Executor<E>`] maintains its
+//! own task queue and [`WakerRegistry<E>`], allowing different subsystems to
+//! define their own event types while sharing the same executor machinery.
+//!
+//! # Architecture
+//!
+//! The executor has three core components:
+//!
+//! - **[`Executor<E>`]** — Owns a set of spawned async tasks and a shared run
+//!   queue. Calling [`Executor::poll_tasks`] drains the run queue and polls
+//!   each task's future once. Tasks that return `Pending` are automatically
+//!   re-enqueued for the next poll cycle.
+//!
+//! - **[`WakerRegistry<E>`]** — A cloneable, `Arc`-backed registry that maps
+//!   event values to lists of [`Waker`]s. When an external source calls
+//!   [`WakerRegistry::notify_event`], all wakers registered for that event are
+//!   woken (pushing their tasks onto the run queue) and the event is marked as
+//!   fired. Multiple tasks can wait on the same event value — they will all be
+//!   woken when it fires.
+//!
+//! - **[`WaitForEvent<E>`]** — A [`Future`] that resolves when a specific event
+//!   value has been notified. On its first poll it registers a waker with the
+//!   registry; on subsequent polls it checks whether the event has fired. This
+//!   is the primary mechanism async tasks use to suspend until a condition is
+//!   met.
+//!
+//! # Event-driven polling loop
+//!
+//! The executor does not run in a background thread. Instead, the owner drives
+//! it forward by calling [`Executor::poll_tasks`] in a loop, typically after
+//! checking for I/O completions and calling [`Executor::notify_event`] for any
+//! events that occurred. The general pattern is:
+//!
+//! ```text
+//! loop {
+//!     // 1. Check for external requests and spawn new async tasks
+//!     // 2. Check I/O results and translate them into event values
+//!     // 3. executor.notify_event(&event)  — wake tasks waiting on this event
+//!     // 4. executor.poll_tasks()          — advance all runnable tasks
+//!     // 5. Block until the next I/O completion or external wake
+//! }
+//! ```
+//!
+//! # Usage in the network stack
+//!
+//! The network resident task (`kernel::net::resident`) creates one
+//! `Executor<NetEvent>` per network device. The `NetEvent` enum covers
+//! protocol-level milestones:
+//!
+//! - `LinkEstablished` — device driver handle successfully opened
+//! - `ArpResponse(Ipv4Address)` — ARP reply received for a given IP
+//! - `DhcpOffer(xid)` / `DhcpAck(xid)` — DHCP handshake progression
+//! - `DnsResponse` — a DNS reply packet was processed
+//!
+//! Incoming packets are parsed by `NetDevice::process_read_result()`, which
+//! returns an `Option<NetEvent>`. The resident loop feeds these events into
+//! `notify_event`, waking any async tasks that are blocked on that protocol
+//! step. Async helper functions like `get_local_ip`, `resolve_ip_to_mac`,
+//! `dns_lookup`, and `open_tcp` compose sequences of `WaitForEvent` awaits
+//! to express multi-step protocols (e.g. DHCP discover → offer → request →
+//! ack) as straightforward linear async code.
+
 use core::{
     cell::RefCell,
     future::Future,
