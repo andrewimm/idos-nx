@@ -33,9 +33,23 @@ impl VMRegisters {
         ((self.eax & 0xff00) >> 8) as u8
     }
 
+    pub fn al(&self) -> u8 {
+        (self.eax & 0xff) as u8
+    }
+
     pub fn set_al(&mut self, al: u8) {
         self.eax &= 0xffffff00;
         self.eax |= al as u32;
+    }
+
+    pub fn set_ah(&mut self, ah: u8) {
+        self.eax &= 0xffff00ff;
+        self.eax |= (ah as u32) << 8;
+    }
+
+    pub fn set_ax(&mut self, ax: u16) {
+        self.eax &= 0xffff0000;
+        self.eax |= ax as u32;
     }
 
     pub fn dl(&self) -> u8 {
