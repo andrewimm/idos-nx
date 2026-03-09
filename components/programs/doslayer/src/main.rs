@@ -75,6 +75,77 @@ const PSP_BASE: u32 = 0x8000;
 const PSP_SEGMENT: u32 = PSP_BASE / 16; // 0x800
 /// The program image loads 0x10 paragraphs (256 bytes) past the PSP segment
 const PROGRAM_SEGMENT: u32 = PSP_SEGMENT + 0x10;
+/// Top of conventional memory available to DOS programs (640KB boundary)
+const DOS_MEM_TOP: u32 = 0xA000_0;
+/// Top of memory as a segment
+const DOS_MEM_TOP_SEGMENT: u16 = (DOS_MEM_TOP / 16) as u16;
+
+/// Program Segment Prefix — the 256-byte header DOS places before every program.
+#[repr(C, packed)]
+struct Psp {
+    /// 0x00: INT 20h instruction (CD 20)
+    int20: [u8; 2],
+    /// 0x02: Top of memory segment
+    mem_top_segment: u16,
+    /// 0x04: Reserved
+    _reserved1: u8,
+    /// 0x05: Far call to DOS dispatcher (5 bytes)
+    dos_far_call: [u8; 5],
+    /// 0x0A: Terminate address (IP:CS)
+    terminate_vector: u32,
+    /// 0x0E: Ctrl-Break handler (IP:CS)
+    break_vector: u32,
+    /// 0x12: Critical error handler (IP:CS)
+    error_vector: u32,
+    /// 0x16: Parent PSP segment
+    parent_psp: u16,
+    /// 0x18: Job File Table (20 entries)
+    jft: [u8; 20],
+    /// 0x2C: Environment segment
+    env_segment: u16,
+    /// 0x2E: SS:SP on last INT 21h
+    last_stack: u32,
+    /// 0x32: JFT size
+    jft_size: u16,
+    /// 0x34: JFT far pointer
+    jft_pointer: u32,
+    /// 0x38: Previous PSP far pointer
+    prev_psp: u32,
+    /// 0x3C: Reserved
+    _reserved2: [u8; 20],
+    /// 0x50: INT 21h / RETF trampoline
+    int21_retf: [u8; 3],
+    /// 0x53: Reserved
+    _reserved3: [u8; 45],
+    /// 0x80: Command tail length
+    cmdtail_len: u8,
+    /// 0x81: Command tail (127 bytes, CR-terminated)
+    cmdtail: [u8; 127],
+}
+
+fn setup_psp() {
+    let psp = unsafe { &mut *(PSP_BASE as *mut Psp) };
+    // Zero the whole thing first
+    unsafe {
+        core::ptr::write_bytes(PSP_BASE as *mut u8, 0, 256);
+    }
+    psp.int20 = [0xCD, 0x20];
+    psp.mem_top_segment = DOS_MEM_TOP_SEGMENT;
+    psp.int21_retf = [0xCD, 0x21, 0xCB];
+    // Standard JFT: stdin=0, stdout=1, stderr=1, stdaux=2, stdprn=0xFF
+    psp.jft[0] = 0x00; // stdin
+    psp.jft[1] = 0x01; // stdout
+    psp.jft[2] = 0x01; // stderr
+    psp.jft[3] = 0x02; // stdaux
+    psp.jft[4] = 0xFF; // stdprn (not open)
+    for i in 5..20 {
+        psp.jft[i] = 0xFF;
+    }
+    psp.jft_size = 20;
+    // Command tail: empty
+    psp.cmdtail_len = 0;
+    psp.cmdtail[0] = 0x0D;
+}
 
 global_asm!(
     r#"
@@ -89,6 +160,10 @@ _start:
 static mut TERMIOS_ORIG: Termios = Termios::default();
 static STDIN: Handle = Handle::new(0);
 static KBD_HANDLE: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+/// IRQ mask passed to enter_8086, built up as the DOS program sets interrupt vectors
+static mut VM86_IRQ_MASK: u32 = 0;
+/// Virtual interrupt flag — tracks whether the DOS program has done CLI/STI
+static mut VM86_IF: bool = true;
 
 #[no_mangle]
 pub extern "C" fn dos_loader_start(load_info_addr: u32) -> ! {
@@ -124,6 +199,36 @@ pub extern "C" fn dos_loader_start(load_info_addr: u32) -> ! {
     }
 }
 
+/// Address of a default IRET stub in low memory, just past the BIOS data area.
+const IRET_STUB: u32 = 0x500;
+const IRET_STUB_SEGMENT: u16 = 0x0050;
+const IRET_STUB_OFFSET: u16 = 0x0000;
+
+/// Map the DOS conventional memory region: zero page (IVT/BDA) through DOS_MEM_TOP.
+/// Initializes the IVT with default IRET handlers.
+fn setup_dos_memory() {
+    // Map the zero page for the IVT (interrupt vector table) and BIOS data area
+    let _ = map_memory(Some(0), 0x1000, None);
+    // Map memory from PSP_BASE up to the top of conventional DOS memory
+    let dos_region_size = DOS_MEM_TOP - PSP_BASE;
+    let pages = (dos_region_size + 0xfff) / 0x1000;
+    let _ = map_memory(Some(PSP_BASE), pages * 0x1000, None);
+
+    // Place an IRET instruction at the stub address
+    unsafe {
+        core::ptr::write_volatile(IRET_STUB as *mut u8, 0xCF); // IRET
+    }
+
+    // Point all 256 IVT entries to the IRET stub
+    let ivt = 0 as *mut u16;
+    for i in 0..256 {
+        unsafe {
+            core::ptr::write_volatile(ivt.add(i * 2), IRET_STUB_OFFSET);
+            core::ptr::write_volatile(ivt.add(i * 2 + 1), IRET_STUB_SEGMENT);
+        }
+    }
+}
+
 /// Load a .COM file: read the entire file into memory at PSP_BASE + 0x100,
 /// then enter the VM with CS:IP = PSP_SEGMENT:0x100.
 fn load_com(file_handle: Handle) -> ! {
@@ -137,11 +242,9 @@ fn load_com(file_handle: Handle) -> ! {
     );
     let file_size = file_status.byte_size;
 
-    // Allocate DOS memory at PSP_BASE and load the .COM binary at offset 0x100
-    let total_size = 0x100 + file_size; // PSP + program
-    let pages = (total_size + 0xfff) / 0x1000;
-    let _ = map_memory(Some(PSP_BASE), pages * 0x1000, None);
+    setup_dos_memory();
 
+    setup_psp();
     read_file_into(file_handle, PSP_BASE + 0x100, file_size, 0);
 
     let _ = close_sync(file_handle);
@@ -188,11 +291,9 @@ fn load_mz_exe(file_handle: Handle) -> ! {
         (mz.total_pages as u32 - 1) * 512 + mz.last_page_bytes as u32
     } - header_size;
 
-    // Total memory needed: PSP (256 bytes) + image + extra paragraphs for BSS/stack
-    let extra_bytes = mz.min_extra_paragraphs as u32 * 16;
-    let total_size = 0x100 + file_image_size + extra_bytes;
-    let pages = (total_size + 0xfff) / 0x1000;
-    let _ = map_memory(Some(PSP_BASE), pages * 0x1000, None);
+    setup_dos_memory();
+
+    setup_psp();
 
     // Load the program image at PSP_BASE + 0x100 (after the 256-byte PSP)
     let load_addr = PSP_BASE + 0x100;
@@ -291,7 +392,10 @@ fn compat_start(mut vm_regs: VMRegisters) -> ! {
     KBD_HANDLE.store(kbd.as_u32(), core::sync::atomic::Ordering::Relaxed);
 
     loop {
-        let exit_reason = idos_api::syscall::exec::enter_8086(&mut vm_regs, 0);
+        let irq_mask = unsafe {
+            if VM86_IF { VM86_IRQ_MASK } else { 0 }
+        };
+        let exit_reason = idos_api::syscall::exec::enter_8086(&mut vm_regs, irq_mask);
 
         match exit_reason {
             idos_api::compat::VM86_EXIT_GPF => unsafe {
@@ -327,32 +431,62 @@ fn exit(code: u32) -> ! {
 }
 
 unsafe fn handle_fault(vm_regs: &mut VMRegisters) -> bool {
-    let mut op_ptr = ((vm_regs.cs << 4) + vm_regs.eip) as *const u8;
-    // TODO: check prefix
+    let op_ptr = ((vm_regs.cs << 4) + vm_regs.eip) as *const u8;
     match *op_ptr {
-        0x9c => { // PUSHF
+        0x9c => {
+            // PUSHF — push flags onto the v86 stack
+            vm_regs.esp = (vm_regs.esp & 0xffff).wrapping_sub(2);
+            let stack_addr = (vm_regs.ss << 4) + (vm_regs.esp & 0xffff);
+            core::ptr::write_volatile(stack_addr as *mut u16, vm_regs.eflags as u16);
+            vm_regs.eip += 1;
         }
-        0x9d => { // POPF
+        0x9d => {
+            // POPF — pop flags from the v86 stack
+            let stack_addr = (vm_regs.ss << 4) + (vm_regs.esp & 0xffff);
+            let flags = core::ptr::read_volatile(stack_addr as *const u16) as u32;
+            // Preserve VM flag and IOPL, update the rest
+            vm_regs.eflags = (vm_regs.eflags & 0xFFF20000) | (flags & 0x0000FFFF);
+            vm_regs.esp = (vm_regs.esp & 0xffff).wrapping_add(2);
+            vm_regs.eip += 1;
         }
         0xcd => {
-            // INT
+            // INT nn
             let irq = *op_ptr.add(1);
             handle_interrupt(irq, vm_regs);
             vm_regs.eip += 2;
-            return true;
         }
-        0xcf => { // IRET
+        0xcf => {
+            // IRET — pop IP, CS, FLAGS from v86 stack
+            let stack_addr = (vm_regs.ss << 4) + (vm_regs.esp & 0xffff);
+            let ip = core::ptr::read_volatile(stack_addr as *const u16) as u32;
+            let cs = core::ptr::read_volatile((stack_addr + 2) as *const u16) as u32;
+            let flags = core::ptr::read_volatile((stack_addr + 4) as *const u16) as u32;
+            vm_regs.eip = ip;
+            vm_regs.cs = cs;
+            vm_regs.eflags = (vm_regs.eflags & 0xFFF20000) | (flags & 0x0000FFFF);
+            vm_regs.esp = (vm_regs.esp & 0xffff).wrapping_add(6);
+            return true; // don't advance EIP, we set it directly
         }
-        0xf4 => { // HLT
+        0xf4 => {
+            // HLT — stop execution
+            return false;
         }
-        0xfa => { // CLI
+        0xfa => {
+            // CLI
+            VM86_IF = false;
+            vm_regs.eip += 1;
         }
-        0xfb => { // STI
+        0xfb => {
+            // STI
+            VM86_IF = true;
+            vm_regs.eip += 1;
         }
-        _ => (),
+        _ => {
+            return false;
+        }
     }
 
-    false
+    true
 }
 
 /// BIOS keyboard services (INT 16h)
@@ -514,8 +648,22 @@ fn dos_api(vm_regs: &mut VMRegisters) {
         0x02 => output_char_to_stdout(vm_regs),
         0x04 => write_char_stdaux(vm_regs),
         0x09 => print_string(vm_regs),
+        0x25 => set_interrupt_vector(vm_regs),
+        0x30 => get_dos_version(vm_regs),
+        0x35 => get_interrupt_vector(vm_regs),
+        0x3D => open_file(vm_regs),
+        0x3E => close_file(vm_regs),
+        0x40 => write_file(vm_regs),
+        0x42 => seek_file(vm_regs),
+        0x44 => ioctl(vm_regs),
+        0x4A => resize_memory(vm_regs),
+        0x4C => terminate_with_code(vm_regs),
+        0x63 => get_dbcs_table(vm_regs),
+        0x66 => get_global_code_page(vm_regs),
+        0x68 => commit_file(vm_regs),
         _ => {
-            panic!("Unsupported API")
+            // Unsupported — set carry flag to indicate error
+            vm_regs.eflags |= 1;
         }
     }
 }
@@ -610,4 +758,187 @@ pub fn print_string(regs: &mut VMRegisters) {
     let string_slice = unsafe { core::slice::from_raw_parts(start_ptr, string_len) };
     let stdout = idos_api::io::handle::Handle::new(1);
     let _ = idos_api::io::sync::write_sync(stdout, string_slice, 0);
+}
+
+/// AH=0x25 - Set interrupt vector
+/// Input: AL=interrupt number, DS:DX=new handler address
+fn set_interrupt_vector(regs: &mut VMRegisters) {
+    let int_num = regs.al() as u32;
+    let offset = regs.edx & 0xffff;
+    let segment = regs.ds;
+    // Write to the IVT at address 0000:(int_num * 4)
+    let ivt_addr = (int_num * 4) as *mut u16;
+    unsafe {
+        core::ptr::write_volatile(ivt_addr, offset as u16);
+        core::ptr::write_volatile(ivt_addr.add(1), segment as u16);
+    }
+
+    // If the program is hooking a hardware interrupt, record it in the IRQ mask.
+    // INT 8-15 map to IRQ 0-7, INT 70-77 map to IRQ 8-15.
+    let irq = match int_num {
+        0x08..=0x0F => Some(int_num - 0x08),
+        0x70..=0x77 => Some(int_num - 0x70 + 8),
+        // INT 1Ch is the user timer hook, chained from INT 8 (IRQ 0)
+        0x1C => Some(0),
+        _ => None,
+    };
+    if let Some(irq_num) = irq {
+        unsafe { VM86_IRQ_MASK |= 1 << irq_num; }
+    }
+}
+
+/// AH=0x30 - Get DOS version
+/// Returns AL=major, AH=minor, BH=OEM ID, BL:CX=serial
+fn get_dos_version(regs: &mut VMRegisters) {
+    regs.set_al(5);   // DOS 5.0
+    regs.set_ah(0);
+    regs.ebx = 0;     // OEM=IBM, serial=0
+    regs.ecx = 0;
+}
+
+/// AH=0x35 - Get interrupt vector
+/// Input: AL=interrupt number
+/// Output: ES:BX=current handler address
+fn get_interrupt_vector(regs: &mut VMRegisters) {
+    let int_num = regs.al() as u32;
+    let ivt_addr = (int_num * 4) as *const u16;
+    unsafe {
+        let offset = core::ptr::read_volatile(ivt_addr) as u32;
+        let segment = core::ptr::read_volatile(ivt_addr.add(1)) as u32;
+        regs.ebx = offset;
+        regs.es = segment;
+    }
+}
+
+/// AH=0x3D - Open file
+/// Input: AL=access mode, DS:DX=ASCIIZ filename
+/// Output: CF=0 AX=handle on success, CF=1 AX=error on failure
+fn open_file(regs: &mut VMRegisters) {
+    // Stub: return error (file not found)
+    regs.eflags |= 1; // set CF
+    regs.set_ax(0x02); // error 2 = file not found
+}
+
+/// AH=0x3E - Close file
+/// Input: BX=file handle
+/// Output: CF=0 on success
+fn close_file(regs: &mut VMRegisters) {
+    // Stub: always succeed
+    regs.eflags &= !1; // clear CF
+}
+
+/// AH=0x40 - Write to file or device
+/// Input: BX=file handle, CX=byte count, DS:DX=buffer
+/// Output: CF=0 AX=bytes written on success
+fn write_file(regs: &mut VMRegisters) {
+    let handle = regs.ebx & 0xffff;
+    let count = (regs.ecx & 0xffff) as usize;
+    let dx = regs.edx & 0xffff;
+    let buffer_addr = (regs.ds << 4) + dx;
+    let buffer = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, count) };
+
+    // DOS file handles: 0=stdin, 1=stdout, 2=stderr
+    match handle {
+        1 | 2 => {
+            let stdout = idos_api::io::handle::Handle::new(1);
+            let _ = idos_api::io::sync::write_sync(stdout, buffer, 0);
+            regs.set_ax(count as u16);
+            regs.eflags &= !1; // clear CF
+        }
+        3 => {
+            // stdaux
+            let stdaux = idos_api::io::handle::Handle::new(2);
+            let _ = idos_api::io::sync::write_sync(stdaux, buffer, 0);
+            regs.set_ax(count as u16);
+            regs.eflags &= !1;
+        }
+        _ => {
+            // Unknown handle — error
+            regs.eflags |= 1;
+            regs.set_ax(0x06); // error 6 = invalid handle
+        }
+    }
+}
+
+/// AH=0x42 - Seek (LSEEK)
+/// Input: AL=origin, BX=handle, CX:DX=offset
+/// Output: CF=0 DX:AX=new position on success
+fn seek_file(regs: &mut VMRegisters) {
+    // Stub: for device handles, return position 0
+    regs.set_ax(0);
+    regs.edx &= 0xffff0000;
+    regs.eflags &= !1; // clear CF
+}
+
+/// AH=0x44 - IOCTL
+/// AL=subfunction, BX=handle
+fn ioctl(regs: &mut VMRegisters) {
+    let subfunc = regs.al();
+    match subfunc {
+        0x00 => {
+            // Get device information
+            let handle = regs.ebx & 0xffff;
+            let info: u16 = match handle {
+                0 => 0x80D3, // stdin: device, stdin, stdout, NUL, isdev
+                1 => 0x80D3, // stdout: same
+                2 => 0x80D3, // stderr: same
+                _ => 0x0000, // disk file
+            };
+            regs.edx = (regs.edx & 0xffff0000) | info as u32;
+            regs.eflags &= !1;
+        }
+        _ => {
+            regs.eflags |= 1;
+            regs.set_ax(0x01); // error 1 = invalid function
+        }
+    }
+}
+
+/// AH=0x4A - Resize memory block
+/// Input: BX=new size in paragraphs, ES=segment of block
+/// Output: CF=0 on success, CF=1 BX=max available on failure
+fn resize_memory(regs: &mut VMRegisters) {
+    // Stub: always succeed — we pre-mapped enough memory
+    regs.eflags &= !1; // clear CF
+}
+
+/// AH=0x4C - Terminate with return code
+/// Input: AL=return code
+fn terminate_with_code(regs: &mut VMRegisters) {
+    let code = regs.al() as u32;
+    exit(code);
+}
+
+/// AH=0x63 - Get DBCS lead byte table
+/// Output: DS:SI=pointer to DBCS table
+fn get_dbcs_table(regs: &mut VMRegisters) {
+    // Return a pointer to a table that's just a terminator (0000).
+    // We'll use two zero bytes somewhere safe in the PSP reserved area.
+    // PSP offset 0x3C is reserved and we zeroed it, so point there.
+    regs.ds = PSP_SEGMENT;
+    regs.esi = 0x3C;
+}
+
+/// AH=0x66 - Get/set global code page
+/// AL=01: get, AL=02: set
+fn get_global_code_page(regs: &mut VMRegisters) {
+    let subfunc = regs.al();
+    match subfunc {
+        0x01 => {
+            // Get: BX=active code page, DX=system code page
+            regs.ebx = (regs.ebx & 0xffff0000) | 437; // US English
+            regs.edx = (regs.edx & 0xffff0000) | 437;
+            regs.eflags &= !1;
+        }
+        _ => {
+            regs.eflags &= !1; // just succeed
+        }
+    }
+}
+
+/// AH=0x68 - Commit/flush file
+/// Input: BX=handle
+fn commit_file(regs: &mut VMRegisters) {
+    // Stub: always succeed
+    regs.eflags &= !1;
 }
