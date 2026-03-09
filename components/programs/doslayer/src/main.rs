@@ -280,6 +280,130 @@ static mut VM86_IF: bool = true;
 static mut DOS_CWD: [u8; 256] = [0; 256];
 static mut DOS_CWD_LEN: usize = 0;
 
+/// Current VGA video mode (default 0x03 = 80x25 text)
+static mut VGA_MODE: u8 = 0x03;
+/// Physical address of the IDOS graphics buffer (returned by TSETGFX ioctl).
+/// Zero means no graphics mode is active.
+static mut GFX_BUFFER_PADDR: u32 = 0;
+/// Virtual address where we mapped the graphics buffer (for writing dirty rect).
+static mut GFX_BUFFER_VADDR: u32 = 0;
+/// Size of the mapped graphics buffer in bytes.
+static mut GFX_BUFFER_SIZE: u32 = 0;
+
+/// VGA palette: 256 entries of (R, G, B), used for INT 10h AH=10h palette ops.
+/// Initialized to the standard VGA 256-color palette.
+static mut VGA_PALETTE: [u8; 768] = [0; 768];
+
+/// Enter graphics mode: request a graphics buffer from the console via ioctl,
+/// map it into our address space, and map shadow RAM at 0xA0000 for the v86 program.
+fn enter_graphics_mode(width: u16, height: u16, bpp: u8) {
+    use idos_api::io::termios::{GraphicsMode, TSETGFX};
+
+    let pixel_bytes = width as u32 * height as u32 * ((bpp as u32 + 7) / 8);
+
+    // Map shadow RAM at 0xA0000 first — the v86 program will write here
+    // regardless of whether we successfully set up the IDOS graphics buffer.
+    let shadow_size = (pixel_bytes + 0xfff) & !0xfff;
+    let _ = map_memory(Some(0xA0000), shadow_size, None);
+
+    let mut gfx_mode = GraphicsMode {
+        width,
+        height,
+        bpp_flags: bpp as u32,
+        framebuffer: 0,
+    };
+
+    let _ = ioctl_sync(
+        STDIN,
+        TSETGFX,
+        &mut gfx_mode as *mut GraphicsMode as u32,
+        core::mem::size_of::<GraphicsMode>() as u32,
+    );
+
+    let paddr = gfx_mode.framebuffer;
+    if paddr == 0 {
+        return;
+    }
+
+    let buf_size = 8 + pixel_bytes;
+    let buf_pages = (buf_size + 0xfff) & !0xfff;
+
+    // Map the graphics buffer into our address space so we can write the dirty
+    // rect and copy pixel data into it.
+    let vaddr = map_memory(None, buf_pages, Some(paddr)).unwrap_or(0);
+
+    unsafe {
+        GFX_BUFFER_PADDR = paddr;
+        GFX_BUFFER_VADDR = vaddr;
+        GFX_BUFFER_SIZE = pixel_bytes;
+    }
+
+    // Read the kernel's default palette into our local copy
+    load_idos_palette();
+}
+
+/// Exit graphics mode: unmap the graphics buffer and tell the console to
+/// return to text mode.
+fn exit_graphics_mode() {
+    use idos_api::io::termios::TSETTEXT;
+
+    let _ = ioctl_sync(STDIN, TSETTEXT, 0, 0);
+
+    unsafe {
+        GFX_BUFFER_PADDR = 0;
+        GFX_BUFFER_VADDR = 0;
+        GFX_BUFFER_SIZE = 0;
+    }
+}
+
+/// Copy the shadow VGA framebuffer at 0xA0000 into the IDOS graphics buffer
+/// and mark it dirty so the compositor redraws.
+fn sync_graphics_buffer() {
+    unsafe {
+        let vaddr = core::ptr::read_volatile(&GFX_BUFFER_VADDR);
+        let size = core::ptr::read_volatile(&GFX_BUFFER_SIZE);
+        if vaddr == 0 || size == 0 {
+            return;
+        }
+        let src = 0xA0000 as *const u8;
+        let dst = (vaddr + 8) as *mut u8;
+        core::ptr::copy_nonoverlapping(src, dst, size as usize);
+
+        // Write dirty rect header: full screen
+        let header = vaddr as *mut u16;
+        core::ptr::write_volatile(header, 0);       // x
+        core::ptr::write_volatile(header.add(1), 0); // y
+        core::ptr::write_volatile(header.add(2), 0xFFFF); // w (full)
+        core::ptr::write_volatile(header.add(3), 0xFFFF); // h (full)
+    }
+}
+
+/// Read the console's current palette into VGA_PALETTE.
+fn load_idos_palette() {
+    use idos_api::io::termios::TGETPAL;
+    unsafe {
+        let _ = ioctl_sync(
+            STDIN,
+            TGETPAL,
+            VGA_PALETTE.as_mut_ptr() as u32,
+            768,
+        );
+    }
+}
+
+/// Push VGA_PALETTE to the console.
+fn push_idos_palette() {
+    use idos_api::io::termios::TSETPAL;
+    unsafe {
+        let _ = ioctl_sync(
+            STDIN,
+            TSETPAL,
+            VGA_PALETTE.as_ptr() as u32,
+            768,
+        );
+    }
+}
+
 /// Initialize the CWD from the executable's path (strip the filename).
 fn init_cwd(exec_path: &[u8]) {
     // Find the last backslash to get the directory portion
@@ -525,6 +649,14 @@ fn read_file_into(file_handle: Handle, dest_addr: u32, size: u32, file_offset: u
 }
 
 fn compat_start(mut vm_regs: VMRegisters) -> ! {
+    // BSS is not guaranteed zeroed — explicitly init graphics state
+    unsafe {
+        GFX_BUFFER_PADDR = 0;
+        GFX_BUFFER_VADDR = 0;
+        GFX_BUFFER_SIZE = 0;
+        VGA_MODE = 0x03;
+    }
+
     let mut termios = Termios::default();
     let _ = ioctl_sync(
         STDIN,
@@ -565,6 +697,7 @@ fn compat_start(mut vm_regs: VMRegisters) -> ! {
                 if !handle_fault(&mut vm_regs) {
                     break;
                 }
+                sync_graphics_buffer();
             },
             idos_api::compat::VM86_EXIT_DEBUG => {
                 // Hardware interrupt delivery — TF was set by the kernel
@@ -603,6 +736,13 @@ fn set_stdin_canonical(enable: bool) {
 }
 
 fn exit(code: u32) -> ! {
+    // exit graphics mode if active
+    unsafe {
+        if GFX_BUFFER_PADDR != 0 {
+            exit_graphics_mode();
+        }
+    }
+
     // reset termios
     unsafe {
         let _ = ioctl_sync(
@@ -681,13 +821,21 @@ fn bios_keyboard(regs: &mut VMRegisters) {
         0x00 | 0x10 => {
             // AH=00/10: Blocking read — wait for a keypress
             // Returns AH=IBM scancode, AL=ASCII character
+            // First check lookahead / any non-blocking keyboard data
+            if let Some((scancode, ascii)) = read_next_key() {
+                regs.set_ah(scancode);
+                regs.set_al(ascii);
+                return;
+            }
+            // Block on stdin (console), which supports blocking reads.
+            let stdin = Handle::new(0);
             loop {
-                if let Some((scancode, ascii)) = read_next_key() {
-                    regs.set_ah(scancode);
-                    regs.set_al(ascii);
+                let mut buf = [0u8; 1];
+                if let Ok(1) = read_sync(stdin, &mut buf, 0) {
+                    regs.set_ah(0);
+                    regs.set_al(buf[0]);
                     return;
                 }
-                idos_api::syscall::exec::yield_coop();
             }
         }
         0x01 | 0x11 => {
@@ -835,6 +983,27 @@ fn handle_interrupt(irq: u8, vm_regs: &mut VMRegisters) {
 fn bios_video(regs: &mut VMRegisters) {
     let stdout = idos_api::io::handle::Handle::new(1);
     match regs.ah() {
+        0x00 => {
+            // AH=00: Set video mode
+            let mode = regs.al() & 0x7F; // bit 7 = don't clear screen
+            unsafe { VGA_MODE = mode; }
+            match mode {
+                0x03 => {
+                    // 80x25 text mode — exit graphics if active
+                    unsafe {
+                        if GFX_BUFFER_PADDR != 0 {
+                            exit_graphics_mode();
+                        }
+                    }
+                    let _ = write_sync(stdout, b"\x1B[2J\x1B[H", 0);
+                }
+                0x13 => {
+                    // 320x200x256 (mode 13h)
+                    enter_graphics_mode(320, 200, 8);
+                }
+                _ => {}
+            }
+        }
         0x02 => {
             // AH=02: Set cursor position
             // BH=page, DH=row (0-based), DL=col (0-based)
@@ -842,16 +1011,14 @@ fn bios_video(regs: &mut VMRegisters) {
             let col = regs.dl() as u32 + 1;
             let mut buf = [0u8; 16];
             let len = write_ansi_cursor(&mut buf, row, col);
-            let _ = idos_api::io::sync::write_sync(stdout, &buf[..len], 0);
+            let _ = write_sync(stdout, &buf[..len], 0);
         }
         0x06 => {
             // AH=06: Scroll window up
             // AL=lines (0=clear), BH=attribute, CH/CL=top-left, DH/DL=bottom-right
             if regs.al() == 0 {
-                // Clear entire window — emit clear screen + home cursor
-                let _ = idos_api::io::sync::write_sync(stdout, b"\x1B[2J\x1B[H", 0);
+                let _ = write_sync(stdout, b"\x1B[2J\x1B[H", 0);
             }
-            // Non-zero scroll: ignore for now
         }
         0x09 => {
             // AH=09: Write character and attribute at cursor
@@ -860,21 +1027,104 @@ fn bios_video(regs: &mut VMRegisters) {
             let count = (regs.ecx & 0xffff) as usize;
             let buf = [ch];
             for _ in 0..count {
-                let _ = idos_api::io::sync::write_sync(stdout, &buf, 0);
+                let _ = write_sync(stdout, &buf, 0);
             }
         }
         0x0E => {
             // AH=0E: Teletype output — write character, advance cursor
             let ch = regs.al();
             let buf = [ch];
-            let _ = idos_api::io::sync::write_sync(stdout, &buf, 0);
+            let _ = write_sync(stdout, &buf, 0);
         }
         0x0F => {
             // AH=0F: Get video mode
-            // Returns: AH=columns, AL=mode, BH=page
-            regs.set_ah(80); // 80 columns
-            regs.set_al(0x03); // mode 3 (80x25 color text)
-            regs.ebx = (regs.ebx & 0xffff00ff); // BH=0 (page 0)
+            let mode = unsafe { VGA_MODE };
+            let cols: u8 = if mode == 0x13 { 40 } else { 80 };
+            regs.set_ah(cols);
+            regs.set_al(mode);
+            regs.ebx = regs.ebx & 0xffff00ff; // BH=0 (page 0)
+        }
+        0x10 => {
+            // AH=10: Palette / DAC functions
+            bios_palette(regs);
+        }
+        _ => {}
+    }
+}
+
+/// INT 10h AH=10h — VGA palette/DAC subfunctions
+fn bios_palette(regs: &mut VMRegisters) {
+    match regs.al() {
+        0x10 => {
+            // AL=10h: Set individual DAC register
+            // BX=register number, DH=red, CH=green, CL=blue (6-bit VGA values)
+            let idx = (regs.ebx & 0xffff) as usize;
+            if idx < 256 {
+                unsafe {
+                    // VGA DAC values are 6-bit (0-63), scale to 8-bit
+                    VGA_PALETTE[idx * 3] = ((regs.dh() as u16 * 255 / 63) as u8);
+                    VGA_PALETTE[idx * 3 + 1] = ((regs.ch() as u16 * 255 / 63) as u8);
+                    VGA_PALETTE[idx * 3 + 2] = ((regs.cl() as u16 * 255 / 63) as u8);
+                }
+                push_idos_palette();
+            }
+        }
+        0x12 => {
+            // AL=12h: Set block of DAC registers
+            // BX=first register, CX=count, ES:DX=table of R,G,B bytes (6-bit)
+            let first = (regs.ebx & 0xffff) as usize;
+            let count = (regs.ecx & 0xffff) as usize;
+            let dx = regs.edx & 0xffff;
+            let table_addr = (regs.es << 4) + dx;
+            let table = table_addr as *const u8;
+            for i in 0..count {
+                let idx = first + i;
+                if idx >= 256 { break; }
+                unsafe {
+                    let r = core::ptr::read_volatile(table.add(i * 3)) as u16;
+                    let g = core::ptr::read_volatile(table.add(i * 3 + 1)) as u16;
+                    let b = core::ptr::read_volatile(table.add(i * 3 + 2)) as u16;
+                    VGA_PALETTE[idx * 3] = (r * 255 / 63) as u8;
+                    VGA_PALETTE[idx * 3 + 1] = (g * 255 / 63) as u8;
+                    VGA_PALETTE[idx * 3 + 2] = (b * 255 / 63) as u8;
+                }
+            }
+            push_idos_palette();
+        }
+        0x15 => {
+            // AL=15h: Read individual DAC register
+            // BX=register number → DH=red, CH=green, CL=blue (6-bit)
+            let idx = (regs.ebx & 0xffff) as usize;
+            if idx < 256 {
+                unsafe {
+                    let r = (VGA_PALETTE[idx * 3] as u16 * 63 / 255) as u8;
+                    let g = (VGA_PALETTE[idx * 3 + 1] as u16 * 63 / 255) as u8;
+                    let b = (VGA_PALETTE[idx * 3 + 2] as u16 * 63 / 255) as u8;
+                    regs.edx = (regs.edx & 0xffff00ff) | ((r as u32) << 8);
+                    regs.ecx = (regs.ecx & 0xffff0000) | ((g as u32) << 8) | b as u32;
+                }
+            }
+        }
+        0x17 => {
+            // AL=17h: Read block of DAC registers
+            // BX=first register, CX=count, ES:DX=buffer for R,G,B (6-bit)
+            let first = (regs.ebx & 0xffff) as usize;
+            let count = (regs.ecx & 0xffff) as usize;
+            let dx = regs.edx & 0xffff;
+            let table_addr = (regs.es << 4) + dx;
+            let table = table_addr as *mut u8;
+            for i in 0..count {
+                let idx = first + i;
+                if idx >= 256 { break; }
+                unsafe {
+                    let r = (VGA_PALETTE[idx * 3] as u16 * 63 / 255) as u8;
+                    let g = (VGA_PALETTE[idx * 3 + 1] as u16 * 63 / 255) as u8;
+                    let b = (VGA_PALETTE[idx * 3 + 2] as u16 * 63 / 255) as u8;
+                    core::ptr::write_volatile(table.add(i * 3), r);
+                    core::ptr::write_volatile(table.add(i * 3 + 1), g);
+                    core::ptr::write_volatile(table.add(i * 3 + 2), b);
+                }
+            }
         }
         _ => {}
     }
@@ -974,6 +1224,9 @@ pub fn terminate(regs: &mut VMRegisters) {
 /// Output:
 ///     AL = character from STDIN
 pub fn read_stdin_with_echo(regs: &mut VMRegisters) {
+    // Flush any pending graphics before blocking on input
+    sync_graphics_buffer();
+
     let stdin = idos_api::io::handle::Handle::new(0);
     let stdout = idos_api::io::handle::Handle::new(1);
 
@@ -1289,10 +1542,11 @@ fn read_file(regs: &mut VMRegisters) {
     let buffer_addr = (regs.ds << 4) + dx;
     let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_addr as *mut u8, count) };
 
-    // When reading from stdin, temporarily enable canonical mode so the
-    // console buffers a full line (with echo and backspace editing).
+    // When reading from stdin, flush graphics and temporarily enable
+    // canonical mode so the console buffers a full line.
     let is_stdin = dos_handle == 0;
     if is_stdin {
+        sync_graphics_buffer();
         set_stdin_canonical(true);
     }
 

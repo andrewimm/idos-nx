@@ -161,11 +161,15 @@ fn map_load_segment(exec_path: &str, ph: &ProgramHeader) {
             }
         }
 
-        // Map additional whole pages for remaining BSS
+        // Map additional whole pages for remaining BSS and zero them
         let bss_start = file_end_addr;
         if end_addr > bss_start {
             let bss_size = end_addr - bss_start;
-            let _ = map_memory(Some(bss_start), bss_size, None);
+            if let Ok(addr) = map_memory(Some(bss_start), bss_size, None) {
+                unsafe {
+                    core::ptr::write_bytes(addr as *mut u8, 0, bss_size as usize);
+                }
+            }
         }
     }
 }

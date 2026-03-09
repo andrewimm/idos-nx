@@ -1,6 +1,6 @@
 .PHONY: all, clean
 
-all: disk/dosio.com disk/elftest.elf disk/test.bin
+all: disk/dosio.com disk/gfxtest.com disk/elftest.elf disk/test.bin
 
 clean:
 	@rm -r build
@@ -24,4 +24,11 @@ disk/dosio.com: dosio.s
 	@as --32 -march=i386 -o build/dosio.o dosio.s
 	@strip -o build/dosio-strip.o --remove-section=".note.*" -x build/dosio.o
 	@ld -o disk/dosio.com --oformat binary -e start -m elf_i386 -Ttext 0x100 build/dosio-strip.o
+
+disk/gfxtest.com: gfxtest.s
+	@mkdir -p build
+	@mkdir -p disk
+	@as --32 -march=i386 -o build/gfxtest.o gfxtest.s
+	@strip -o build/gfxtest-strip.o --remove-section=".note.*" -x build/gfxtest.o
+	@ld -o disk/gfxtest.com --oformat binary -e start -m elf_i386 -Ttext 0x100 build/gfxtest-strip.o
 

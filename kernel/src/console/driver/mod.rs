@@ -200,6 +200,7 @@ impl ConsoleManager {
         match ioctl {
             termios::TSETTEXT => {
                 console.terminal.exit_graphics_mode();
+                console.dirty = true;
                 Ok(1)
             }
             _ => Err(IoError::UnsupportedOperation),
