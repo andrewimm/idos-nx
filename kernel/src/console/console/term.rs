@@ -440,9 +440,19 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
     }
 
     pub fn set_graphics_mode(&mut self, graphics_struct: &mut termios::GraphicsMode) {
-        if let Some(_existing_buffer) = &self.graphics_buffer {
-            // resize the graphics buffer if necessary, otherwise do nothing
-            unimplemented!()
+        if let Some(existing_buffer) = &self.graphics_buffer {
+            // If the existing buffer matches, just return its physical address
+            let bits_per_pixel = graphics_struct.bpp_flags as usize & 0xff;
+            if existing_buffer.width == graphics_struct.width
+                && existing_buffer.height == graphics_struct.height
+                && existing_buffer.bits_per_pixel == bits_per_pixel
+            {
+                let paddr = crate::task::paging::get_current_physical_address(existing_buffer.vaddr).unwrap();
+                graphics_struct.framebuffer = paddr.as_u32();
+                return;
+            }
+            // Different dimensions — tear down old buffer and create a new one
+            self.exit_graphics_mode();
         }
         // color depth is in the first 8 bits, and is a number of bits-per-pixel
         // not all values are valid, we should probably validate here and also

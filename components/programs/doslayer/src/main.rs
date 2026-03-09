@@ -868,7 +868,6 @@ unsafe fn handle_fault(vm_regs: &mut VMRegisters) -> bool {
             let irq = *op_ptr.add(1);
             handle_interrupt(irq, vm_regs);
             sync_graphics_buffer();
-            idos_api::syscall::exec::yield_coop();
             vm_regs.eip += 2;
         }
         0xcf => {
@@ -1174,6 +1173,15 @@ fn bios_video(regs: &mut VMRegisters) {
                 regs.ebx = (regs.ebx & 0xffff0000) | 0x0008;
             }
         }
+        0x4F => {
+            // AH=4Fh: VESA BIOS Extensions — not supported.
+            // VBE convention: AX=004Fh means supported, anything else = not supported.
+            regs.set_ax(0x0100); // AH=01 (failed), AL=00 (not supported)
+        }
+        0x5F | 0x6F => {
+            // AH=5Fh/6Fh: Vendor SVGA extensions — not supported.
+            regs.set_ax(0x0000);
+        }
         _ => {
             let mut buf = [0u8; 32];
             let len = fmt_unsupported(b"INT 10h AH=", regs.ah(), &mut buf);
@@ -1477,8 +1485,10 @@ fn get_date(regs: &mut VMRegisters) {
 fn get_time(regs: &mut VMRegisters) {
     let ts = idos_api::syscall::time::get_system_time();
     let dt = idos_api::time::DateTime::from_timestamp(ts);
+    let mono_ms = idos_api::syscall::time::get_monotonic_ms();
+    let hundredths = ((mono_ms / 10) % 100) as u32;
     regs.ecx = (regs.ecx & 0xffff0000) | ((dt.time.hours as u32) << 8) | dt.time.minutes as u32;
-    regs.edx = (regs.edx & 0xffff0000) | ((dt.time.seconds as u32) << 8); // hundredths=0
+    regs.edx = (regs.edx & 0xffff0000) | ((dt.time.seconds as u32) << 8) | hundredths;
 }
 
 /// AH=0x0E - Set current drive
