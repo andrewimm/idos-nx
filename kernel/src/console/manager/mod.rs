@@ -72,7 +72,7 @@ impl ConsoleManager {
     }
 
     pub fn add_console(&mut self) -> usize {
-        let new_console = Console::new();
+        let mut new_console = Console::new();
         // the new memory may be any value; make sure it's all space characters
         new_console.terminal.clear_buffer();
         self.consoles.push(new_console);
@@ -203,8 +203,11 @@ impl ConsoleManager {
             let font_row_height = font.get_height() as usize;
             let char_width = font.get_glyph(b'A').map_or(8, |g| g.width as usize);
 
+            // Total content includes scrollback + visible screen
+            let content_rows = console.total_rows();
+
             // Determine how many rows/cols fit in the full outer area
-            let total_text_h = ROWS * font_row_height;
+            let total_text_h = content_rows * font_row_height;
             let total_text_w = COLS * char_width;
 
             // Decide which scrollbars are needed (may be interdependent)
@@ -225,9 +228,9 @@ impl ConsoleManager {
             let text_area_h = if need_h { outer_h.saturating_sub(scrollbar::SCROLLBAR_SIZE) } else { outer_h };
 
             let visible_rows = if font_row_height > 0 {
-                ROWS.min(text_area_h / font_row_height)
+                content_rows.min(text_area_h / font_row_height)
             } else {
-                ROWS
+                content_rows
             };
             let visible_cols = if char_width > 0 {
                 COLS.min(text_area_w / char_width)
@@ -236,7 +239,7 @@ impl ConsoleManager {
             };
 
             // Use console's scroll offset, or pin to bottom/right if None
-            let max_scroll_row = ROWS.saturating_sub(visible_rows);
+            let max_scroll_row = content_rows.saturating_sub(visible_rows);
             let max_scroll_col = COLS.saturating_sub(visible_cols);
             console.max_scroll_row = max_scroll_row;
             console.max_scroll_col = max_scroll_col;

@@ -74,13 +74,7 @@ impl GraphicsBuffer {
 
 impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
     pub fn new() -> Self {
-        let alloc_buffer = crate::task::actions::memory::map_memory(
-            None,
-            0x2000,
-            crate::task::memory::MemoryBacking::FreeMemory,
-        )
-        .unwrap();
-        let text_buffer = TextBuffer::new(alloc_buffer, 0x2000);
+        let text_buffer = TextBuffer::allocate(ROWS);
 
         Self {
             cursor_x: 0,
@@ -109,7 +103,7 @@ impl<const COLS: usize, const ROWS: usize> Terminal<COLS, ROWS> {
         self.cursor_y = y;
     }
 
-    pub fn clear_buffer(&self) {
+    pub fn clear_buffer(&mut self) {
         let buffer = self.text_buffer.get_text_buffer();
         for cell in buffer.iter_mut() {
             cell.glyph = 0x20; // Space character

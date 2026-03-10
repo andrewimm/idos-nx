@@ -146,13 +146,18 @@ impl<const COLS: usize, const ROWS: usize> Console<COLS, ROWS> {
         }
     }
 
-    /// Construct an iterator over the TextCells in a specific row of the screen.
+    /// Total number of content rows (scrollback + visible screen).
+    pub fn total_rows(&self) -> usize {
+        self.terminal.text_buffer.scrollback_count() + ROWS
+    }
+
+    /// Get a row by virtual index across the combined scrollback + visible
+    /// content. Row 0 is the oldest scrollback row; the last ROWS rows are
+    /// the visible screen.
     pub fn row_cells_iter(
         &self,
-        row: usize,
+        virtual_row: usize,
     ) -> core::iter::Cloned<core::slice::Iter<'_, textmode::TextCell>> {
-        let visible = self.terminal.text_buffer.get_visible_buffer();
-        let start = row * COLS;
-        visible[start..start + COLS].iter().cloned()
+        self.terminal.text_buffer.row(virtual_row).iter().cloned()
     }
 }

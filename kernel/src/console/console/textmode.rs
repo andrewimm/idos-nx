@@ -88,90 +88,152 @@ pub enum Color {
     White,
 }
 
-/// Represents a block of memory that has been allocated to store text console
-/// contents. Depending on the size, it may also contain extra leading space for
-/// scrollback.
-/// The last page of the buffer is able to be mapped directly to 0x000b_8000 for
-/// DOS programs. Because this only needs ~4k bytes, there will be a little
-/// extra space at the end of the final page that is unused.
+/// Ring buffer holding all terminal rows (scrollback + visible screen).
+/// The total capacity is `ROWS + scrollback_extra` rows. The terminal
+/// writes into the ring at the cursor position relative to `top_row`,
+/// and scrolling simply advances `top_row` — no memmove needed.
+///
+/// For DOS programs that need a contiguous buffer mapped at 0xB8000,
+/// the visible rows can be copied out on demand.
 pub struct TextBuffer<const COLS: usize, const ROWS: usize> {
-    /// starting address of the buffer, from when it was allocated
-    buffer_start: VirtualAddress,
-    /// total size of the buffer
-    buffer_size: usize,
-    /// The offset from the start of the buffer to text contents. As text fills
-    /// the current screen, past lines will move up and this offset will shrink.
-    /// Eventually it will become less than a single row size (but not zero,
-    /// since allocated memory is not guaranteed to be a multiple of rows).
-    scrollback_start: usize,
+    /// The ring buffer holding all rows.
+    buffer: VirtualAddress,
+    buffer_alloc: usize,
+    /// Total number of row slots in the ring.
+    capacity: usize,
+    /// Ring index of the first visible row (row 0 of the screen).
+    /// The visible screen occupies ring slots top_row..top_row+ROWS.
+    top_row: usize,
+    /// How many scrollback rows exist above top_row. Starts at 0 and
+    /// grows up to `capacity - ROWS` as content scrolls off the top.
+    scrollback_count: usize,
 }
 
 impl<const COLS: usize, const ROWS: usize> TextBuffer<COLS, ROWS> {
-    pub fn new(buffer_start: VirtualAddress, buffer_size: usize) -> Self {
-        assert!(buffer_size >= ROWS * COLS * core::mem::size_of::<TextCell>());
-        let scrollback_start = buffer_size - 0x1000; // most code here only works if screen size < page size
+    /// Access the entire ring as a flat cell slice.
+    fn ring(&self) -> &'static mut [TextCell] {
+        let ptr = self.buffer.as_ptr_mut::<TextCell>();
+        unsafe { core::slice::from_raw_parts_mut(ptr, self.capacity * COLS) }
+    }
+
+    /// Return a mutable reference to a single row in the ring by ring index.
+    fn ring_row_mut(&self, ring_idx: usize) -> &'static mut [TextCell] {
+        let ring = self.ring();
+        let start = ring_idx * COLS;
+        &mut ring[start..start + COLS]
+    }
+
+    /// Return an immutable reference to a single row in the ring by ring index.
+    fn ring_row(&self, ring_idx: usize) -> &'static [TextCell] {
+        let ring = self.ring();
+        let start = ring_idx * COLS;
+        &ring[start..start + COLS]
+    }
+
+    /// Wrap a ring index to stay within capacity.
+    fn wrap(&self, idx: usize) -> usize {
+        idx % self.capacity
+    }
+
+    /// The visible screen as a contiguous mutable slice of ROWS × COLS cells.
+    /// The terminal's cursor_y / cursor_x index into this for character
+    /// writes and ANSI operations.
+    ///
+    /// If the visible rows wrap around the end of the ring, the buffer is
+    /// rotated so they become contiguous. This rotation is O(n) but only
+    /// happens once every `capacity - ROWS` scrolls.
+    pub fn get_text_buffer(&mut self) -> &'static mut [TextCell] {
+        if self.top_row + ROWS > self.capacity {
+            self.rotate_to_zero();
+        }
+        let ring = self.ring();
+        let start = self.top_row * COLS;
+        &mut ring[start..start + ROWS * COLS]
+    }
+
+    /// Alias for get_text_buffer.
+    pub fn get_visible_buffer(&mut self) -> &'static mut [TextCell] {
+        self.get_text_buffer()
+    }
+
+    /// Rotate the ring buffer so that `top_row` ends up at index 0.
+    /// This preserves all content and scrollback ordering.
+    fn rotate_to_zero(&mut self) {
+        if self.top_row == 0 {
+            return;
+        }
+        let ring = self.ring();
+        let total = self.capacity * COLS;
+        let mid = self.top_row * COLS;
+        ring[..total].rotate_left(mid);
+        self.top_row = 0;
+    }
+
+    /// Number of scrollback rows currently stored.
+    pub fn scrollback_count(&self) -> usize {
+        self.scrollback_count
+    }
+
+    /// Get a row by virtual index across the combined scrollback + visible
+    /// content. Row 0 is the oldest scrollback row; row `scrollback_count`
+    /// is the first visible row; row `scrollback_count + ROWS - 1` is the
+    /// last visible row.
+    pub fn row(&self, virtual_row: usize) -> &[TextCell] {
+        let total = self.scrollback_count + ROWS;
+        assert!(virtual_row < total);
+        // The oldest scrollback row is `scrollback_count` rows before top_row.
+        let ring_idx = self.wrap(
+            self.top_row + self.capacity - self.scrollback_count + virtual_row
+        );
+        self.ring_row(ring_idx)
+    }
+
+    /// Get a mutable reference to a visible-screen row (0..ROWS).
+    pub fn visible_row_mut(&self, screen_row: usize) -> &'static mut [TextCell] {
+        assert!(screen_row < ROWS);
+        let ring_idx = self.wrap(self.top_row + screen_row);
+        self.ring_row_mut(ring_idx)
+    }
+
+    /// Allocate a new TextBuffer with the given number of extra scrollback rows.
+    pub fn allocate(scrollback_rows: usize) -> Self {
+        use crate::task::memory::MemoryBacking;
+
+        let capacity = ROWS + scrollback_rows;
+        let total_bytes = capacity * COLS * core::mem::size_of::<TextCell>();
+        let alloc_size = (total_bytes + 0xfff) & !0xfff;
+        let buffer = crate::task::actions::memory::map_memory(
+            None,
+            alloc_size as u32,
+            MemoryBacking::FreeMemory,
+        )
+        .unwrap();
+
         Self {
-            buffer_start,
-            buffer_size,
-            scrollback_start,
+            buffer,
+            buffer_alloc: alloc_size,
+            capacity,
+            top_row: 0,
+            scrollback_count: 0,
         }
     }
 
-    pub const fn row_size() -> usize {
-        COLS * core::mem::size_of::<TextCell>()
-    }
-
-    pub const fn screen_size() -> usize {
-        ROWS * COLS * core::mem::size_of::<TextCell>()
-    }
-
-    pub const fn unused_tail_size() -> usize {
-        0x1000 - (ROWS * COLS * core::mem::size_of::<TextCell>())
-    }
-
-    /// Get the entire scrollback buffer. Initially it is the same as the
-    /// visible screen area, but successive scroll calls increase its size and
-    /// eventually push text up higher into the buffer.
-    pub fn get_text_buffer(&self) -> &'static mut [TextCell] {
-        let total_size = self.buffer_size - self.scrollback_start - Self::unused_tail_size();
-        let buffer_ptr: *mut TextCell =
-            (self.buffer_start + self.scrollback_start as u32).as_ptr_mut::<TextCell>();
-        unsafe {
-            core::slice::from_raw_parts_mut(
-                buffer_ptr,
-                total_size / core::mem::size_of::<TextCell>(),
-            )
-        }
-    }
-
-    pub fn get_visible_buffer_byte_ptr(&self) -> *mut u8 {
-        let offset = self.buffer_size - 0x1000;
-        (self.buffer_start + offset as u32).as_ptr_mut::<u8>()
-    }
-
-    pub fn get_visible_buffer(&self) -> &'static mut [TextCell] {
-        let offset = self.buffer_size - 0x1000;
-        let ptr = (self.buffer_start + offset as u32).as_ptr_mut::<TextCell>();
-        unsafe { core::slice::from_raw_parts_mut(ptr, ROWS * COLS) }
-    }
-
+    /// Scroll the visible screen up by one row. The row that scrolls off
+    /// becomes a scrollback row. The new bottom row is cleared.
+    /// This is O(1) — just pointer advancement, no copying.
     pub fn scroll(&mut self) {
-        if self.scrollback_start >= Self::row_size() {
-            //self.scrollback_start -= Self::row_size();
+        // The row at top_row scrolls off into scrollback
+        if self.scrollback_count < self.capacity - ROWS {
+            self.scrollback_count += 1;
         }
+        // Advance top_row — the old top_row is now the newest scrollback row
+        self.top_row = self.wrap(self.top_row + 1);
 
-        let total_buffer = self.get_text_buffer();
-        let total_rows = total_buffer.len() / COLS;
-        for i in 0..(total_rows - 1) {
-            let region_start = i * COLS;
-            let region_end = (i + 2) * COLS;
-            let copy_region = &mut total_buffer[region_start..region_end];
-            let (copy_dest, copy_src) = copy_region.split_at_mut(COLS);
-            copy_dest.copy_from_slice(copy_src);
-        }
-        let final_row_offset = total_buffer.len() - COLS;
-        for i in 0..COLS {
-            total_buffer[final_row_offset + i] = TextCell {
+        // Clear the new bottom row (which is the old top_row slot, now
+        // repurposed as the new screen bottom)
+        let bottom = self.visible_row_mut(ROWS - 1);
+        for cell in bottom.iter_mut() {
+            *cell = TextCell {
                 glyph: 0x20,
                 color: ColorCode::new(Color::LightGray, Color::Black),
             };
@@ -179,14 +241,3 @@ impl<const COLS: usize, const ROWS: usize> TextBuffer<COLS, ROWS> {
     }
 }
 
-/// Generate a TextBuffer with the dimensions of a VGA text-mode screen, backed
-/// by 2 pages of memory for the scrollback buffer.
-pub fn create_text_buffer() -> TextBuffer<80, 25> {
-    let alloc_buffer = crate::task::actions::memory::map_memory(
-        None,
-        0x2000,
-        crate::task::memory::MemoryBacking::FreeMemory,
-    )
-    .unwrap();
-    TextBuffer::new(alloc_buffer, 0x2000)
-}
