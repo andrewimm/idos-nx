@@ -18,7 +18,7 @@ pub mod panic;
 use core::arch::global_asm;
 
 use idos_api::{
-    compat::VMRegisters,
+    compat::{LdtDescriptorParams, VMRegisters},
     io::{
         file::FileStatus,
         sync::{close_sync, io_sync, ioctl_sync, open_sync, read_sync, write_sync},
@@ -510,6 +510,14 @@ const IRET_STUB: u32 = 0x500;
 const IRET_STUB_SEGMENT: u16 = 0x0050;
 const IRET_STUB_OFFSET: u16 = 0x0000;
 
+/// DPMI entry point stub: INT 0xFE at 0x501, followed by RETF at 0x503.
+/// The v86 program calls this via FAR CALL; INT 0xFE triggers the DPMI switch.
+const DPMI_ENTRY_STUB: u32 = 0x501;
+const DPMI_ENTRY_SEGMENT: u16 = 0x0050;
+const DPMI_ENTRY_OFFSET: u16 = 0x0001;
+/// Interrupt number used by the DPMI entry stub.
+const DPMI_ENTRY_INT: u8 = 0xFE;
+
 /// Map the DOS conventional memory region: zero page (IVT/BDA) through DOS_MEM_TOP.
 /// Initializes the IVT with default IRET handlers.
 fn setup_dos_memory() {
@@ -531,6 +539,14 @@ fn setup_dos_memory() {
     // Place an IRET instruction at the stub address
     unsafe {
         core::ptr::write_volatile(IRET_STUB as *mut u8, 0xCF); // IRET
+    }
+
+    // Place the DPMI entry stub: INT 0xFE (CD FE) + RETF (CB)
+    unsafe {
+        let stub = DPMI_ENTRY_STUB as *mut u8;
+        core::ptr::write_volatile(stub, 0xCD);             // INT
+        core::ptr::write_volatile(stub.add(1), DPMI_ENTRY_INT); // 0xFE
+        core::ptr::write_volatile(stub.add(2), 0xCB);      // RETF
     }
 
     // Point all 256 IVT entries to the IRET stub
@@ -617,6 +633,14 @@ fn load_com(file_handle: Handle) -> ! {
     setup_psp();
     read_file_into(file_handle, PSP_BASE + 0x100, file_size, 0);
 
+    // Register the program's initial block in the arena — it owns all
+    // conventional memory from PSP_SEGMENT to DOS_MEM_TOP. Programs use
+    // AH=4A to shrink this block, freeing the rest for allocation.
+    unsafe {
+        DOS_ARENA_START = PSP_SEGMENT as u16;
+        DOS_ARENA[0] = (PSP_SEGMENT as u16, DOS_MEM_TOP_SEGMENT - PSP_SEGMENT as u16);
+    }
+
     let _ = close_sync(file_handle);
 
     // .COM: all segment registers = PSP_SEGMENT, IP = 0x100
@@ -693,6 +717,13 @@ fn load_mz_exe(file_handle: Handle) -> ! {
         }
     }
 
+    // Register the program's initial block — it owns all conventional memory.
+    // Programs use AH=4A to shrink this, freeing the rest for allocation.
+    unsafe {
+        DOS_ARENA_START = PSP_SEGMENT as u16;
+        DOS_ARENA[0] = (PSP_SEGMENT as u16, DOS_MEM_TOP_SEGMENT - PSP_SEGMENT as u16);
+    }
+
     let _ = close_sync(file_handle);
 
     // MZ EXE: CS and SS are relative to the load segment (PROGRAM_SEGMENT)
@@ -740,6 +771,24 @@ fn compat_start(mut vm_regs: VMRegisters) -> ! {
         GFX_BUFFER_VADDR = 0;
         GFX_BUFFER_SIZE = 0;
         VGA_MODE = 0x03;
+        DPMI_ACTIVE = false;
+        DPMI_CS_SEL = 0;
+        DPMI_DS_SEL = 0;
+        DPMI_SS_SEL = 0;
+        DPMI_ES_SEL = 0;
+        DPMI_PM_STACK_BASE = 0;
+        for i in 0..LDT_MAX_SLOTS {
+            DPMI_LDT_SHADOW[i] = LdtDescriptorParams {
+                base: 0, limit: 0, access: 0, flags: 0,
+            };
+        }
+        for i in 0..DOS_ARENA_MAX_BLOCKS {
+            DOS_ARENA[i] = (0, 0);
+        }
+        DOS_ARENA_START = 0;
+        for i in 0..DPMI_HIGH_MEM_MAX {
+            DPMI_HIGH_MEM[i] = (0, 0);
+        }
     }
 
     let mut termios = Termios::default();
@@ -999,6 +1048,46 @@ fn peek_next_key() -> Option<(u8, u8)> {
 
 static mut KEY_LOOKAHEAD: Option<(u8, u8)> = None;
 
+/// DPMI state — true once the client has switched to protected mode.
+static mut DPMI_ACTIVE: bool = false;
+/// LDT selectors allocated for the DPMI client during entry.
+static mut DPMI_CS_SEL: u32 = 0;
+static mut DPMI_DS_SEL: u32 = 0;
+static mut DPMI_SS_SEL: u32 = 0;
+static mut DPMI_ES_SEL: u32 = 0;
+/// Base address of the DPMI protected-mode stack (mmap'd region).
+static mut DPMI_PM_STACK_BASE: u32 = 0;
+/// Size of the DPMI protected-mode stack.
+const DPMI_PM_STACK_SIZE: u32 = 0x4000; // 16 KiB
+
+/// Simple conventional memory allocator.
+/// Tracks allocated blocks as (segment, size_in_paragraphs) pairs.
+/// Free space starts at DOS_ARENA_START and goes up to DOS_MEM_TOP_SEGMENT.
+const DOS_ARENA_MAX_BLOCKS: usize = 32;
+/// Each entry: (segment, size_paragraphs). segment=0 means free slot.
+static mut DOS_ARENA: [(u16, u16); DOS_ARENA_MAX_BLOCKS] = [(0, 0); DOS_ARENA_MAX_BLOCKS];
+/// Start of free conventional memory (paragraph/segment). Set after program load.
+static mut DOS_ARENA_START: u16 = 0;
+
+/// High memory block tracker for DPMI 0x501/0x502.
+/// Each entry: (linear_address, size_bytes). address=0 means free slot.
+const DPMI_HIGH_MEM_MAX: usize = 32;
+static mut DPMI_HIGH_MEM: [(u32, u32); DPMI_HIGH_MEM_MAX] = [(0, 0); DPMI_HIGH_MEM_MAX];
+
+/// Shadow copy of descriptor params for each LDT slot.
+/// Needed because the kernel syscall only supports full replacement,
+/// but DPMI lets clients modify base/limit/access independently.
+const LDT_MAX_SLOTS: usize = 64;
+static mut DPMI_LDT_SHADOW: [LdtDescriptorParams; LDT_MAX_SLOTS] = {
+    const ZERO: LdtDescriptorParams = LdtDescriptorParams {
+        base: 0,
+        limit: 0,
+        access: 0,
+        flags: 0,
+    };
+    [ZERO; LDT_MAX_SLOTS]
+};
+
 /// Map an IDOS KeyCode byte to (IBM_scancode, ASCII).
 /// KeyCode values match kernel/src/hardware/ps2/keycodes.rs KeyCode enum.
 fn keycode_to_bios(keycode: u8) -> Option<(u8, u8)> {
@@ -1062,6 +1151,14 @@ fn handle_interrupt(irq: u8, vm_regs: &mut VMRegisters) {
             // DOS API
             dos_api(vm_regs);
         }
+        0x2f => {
+            // Multiplex interrupt
+            multiplex_int(vm_regs);
+        }
+        DPMI_ENTRY_INT => {
+            // DPMI entry point — switch to protected mode
+            dpmi_enter(vm_regs);
+        }
 
         _ => {
             let mut buf = [0u8; 32];
@@ -1069,6 +1166,716 @@ fn handle_interrupt(irq: u8, vm_regs: &mut VMRegisters) {
             dos_log(&buf[..len]);
         }
     }
+}
+
+/// INT 0x2F — Multiplex interrupt.
+/// AX=0x1687: DPMI detection / get entry point.
+fn multiplex_int(regs: &mut VMRegisters) {
+    let ax = (regs.eax & 0xffff) as u16;
+    match ax {
+        0x1687 => {
+            // DPMI 0.9 host detection
+            // AX=0 means DPMI is available
+            regs.set_ax(0);
+            // BX = flags (bit 0 = 32-bit programs supported)
+            regs.ebx = (regs.ebx & 0xffff0000) | 0x0001;
+            // CL = processor type (04 = 486+)
+            regs.ecx = (regs.ecx & 0xffffff00) | 0x04;
+            // DX = DPMI version (0.90)
+            regs.set_dx(0x005A); // major=0, minor=90
+            // SI = number of paragraphs needed for DPMI private data (PM stack)
+            regs.esi = (regs.esi & 0xffff0000) | ((DPMI_PM_STACK_SIZE / 16) as u32);
+            // ES:DI = entry point (real-mode far address)
+            regs.es = DPMI_ENTRY_SEGMENT as u32;
+            regs.edi = (regs.edi & 0xffff0000) | (DPMI_ENTRY_OFFSET as u32);
+        }
+        _ => {
+            let mut buf = [0u8; 32];
+            let len = fmt_unsupported(b"INT 2F AX=", (ax >> 8) as u8, &mut buf);
+            dos_log(&buf[..len]);
+        }
+    }
+}
+
+/// DPMI entry — called when the v86 program invokes the DPMI entry point.
+/// The real-mode registers tell us the client's 16-bit CS:IP (return address
+/// on the v86 stack from the FAR CALL), DS, ES, SS:SP. We allocate flat LDT
+/// descriptors, set up a PM stack, and enter the protected-mode dispatch loop.
+///
+/// Per the DPMI spec the client passes:
+///   AX = 0 for 16-bit client, 1 for 32-bit client
+///   ES = real-mode segment of DPMI host data area (we ignore this)
+///
+/// On entry to PM, the DPMI spec says:
+///   CS:EIP = return address from the FAR CALL (where the client resumes in PM)
+///   SS:ESP = PM stack
+///   DS = selector with base = real-mode DS << 4, limit = 64K
+///   ES = selector for PSP (base = PSP_BASE, limit = 256 bytes)
+///   FS = GS = 0
+///
+/// DJGPP's CWSDPMI stub expects flat CS/DS/SS with base 0, limit 4 GiB after
+/// it adjusts them itself via INT 31h. For the initial switch we give it
+/// descriptors matching the real-mode segments so the return address works.
+fn dpmi_enter(vm_regs: &mut VMRegisters) {
+    dos_log(b"DPMI: entering protected mode\n");
+
+    let is_32bit = (vm_regs.eax & 1) != 0;
+    if !is_32bit {
+        dos_log(b"DPMI: 16-bit clients not supported\n");
+        // Signal failure: set carry flag
+        vm_regs.eflags |= 1;
+        return;
+    }
+
+    // Allocate LDT selectors for CS, DS, SS, ES
+    let cs_sel = idos_api::syscall::ldt::ldt_allocate();
+    let ds_sel = idos_api::syscall::ldt::ldt_allocate();
+    let ss_sel = idos_api::syscall::ldt::ldt_allocate();
+    let es_sel = idos_api::syscall::ldt::ldt_allocate();
+
+    if cs_sel == 0xffff_ffff || ds_sel == 0xffff_ffff
+        || ss_sel == 0xffff_ffff || es_sel == 0xffff_ffff
+    {
+        dos_log(b"DPMI: failed to allocate LDT selectors\n");
+        vm_regs.eflags |= 1;
+        return;
+    }
+
+    // The FAR CALL to the entry stub pushed CS:IP on the v86 stack.
+    // The INT 0xFE inside the stub pushed FLAGS:CS:IP again.
+    // After handle_fault advances EIP past the INT instruction, we'll return
+    // to the RETF (0x503). But we actually want the return address from the
+    // original FAR CALL, which is still on the v86 stack beneath the INT frame.
+    //
+    // The v86 stack currently has (from top):
+    //   [handled by handle_fault's INT emulation — already consumed]
+    //   FAR CALL return IP (2 bytes)
+    //   FAR CALL return CS (2 bytes)
+    //
+    // Actually, the INT instruction faults to the kernel, which exits to us.
+    // handle_fault sees INT 0xFE and dispatches here. It will advance EIP by 2
+    // after we return. But we don't want to return to v86 — we want to enter PM.
+    //
+    // The FAR CALL pushed the return address on the v86 stack. Read it.
+    let rm_sp = vm_regs.esp & 0xffff;
+    let rm_ss = vm_regs.ss & 0xffff;
+    let stack_lin = (rm_ss << 4) + rm_sp;
+    let (ret_ip, ret_cs) = unsafe {
+        let ip = core::ptr::read_volatile(stack_lin as *const u16) as u32;
+        let cs = core::ptr::read_volatile((stack_lin + 2) as *const u16) as u32;
+        (ip, cs)
+    };
+
+    // Linear address where the client expects to resume
+    let _client_code_linear = (ret_cs << 4) + ret_ip;
+
+    // Set up CS: base = real-mode CS << 4, limit = 64K, 32-bit code, DPL=3
+    let cs_params = LdtDescriptorParams {
+        base: ret_cs << 4,
+        limit: 0xFFFF,
+        access: 0xFA, // P=1 DPL=3 S=1 type=code,read (1111_1010)
+        flags: 0x40,  // D=1 (32-bit), G=0 (byte granularity)
+    };
+    dpmi_ldt_write(cs_sel, &cs_params);
+
+    // DS: base = real-mode DS << 4, limit = 64K, 32-bit data, DPL=3
+    let ds_base = (vm_regs.ds & 0xffff) << 4;
+    let ds_params = LdtDescriptorParams {
+        base: ds_base,
+        limit: 0xFFFF,
+        access: 0xF2, // P=1 DPL=3 S=1 type=data,rw (1111_0010)
+        flags: 0x40,  // B=1 (32-bit), G=0
+    };
+    dpmi_ldt_write(ds_sel, &ds_params);
+
+    // SS: base 0, limit 4 GiB, 32-bit data, DPL=3 (flat for PM stack)
+    let ss_params = LdtDescriptorParams {
+        base: 0,
+        limit: 0xFFFFF,
+        access: 0xF2,
+        flags: 0xC0, // G=1 (4K granularity), B=1 (32-bit)
+    };
+    dpmi_ldt_write(ss_sel, &ss_params);
+
+    // ES: base = PSP, limit = 256 bytes, 32-bit data, DPL=3
+    let es_params = LdtDescriptorParams {
+        base: PSP_BASE,
+        limit: 0xFF,
+        access: 0xF2,
+        flags: 0x40,
+    };
+    dpmi_ldt_write(es_sel, &es_params);
+
+    // Allocate a PM stack
+    let pm_stack_base = map_memory(None, DPMI_PM_STACK_SIZE, None)
+        .unwrap_or(0);
+    if pm_stack_base == 0 {
+        dos_log(b"DPMI: failed to allocate PM stack\n");
+        vm_regs.eflags |= 1;
+        return;
+    }
+
+    // Save selectors for later use
+    unsafe {
+        DPMI_CS_SEL = cs_sel;
+        DPMI_DS_SEL = ds_sel;
+        DPMI_SS_SEL = ss_sel;
+        DPMI_ES_SEL = es_sel;
+        DPMI_PM_STACK_BASE = pm_stack_base;
+        DPMI_ACTIVE = true;
+    }
+
+    // Build PM register state
+    let mut pm_regs = VMRegisters {
+        eax: vm_regs.eax,
+        ebx: vm_regs.ebx,
+        ecx: vm_regs.ecx,
+        edx: vm_regs.edx,
+        esi: vm_regs.esi,
+        edi: vm_regs.edi,
+        ebp: vm_regs.ebp,
+        eip: ret_ip,  // offset within the CS segment
+        cs: cs_sel,
+        eflags: 0x200, // IF set
+        esp: pm_stack_base + DPMI_PM_STACK_SIZE, // top of stack
+        ss: ss_sel,
+        es: es_sel,
+        ds: ds_sel,
+        fs: 0,
+        gs: 0,
+    };
+
+    // Enter the PM dispatch loop (does not return to the v86 loop)
+    dpmi_protected_mode_loop(&mut pm_regs);
+}
+
+/// Protected-mode dispatch loop for DPMI.
+/// Runs enter_protected_mode in a loop, handling INT exits.
+fn dpmi_protected_mode_loop(pm_regs: &mut VMRegisters) {
+    loop {
+        let exit_reason = idos_api::syscall::exec::enter_protected_mode(pm_regs);
+
+        let reason_type = exit_reason & 0xFF;
+        match reason_type {
+            idos_api::compat::DPMI_EXIT_INT => {
+                let int_num = ((exit_reason >> 16) & 0xFF) as u8;
+                if !dpmi_handle_int(int_num, pm_regs) {
+                    break;
+                }
+            }
+            idos_api::compat::DPMI_EXIT_FAULT => {
+                let err_code = exit_reason >> 16;
+                let mut buf = [0u8; 32];
+                let len = fmt_unsupported(b"DPMI: fault err=", (err_code & 0xFF) as u8, &mut buf);
+                dos_log(&buf[..len]);
+                break;
+            }
+            _ => {
+                dos_log(b"DPMI: unknown exit reason\n");
+                break;
+            }
+        }
+    }
+
+    // Fell out of PM loop — terminate
+    exit(1);
+}
+
+/// Handle an interrupt from DPMI protected-mode code.
+/// Returns true to continue execution, false to stop.
+fn dpmi_handle_int(int_num: u8, regs: &mut VMRegisters) -> bool {
+    match int_num {
+        0x21 => {
+            // DOS API — for now, just handle terminate (AH=4Ch)
+            if regs.ah() == 0x4C {
+                dos_log(b"DPMI: INT 21h AH=4Ch terminate\n");
+                return false;
+            }
+            let mut buf = [0u8; 32];
+            let len = fmt_unsupported(b"DPMI INT 21 AH=", regs.ah(), &mut buf);
+            dos_log(&buf[..len]);
+        }
+        0x31 => {
+            // DPMI services
+            dpmi_int31(regs);
+        }
+        _ => {
+            let mut buf = [0u8; 32];
+            let len = fmt_unsupported(b"DPMI INT ", int_num, &mut buf);
+            dos_log(&buf[..len]);
+        }
+    }
+    true
+}
+
+/// Write descriptor params to the kernel LDT and update our shadow table.
+fn dpmi_ldt_write(selector: u32, params: &LdtDescriptorParams) {
+    let index = (selector >> 3) as usize;
+    if index > 0 && index < LDT_MAX_SLOTS {
+        unsafe { DPMI_LDT_SHADOW[index] = *params; }
+    }
+    idos_api::syscall::ldt::ldt_modify(selector, params);
+}
+
+/// Read the shadow copy of a descriptor's params.
+fn dpmi_ldt_read(selector: u32) -> LdtDescriptorParams {
+    let index = (selector >> 3) as usize;
+    if index > 0 && index < LDT_MAX_SLOTS {
+        unsafe { DPMI_LDT_SHADOW[index] }
+    } else {
+        LdtDescriptorParams { base: 0, limit: 0, access: 0, flags: 0 }
+    }
+}
+
+/// Clear the shadow entry for a freed selector.
+fn dpmi_ldt_clear(selector: u32) {
+    let index = (selector >> 3) as usize;
+    if index > 0 && index < LDT_MAX_SLOTS {
+        unsafe {
+            DPMI_LDT_SHADOW[index] = LdtDescriptorParams {
+                base: 0, limit: 0, access: 0, flags: 0,
+            };
+        }
+    }
+}
+
+/// INT 0x31 — DPMI API dispatch.
+fn dpmi_int31(regs: &mut VMRegisters) {
+    let ax = (regs.eax & 0xffff) as u16;
+
+    match ax {
+        // ---- Descriptor management (AH=00) ----
+
+        0x0000 => {
+            // Allocate LDT descriptor(s)
+            // CX = number of descriptors to allocate
+            // Returns: AX = base selector (CF=1 on error)
+            let count = (regs.ecx & 0xffff) as u32;
+            if count == 0 || count > 16 {
+                regs.eflags |= 1;
+                return;
+            }
+            // Allocate them; if any fail, free them all and return error.
+            let mut sels = [0u32; 16];
+            for i in 0..count as usize {
+                let sel = idos_api::syscall::ldt::ldt_allocate();
+                if sel == 0xffff_ffff {
+                    // Free already-allocated
+                    for j in 0..i {
+                        idos_api::syscall::ldt::ldt_free(sels[j]);
+                        dpmi_ldt_clear(sels[j]);
+                    }
+                    regs.eflags |= 1;
+                    return;
+                }
+                sels[i] = sel;
+                // Initialize shadow as present data segment, DPL=3
+                let params = LdtDescriptorParams {
+                    base: 0,
+                    limit: 0,
+                    access: 0xF2, // P=1 DPL=3 S=1 data r/w
+                    flags: 0x40,  // D/B=1
+                };
+                dpmi_ldt_write(sel, &params);
+            }
+            // Return the first selector
+            regs.set_ax(sels[0] as u16);
+            regs.eflags &= !1; // clear CF
+        }
+
+        0x0001 => {
+            // Free LDT descriptor
+            // BX = selector
+            let sel = regs.ebx & 0xffff;
+            let result = idos_api::syscall::ldt::ldt_free(sel);
+            if result == 0xffff_ffff {
+                regs.eflags |= 1;
+            } else {
+                dpmi_ldt_clear(sel);
+                regs.eflags &= !1;
+            }
+        }
+
+        0x0007 => {
+            // Set segment base address
+            // BX = selector, CX:DX = 32-bit base address
+            let sel = regs.ebx & 0xffff;
+            let base = ((regs.ecx & 0xffff) << 16) | (regs.edx & 0xffff);
+            let mut params = dpmi_ldt_read(sel);
+            params.base = base;
+            dpmi_ldt_write(sel, &params);
+            regs.eflags &= !1;
+        }
+
+        0x0008 => {
+            // Set segment limit
+            // BX = selector, CX:DX = 32-bit limit
+            let sel = regs.ebx & 0xffff;
+            let limit = ((regs.ecx & 0xffff) << 16) | (regs.edx & 0xffff);
+            let mut params = dpmi_ldt_read(sel);
+            if limit > 0xFFFFF {
+                // Need page granularity
+                params.limit = limit >> 12;
+                params.flags = (params.flags & 0x7F) | 0x80; // set G bit
+            } else {
+                params.limit = limit;
+                params.flags = params.flags & 0x7F; // clear G bit
+            }
+            dpmi_ldt_write(sel, &params);
+            regs.eflags &= !1;
+        }
+
+        0x0009 => {
+            // Set descriptor access rights
+            // BX = selector, CL = access byte, CH = flags (type/386 byte)
+            let sel = regs.ebx & 0xffff;
+            let access = regs.cl();
+            let type_byte = regs.ch();
+            let mut params = dpmi_ldt_read(sel);
+            // Enforce DPL=3 — client can't escalate
+            params.access = (access & 0x9F) | 0x60; // force DPL bits to 11
+            params.flags = type_byte & 0xF0; // high nibble only (G, D/B, L, AVL)
+            dpmi_ldt_write(sel, &params);
+            regs.eflags &= !1;
+        }
+
+        0x000A => {
+            // Create alias descriptor (data alias of a code segment)
+            // BX = selector of code segment to alias
+            // Returns: AX = new data selector
+            let src_sel = regs.ebx & 0xffff;
+            let src = dpmi_ldt_read(src_sel);
+            // Allocate a new descriptor
+            let new_sel = idos_api::syscall::ldt::ldt_allocate();
+            if new_sel == 0xffff_ffff {
+                regs.eflags |= 1;
+                return;
+            }
+            // Copy base and limit, but make it a data segment
+            let params = LdtDescriptorParams {
+                base: src.base,
+                limit: src.limit,
+                access: (src.access & 0xF0) | 0x02, // keep P/DPL, type = data r/w
+                flags: src.flags,
+            };
+            dpmi_ldt_write(new_sel, &params);
+            regs.set_ax(new_sel as u16);
+            regs.eflags &= !1;
+        }
+
+        // ---- DOS memory management (AH=01) ----
+
+        0x0100 => {
+            // Allocate DOS memory block
+            // BX = paragraphs requested
+            // Returns: AX = real-mode segment, DX = selector (CF=1 on error, BX = max avail)
+            let paras = (regs.ebx & 0xffff) as u16;
+            match dos_arena_alloc(paras) {
+                Some(segment) => {
+                    regs.set_ax(segment);
+                    // Allocate an LDT selector for the block too
+                    let sel = idos_api::syscall::ldt::ldt_allocate();
+                    if sel != 0xffff_ffff {
+                        let params = LdtDescriptorParams {
+                            base: (segment as u32) << 4,
+                            limit: (paras as u32) * 16 - 1,
+                            access: 0xF2,
+                            flags: 0x40,
+                        };
+                        dpmi_ldt_write(sel, &params);
+                    }
+                    regs.set_dx(sel as u16);
+                    regs.eflags &= !1;
+                }
+                None => {
+                    regs.ebx = (regs.ebx & 0xffff0000) | dos_arena_largest() as u32;
+                    regs.eflags |= 1;
+                }
+            }
+        }
+
+        0x0101 => {
+            // Free DOS memory block
+            // DX = selector of block to free
+            let sel = regs.edx & 0xffff;
+            let params = dpmi_ldt_read(sel);
+            let segment = (params.base >> 4) as u16;
+            if dos_arena_free(segment) {
+                idos_api::syscall::ldt::ldt_free(sel);
+                dpmi_ldt_clear(sel);
+                regs.eflags &= !1;
+            } else {
+                regs.eflags |= 1;
+            }
+        }
+
+        0x0102 => {
+            // Resize DOS memory block
+            // BX = new size in paragraphs, DX = selector of block
+            let new_paras = (regs.ebx & 0xffff) as u16;
+            let sel = regs.edx & 0xffff;
+            let params = dpmi_ldt_read(sel);
+            let segment = (params.base >> 4) as u16;
+            if dos_arena_resize(segment, new_paras) {
+                // Update the descriptor limit
+                let mut p = dpmi_ldt_read(sel);
+                p.limit = (new_paras as u32) * 16 - 1;
+                dpmi_ldt_write(sel, &p);
+                regs.eflags &= !1;
+            } else {
+                regs.ebx = (regs.ebx & 0xffff0000) | dos_arena_largest() as u32;
+                regs.eflags |= 1;
+            }
+        }
+
+        // ---- Memory management (AH=05) ----
+
+        0x0501 => {
+            // Allocate memory block (above 1 MB)
+            // BX:CX = size in bytes
+            // Returns: BX:CX = linear address, SI:DI = handle
+            let size = ((regs.ebx & 0xffff) << 16) | (regs.ecx & 0xffff);
+            if size == 0 {
+                regs.eflags |= 1;
+                return;
+            }
+            // Round up to page size
+            let alloc_size = (size + 0xFFF) & !0xFFF;
+            match map_memory(None, alloc_size, None) {
+                Ok(addr) => {
+                    // Record in our tracking table
+                    if let Some(handle) = dpmi_high_mem_record(addr, alloc_size) {
+                        regs.ebx = (regs.ebx & 0xffff0000) | ((addr >> 16) & 0xffff);
+                        regs.ecx = (regs.ecx & 0xffff0000) | (addr & 0xffff);
+                        regs.esi = (regs.esi & 0xffff0000) | ((handle >> 16) & 0xffff);
+                        regs.edi = (regs.edi & 0xffff0000) | (handle & 0xffff);
+                        regs.eflags &= !1;
+                    } else {
+                        // Table full, unmap and fail
+                        let _ = idos_api::syscall::memory::unmap_memory(addr, alloc_size);
+                        regs.eflags |= 1;
+                    }
+                }
+                Err(_) => {
+                    regs.eflags |= 1;
+                }
+            }
+        }
+
+        0x0502 => {
+            // Free memory block
+            // SI:DI = handle (from 0x0501)
+            let handle = ((regs.esi & 0xffff) << 16) | (regs.edi & 0xffff);
+            if dpmi_high_mem_free(handle) {
+                regs.eflags &= !1;
+            } else {
+                regs.eflags |= 1;
+            }
+        }
+
+        _ => {
+            dpmi_log_unsupported(ax);
+            regs.eflags |= 1;
+        }
+    }
+}
+
+// ---- Conventional memory arena allocator ----
+
+/// Allocate `paras` paragraphs from the conventional memory arena.
+/// Returns the segment of the allocated block, or None.
+fn dos_arena_alloc(paras: u16) -> Option<u16> {
+    unsafe {
+        // Find the lowest free address by scanning existing blocks
+        let mut cursor = DOS_ARENA_START;
+        // Sort blocks by segment to find gaps (simple approach: find first fit)
+        // Collect occupied regions
+        let mut occupied = [(0u16, 0u16); DOS_ARENA_MAX_BLOCKS];
+        let mut n_occupied = 0;
+        for i in 0..DOS_ARENA_MAX_BLOCKS {
+            if DOS_ARENA[i].0 != 0 {
+                occupied[n_occupied] = DOS_ARENA[i];
+                n_occupied += 1;
+            }
+        }
+        // Simple insertion sort by segment
+        for i in 1..n_occupied {
+            let key = occupied[i];
+            let mut j = i;
+            while j > 0 && occupied[j - 1].0 > key.0 {
+                occupied[j] = occupied[j - 1];
+                j -= 1;
+            }
+            occupied[j] = key;
+        }
+        // First-fit: walk through sorted blocks, look for gap
+        cursor = DOS_ARENA_START;
+        for i in 0..n_occupied {
+            let blk_start = occupied[i].0;
+            let blk_end = blk_start + occupied[i].1;
+            if cursor + paras <= blk_start {
+                // Found a gap before this block
+                break;
+            }
+            if blk_end > cursor {
+                cursor = blk_end;
+            }
+        }
+        // Check if there's room before DOS_MEM_TOP
+        if (cursor as u32 + paras as u32) > DOS_MEM_TOP_SEGMENT as u32 {
+            return None;
+        }
+        // Find a free slot in the arena table
+        for i in 0..DOS_ARENA_MAX_BLOCKS {
+            if DOS_ARENA[i].0 == 0 {
+                DOS_ARENA[i] = (cursor, paras);
+                return Some(cursor);
+            }
+        }
+        None // table full
+    }
+}
+
+/// Free a conventional memory block by segment.
+fn dos_arena_free(segment: u16) -> bool {
+    unsafe {
+        for i in 0..DOS_ARENA_MAX_BLOCKS {
+            if DOS_ARENA[i].0 == segment {
+                DOS_ARENA[i] = (0, 0);
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// Resize a conventional memory block. Only grows/shrinks in place.
+fn dos_arena_resize(segment: u16, new_paras: u16) -> bool {
+    unsafe {
+        // Find the block
+        let mut idx = DOS_ARENA_MAX_BLOCKS;
+        for i in 0..DOS_ARENA_MAX_BLOCKS {
+            if DOS_ARENA[i].0 == segment {
+                idx = i;
+                break;
+            }
+        }
+        if idx == DOS_ARENA_MAX_BLOCKS {
+            return false;
+        }
+        let blk_end = segment as u32 + new_paras as u32;
+        if blk_end > DOS_MEM_TOP_SEGMENT as u32 {
+            return false;
+        }
+        // Check no other block overlaps the new range
+        for i in 0..DOS_ARENA_MAX_BLOCKS {
+            if i == idx || DOS_ARENA[i].0 == 0 {
+                continue;
+            }
+            let other_start = DOS_ARENA[i].0 as u32;
+            let other_end = other_start + DOS_ARENA[i].1 as u32;
+            // Overlap check
+            if (segment as u32) < other_end && blk_end > other_start {
+                return false;
+            }
+        }
+        DOS_ARENA[idx].1 = new_paras;
+        true
+    }
+}
+
+/// Return the largest free contiguous block in paragraphs.
+fn dos_arena_largest() -> u16 {
+    unsafe {
+        let mut occupied = [(0u16, 0u16); DOS_ARENA_MAX_BLOCKS];
+        let mut n = 0;
+        for i in 0..DOS_ARENA_MAX_BLOCKS {
+            if DOS_ARENA[i].0 != 0 {
+                occupied[n] = DOS_ARENA[i];
+                n += 1;
+            }
+        }
+        // Sort by segment
+        for i in 1..n {
+            let key = occupied[i];
+            let mut j = i;
+            while j > 0 && occupied[j - 1].0 > key.0 {
+                occupied[j] = occupied[j - 1];
+                j -= 1;
+            }
+            occupied[j] = key;
+        }
+        let mut cursor = DOS_ARENA_START;
+        let mut largest: u16 = 0;
+        for i in 0..n {
+            let gap = occupied[i].0.saturating_sub(cursor);
+            if gap > largest {
+                largest = gap;
+            }
+            let end = occupied[i].0 + occupied[i].1;
+            if end > cursor {
+                cursor = end;
+            }
+        }
+        // Gap after last block
+        let gap = DOS_MEM_TOP_SEGMENT.saturating_sub(cursor);
+        if gap > largest {
+            largest = gap;
+        }
+        largest
+    }
+}
+
+// ---- High memory block tracker ----
+
+/// Record a high-memory allocation. Returns a handle (1-based index) or None.
+fn dpmi_high_mem_record(addr: u32, size: u32) -> Option<u32> {
+    unsafe {
+        for i in 0..DPMI_HIGH_MEM_MAX {
+            if DPMI_HIGH_MEM[i].0 == 0 {
+                DPMI_HIGH_MEM[i] = (addr, size);
+                return Some((i + 1) as u32); // 1-based handle
+            }
+        }
+        None
+    }
+}
+
+/// Free a high-memory block by handle. Unmaps the memory.
+fn dpmi_high_mem_free(handle: u32) -> bool {
+    if handle == 0 {
+        return false;
+    }
+    let idx = (handle - 1) as usize;
+    unsafe {
+        if idx >= DPMI_HIGH_MEM_MAX || DPMI_HIGH_MEM[idx].0 == 0 {
+            return false;
+        }
+        let (addr, size) = DPMI_HIGH_MEM[idx];
+        let _ = idos_api::syscall::memory::unmap_memory(addr, size);
+        DPMI_HIGH_MEM[idx] = (0, 0);
+        true
+    }
+}
+
+/// Log an unsupported DPMI INT 31h function.
+fn dpmi_log_unsupported(ax: u16) {
+    let hi = (ax >> 8) as u8;
+    let lo = (ax & 0xff) as u8;
+    let hex = b"0123456789ABCDEF";
+    let mut buf = [0u8; 32];
+    let prefix = b"DPMI INT 31 AX=";
+    let mut i = 0;
+    for &b in prefix {
+        buf[i] = b;
+        i += 1;
+    }
+    buf[i] = hex[(hi >> 4) as usize]; i += 1;
+    buf[i] = hex[(hi & 0xf) as usize]; i += 1;
+    buf[i] = hex[(lo >> 4) as usize]; i += 1;
+    buf[i] = hex[(lo & 0xf) as usize]; i += 1;
+    buf[i] = b'\n'; i += 1;
+    dos_log(&buf[..i]);
 }
 
 /// BIOS video services (INT 10h)
@@ -1866,17 +2673,26 @@ fn delete_file(regs: &mut VMRegisters) {
 /// Input: BX=paragraphs requested
 /// Output: CF=0 AX=segment on success, CF=1 BX=max available on failure
 fn allocate_memory(regs: &mut VMRegisters) {
-    // Stub: fail — all memory was pre-allocated at startup
-    regs.eflags |= 1;
-    regs.ebx = (regs.ebx & 0xffff0000); // 0 paragraphs available
-    regs.set_ax(0x08); // insufficient memory
+    let paras = (regs.ebx & 0xffff) as u16;
+    match dos_arena_alloc(paras) {
+        Some(segment) => {
+            regs.set_ax(segment);
+            regs.eflags &= !1;
+        }
+        None => {
+            regs.ebx = (regs.ebx & 0xffff0000) | dos_arena_largest() as u32;
+            regs.set_ax(0x08); // insufficient memory
+            regs.eflags |= 1;
+        }
+    }
 }
 
 /// AH=0x49 - Free memory block
 /// Input: ES=segment of block
 /// Output: CF=0 on success
 fn free_memory(regs: &mut VMRegisters) {
-    // Stub: always succeed
+    let segment = (regs.es & 0xffff) as u16;
+    dos_arena_free(segment); // best-effort, always succeed
     regs.eflags &= !1;
 }
 
@@ -1884,8 +2700,13 @@ fn free_memory(regs: &mut VMRegisters) {
 /// Input: BX=new size in paragraphs, ES=segment of block
 /// Output: CF=0 on success, CF=1 BX=max available on failure
 fn resize_memory(regs: &mut VMRegisters) {
-    // Stub: always succeed — we pre-mapped enough memory
-    regs.eflags &= !1; // clear CF
+    let new_paras = (regs.ebx & 0xffff) as u16;
+    let segment = (regs.es & 0xffff) as u16;
+    // Try to resize in the arena. If the block isn't tracked (e.g. the
+    // program's initial allocation before we had an arena), just succeed —
+    // the memory is already mapped.
+    dos_arena_resize(segment, new_paras);
+    regs.eflags &= !1;
 }
 
 /// AH=0x4C - Terminate with return code

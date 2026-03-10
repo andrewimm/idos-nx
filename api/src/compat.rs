@@ -9,6 +9,7 @@ pub const DPMI_EXIT_FAULT: u32 = 3;
 
 /// Parameters for modifying an LDT descriptor via syscall 0x09.
 /// Passed by pointer in ebx (selector) + ecx (pointer to this struct).
+#[derive(Clone, Copy)]
 #[repr(C)]
 pub struct LdtDescriptorParams {
     pub base: u32,
