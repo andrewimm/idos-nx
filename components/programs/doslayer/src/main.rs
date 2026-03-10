@@ -280,6 +280,20 @@ fn dos_log(msg: &[u8]) {
     }
 }
 
+/// Resolve a seg:offset pointer to a linear address.
+/// In v86 mode: (seg << 4) + (offset & 0xffff) (real-mode addressing).
+/// In DPMI mode: descriptor base + offset (flat addressing via LDT shadow).
+fn resolve_ptr(seg: u32, offset: u32) -> u32 {
+    unsafe {
+        if DPMI_ACTIVE {
+            let base = dpmi_ldt_read(seg).base;
+            base + offset
+        } else {
+            (seg << 4) + (offset & 0xffff)
+        }
+    }
+}
+
 /// Format "PREFIX XX\n" where XX is a hex byte.
 fn fmt_unsupported(prefix: &[u8], value: u8, buf: &mut [u8; 32]) -> usize {
     let hex = b"0123456789ABCDEF";
@@ -1386,14 +1400,13 @@ fn dpmi_protected_mode_loop(pm_regs: &mut VMRegisters) {
 fn dpmi_handle_int(int_num: u8, regs: &mut VMRegisters) -> bool {
     match int_num {
         0x21 => {
-            // DOS API — for now, just handle terminate (AH=4Ch)
+            // DOS API — terminate (AH=4Ch) exits the PM loop
             if regs.ah() == 0x4C {
-                dos_log(b"DPMI: INT 21h AH=4Ch terminate\n");
                 return false;
             }
-            let mut buf = [0u8; 32];
-            let len = fmt_unsupported(b"DPMI INT 21 AH=", regs.ah(), &mut buf);
-            dos_log(&buf[..len]);
+            // Reuse the same handlers as v86 mode; resolve_ptr()
+            // takes care of pointer translation.
+            dos_api(regs);
         }
         0x31 => {
             // DPMI services
@@ -2223,10 +2236,9 @@ pub fn write_char_stdaux(regs: &mut VMRegisters) {
 /// Output:
 ///     None
 pub fn print_string(regs: &mut VMRegisters) {
-    let dx = regs.edx & 0xffff;
-    let start_address = (regs.ds << 4) + dx;
+    let start_address = resolve_ptr(regs.ds, regs.edx);
     let start_ptr = start_address as *const u8;
-    let search_len = 256.min(0x10000 - dx) as usize;
+    let search_len = 256usize;
     let mut string_len = 0;
     while string_len < search_len {
         unsafe {
@@ -2359,8 +2371,7 @@ fn get_disk_free_space(regs: &mut VMRegisters) {
 /// Input: DL=drive (0=default, 1=A, ...), DS:SI=64-byte buffer
 /// Output: CF=0 on success, buffer filled with path (no drive, no leading \)
 fn get_current_directory(regs: &mut VMRegisters) {
-    let si = regs.esi & 0xffff;
-    let buf_addr = (regs.ds << 4) + si;
+    let buf_addr = resolve_ptr(regs.ds, regs.esi);
     let buf = buf_addr as *mut u8;
 
     unsafe {
@@ -2393,8 +2404,7 @@ fn get_current_directory(regs: &mut VMRegisters) {
 /// Read a NUL-terminated DOS path from v86 memory at DS:DX.
 /// Returns the path as a byte slice (up to 128 bytes).
 fn read_dos_path(regs: &VMRegisters) -> &'static [u8] {
-    let dx = regs.edx & 0xffff;
-    let addr = (regs.ds << 4) + dx;
+    let addr = resolve_ptr(regs.ds, regs.edx);
     let ptr = addr as *const u8;
     let mut len = 0;
     while len < 128 {
@@ -2483,9 +2493,8 @@ fn close_file(regs: &mut VMRegisters) {
 /// Output: CF=0 AX=bytes read on success
 fn read_file(regs: &mut VMRegisters) {
     let dos_handle = (regs.ebx & 0xffff) as u16;
-    let count = (regs.ecx & 0xffff) as usize;
-    let dx = regs.edx & 0xffff;
-    let buffer_addr = (regs.ds << 4) + dx;
+    let count = if unsafe { DPMI_ACTIVE } { regs.ecx as usize } else { (regs.ecx & 0xffff) as usize };
+    let buffer_addr = resolve_ptr(regs.ds, regs.edx);
     let buffer = unsafe { core::slice::from_raw_parts_mut(buffer_addr as *mut u8, count) };
 
     // When reading from stdin, flush graphics and temporarily enable
@@ -2527,9 +2536,8 @@ fn read_file(regs: &mut VMRegisters) {
 /// Output: CF=0 AX=bytes written on success
 fn write_file(regs: &mut VMRegisters) {
     let dos_handle = (regs.ebx & 0xffff) as u16;
-    let count = (regs.ecx & 0xffff) as usize;
-    let dx = regs.edx & 0xffff;
-    let buffer_addr = (regs.ds << 4) + dx;
+    let count = if unsafe { DPMI_ACTIVE } { regs.ecx as usize } else { (regs.ecx & 0xffff) as usize };
+    let buffer_addr = resolve_ptr(regs.ds, regs.edx);
     let buffer = unsafe { core::slice::from_raw_parts(buffer_addr as *const u8, count) };
 
     match get_dos_fd_mut(dos_handle) {
@@ -2726,8 +2734,7 @@ fn rename_file(regs: &mut VMRegisters) {
     let old_len = resolve_dos_path(old_path_bytes, &mut old_resolved);
 
     // Read new name from ES:DI
-    let di = regs.edi & 0xffff;
-    let new_addr = (regs.es << 4) + di;
+    let new_addr = resolve_ptr(regs.es, regs.edi);
     let new_ptr = new_addr as *const u8;
     let mut new_raw_len = 0;
     while new_raw_len < 128 {
