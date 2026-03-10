@@ -1686,11 +1686,117 @@ fn dpmi_int31(regs: &mut VMRegisters) {
             }
         }
 
+        // ---- Interrupt management (AH=02) ----
+
+        0x0200 => {
+            // Get real-mode interrupt vector
+            // BL = interrupt number
+            // Returns: CX:DX = segment:offset
+            let int_num = regs.bl() as u32;
+            let ivt_addr = (int_num * 4) as *const u16;
+            unsafe {
+                let offset = core::ptr::read_volatile(ivt_addr) as u32;
+                let segment = core::ptr::read_volatile(ivt_addr.add(1)) as u32;
+                regs.ecx = (regs.ecx & 0xffff0000) | segment;
+                regs.edx = (regs.edx & 0xffff0000) | offset;
+            }
+            regs.eflags &= !1;
+        }
+
+        0x0201 => {
+            // Set real-mode interrupt vector
+            // BL = interrupt number, CX:DX = segment:offset
+            let int_num = regs.bl() as u32;
+            let segment = regs.ecx & 0xffff;
+            let offset = regs.edx & 0xffff;
+            let ivt_addr = (int_num * 4) as *mut u16;
+            unsafe {
+                core::ptr::write_volatile(ivt_addr, offset as u16);
+                core::ptr::write_volatile(ivt_addr.add(1), segment as u16);
+            }
+            // Update IRQ mask if hooking a hardware interrupt
+            let irq = match int_num {
+                0x08..=0x0F => Some(int_num - 0x08),
+                0x70..=0x77 => Some(int_num - 0x70 + 8),
+                0x1C => Some(0),
+                _ => None,
+            };
+            if let Some(irq_num) = irq {
+                unsafe { VM86_IRQ_MASK |= 1 << irq_num; }
+            }
+            regs.eflags &= !1;
+        }
+
+        // ---- Real-mode interrupt simulation (AH=03) ----
+
+        0x0300 => {
+            // Simulate real-mode interrupt
+            // BL = interrupt number, ES:EDI = pointer to RealModeCallStruct
+            let int_num = regs.bl();
+            let struct_addr = resolve_ptr(regs.es, regs.edi);
+            let rmcs = struct_addr as *mut DpmiRealModeCallStruct;
+
+            // Copy the RMCS into a VMRegisters for our existing handlers
+            let mut vm = unsafe {
+                let s = &*rmcs;
+                VMRegisters {
+                    eax: s.eax, ebx: s.ebx, ecx: s.ecx, edx: s.edx,
+                    esi: s.esi, edi: s.edi, ebp: s.ebp,
+                    eip: s.ip as u32, cs: s.cs as u32,
+                    eflags: s.flags as u32,
+                    esp: s.sp as u32, ss: s.ss as u32,
+                    es: s.es as u32, ds: s.ds as u32,
+                    fs: s.fs as u32, gs: s.gs as u32,
+                }
+            };
+
+            // Temporarily clear DPMI_ACTIVE so handlers use real-mode
+            // pointer resolution (seg << 4 + offset)
+            unsafe { DPMI_ACTIVE = false; }
+            handle_interrupt(int_num, &mut vm);
+            unsafe { DPMI_ACTIVE = true; }
+
+            // Copy results back to the RMCS
+            unsafe {
+                let s = &mut *rmcs;
+                s.eax = vm.eax; s.ebx = vm.ebx; s.ecx = vm.ecx; s.edx = vm.edx;
+                s.esi = vm.esi; s.edi = vm.edi; s.ebp = vm.ebp;
+                s.flags = vm.eflags as u16;
+                s.es = vm.es as u16; s.ds = vm.ds as u16;
+                s.fs = vm.fs as u16; s.gs = vm.gs as u16;
+            }
+
+            regs.eflags &= !1;
+        }
+
         _ => {
             dpmi_log_unsupported(ax);
             regs.eflags |= 1;
         }
     }
+}
+
+/// DPMI Real Mode Call Structure (50 bytes).
+/// Layout matches the DPMI 0.9 spec for INT 31h AX=0300h.
+#[repr(C, packed)]
+struct DpmiRealModeCallStruct {
+    edi: u32,
+    esi: u32,
+    ebp: u32,
+    _reserved: u32,
+    ebx: u32,
+    edx: u32,
+    ecx: u32,
+    eax: u32,
+    flags: u16,
+    es: u16,
+    ds: u16,
+    fs: u16,
+    gs: u16,
+    ip: u16,
+    cs: u16,
+    sp: u16,
+    ss: u16,
 }
 
 // ---- Conventional memory arena allocator ----
