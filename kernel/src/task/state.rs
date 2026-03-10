@@ -1,3 +1,4 @@
+use crate::arch::ldt::LocalDescriptorTable;
 use crate::interrupts::syscall::FullSavedRegisters;
 use crate::io::async_io::{AsyncIOTable, IOType};
 use crate::io::handle::HandleTable;
@@ -105,8 +106,17 @@ pub struct Task {
     /// IRQ bitmask for virtual interrupt delivery in VM86 mode
     pub vm86_irq_mask: u32,
 
+    /// Storage for the task's registers when it enters DPMI protected mode.
+    /// When Some, GPF handler knows to exit back to the caller instead of terminating.
+    pub dpmi_registers: Option<FullSavedRegisters>,
+
     /// FPU/SSE register state, saved and restored on every context switch
     pub fpu_state: FxState,
+
+    /// Per-task Local Descriptor Table for DPMI protected-mode support.
+    /// None means the task has no LDT (normal programs). Allocated on demand
+    /// when a DPMI client requests descriptor management.
+    pub ldt: Option<Box<LocalDescriptorTable>>,
 }
 
 impl Task {
@@ -130,7 +140,9 @@ impl Task {
             last_map_result: None,
             vm86_registers: None,
             vm86_irq_mask: 0,
+            dpmi_registers: None,
             fpu_state: FxState::new(),
+            ldt: None,
         }
     }
 

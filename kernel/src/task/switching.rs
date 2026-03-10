@@ -228,6 +228,16 @@ pub fn switch_to(id: TaskID) {
 
     crate::arch::gdt::set_tss_stack_pointer(stack_top as u32);
 
+    // Load the next task's LDT (or clear it if the task has none)
+    {
+        let next = next_task_lock.read();
+        let scheduler = super::scheduling::get_cpu_scheduler();
+        crate::arch::ldt::load_task_ldt(
+            &mut scheduler.gdt,
+            next.ldt.as_deref(),
+        );
+    }
+
     let _ = CURRENT_ID.swap(id, core::sync::atomic::Ordering::SeqCst);
 
     // Save outgoing task's FPU state, restore incoming task's

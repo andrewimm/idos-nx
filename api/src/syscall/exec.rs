@@ -34,3 +34,7 @@ pub fn load_executable(task_id: u32, path: &str) -> bool {
 pub fn enter_8086(regs: &mut VMRegisters, flags: u32) -> u32 {
     super::syscall(0x07, regs as *mut VMRegisters as u32, flags, 0)
 }
+
+pub fn enter_protected_mode(regs: &mut VMRegisters) -> u32 {
+    super::syscall(0x0b, regs as *mut VMRegisters as u32, 0, 0)
+}

@@ -36,7 +36,7 @@ pub struct CPUScheduler {
     idle_task: TaskID,
     pub work_queue: Mutex<VecDeque<WorkItem>>,
 
-    gdt: [GdtEntry; 8],
+    pub gdt: [GdtEntry; 9],
 
     pub has_lapic: bool,
     current_ticks: AtomicU8,

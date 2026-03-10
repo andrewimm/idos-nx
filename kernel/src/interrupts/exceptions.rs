@@ -10,6 +10,7 @@ use crate::task::switching::get_current_id;
 use super::stack::StackFrame;
 use super::syscall::{FullSavedRegisters, SavedRegisters};
 
+
 /// Triggered when dividing by zero, or when the result is too large to fit in
 /// the destination register.
 #[no_mangle]
@@ -178,6 +179,15 @@ global_asm!(
 .global gpf_exception
 
 gpf_exception:
+    // Ensure DS and ES are kernel data selectors so the Rust handler can
+    // safely dereference pointers. We use push/mov/pop to avoid any
+    // stack imbalance from push-imm/pop-segment pairs.
+    push eax
+    mov eax, 0x10
+    mov ds, eax
+    mov es, eax
+    pop eax
+
     push eax
     push ecx
     push edx
@@ -271,6 +281,73 @@ fn exit_vm86(stack_frame: &StackFrame, registers: &SavedRegisters, exit_reason: 
     terminate(0);
 }
 
+/// Save the current DPMI protected-mode state and restore the caller's context,
+/// returning to doslayer. Parallel to exit_vm86 but for protected-mode DPMI code.
+///
+/// Note: by the time this is called, the GPF stub has already loaded kernel
+/// selectors into DS/ES. The DPMI program's original segment register values
+/// are passed separately since enter_protected_mode loaded them and they were
+/// clobbered by the stub's `push 0x10; pop ds/es` (which is necessary so the
+/// Rust handler can dereference pointers safely).
+fn exit_dpmi(
+    stack_frame: &StackFrame,
+    registers: &SavedRegisters,
+    exit_reason: u32,
+    saved_ds: u32,
+    saved_es: u32,
+    saved_fs: u32,
+    saved_gs: u32,
+) -> ! {
+    let stored_regs = crate::task::switching::get_current_task()
+        .write()
+        .dpmi_registers
+        .take();
+    if let Some(mut prev_regs) = stored_regs {
+        prev_regs.eax = exit_reason;
+        let vm_regs_ptr = prev_regs.ebx as *mut VMRegisters;
+        unsafe {
+            let vm_regs = &mut *vm_regs_ptr;
+            vm_regs.eax = registers.eax;
+            vm_regs.ecx = registers.ecx;
+            vm_regs.edx = registers.edx;
+            vm_regs.ebx = registers.ebx;
+            vm_regs.esi = registers.esi;
+            vm_regs.edi = registers.edi;
+            vm_regs.ebp = registers.ebp;
+
+            vm_regs.eip = stack_frame.eip;
+            vm_regs.cs = stack_frame.cs;
+            vm_regs.eflags = stack_frame.eflags;
+
+            // For ring 3 → ring 0 transitions, the CPU pushes ESP and SS
+            // at the same position as for v86 (just beyond the StackFrame).
+            let stack_frame_ptr = stack_frame as *const StackFrame as *const u32;
+            vm_regs.esp = core::ptr::read_volatile(stack_frame_ptr.add(3));
+            vm_regs.ss = core::ptr::read_volatile(stack_frame_ptr.add(4));
+
+            vm_regs.ds = saved_ds;
+            vm_regs.es = saved_es;
+            vm_regs.fs = saved_fs;
+            vm_regs.gs = saved_gs;
+
+            asm!(
+                "mov esp, eax",
+                "pop edi",
+                "pop esi",
+                "pop ebp",
+                "pop ebx",
+                "pop edx",
+                "pop ecx",
+                "pop eax",
+                "iretd",
+                in("eax") &prev_regs as *const FullSavedRegisters
+            );
+        }
+    }
+    crate::kprintln!("No previous DPMI regs. How did we get here?");
+    terminate(0);
+}
+
 #[no_mangle]
 pub extern "C" fn _gpf_exception_inner(
     stack_frame: &StackFrame,
@@ -283,6 +360,56 @@ pub extern "C" fn _gpf_exception_inner(
     if stack_frame.eflags & 0x20000 != 0 {
         exit_vm86(stack_frame, registers, idos_api::compat::VM86_EXIT_GPF);
     }
+
+    // Check if this is a DPMI protected-mode task
+    {
+        let has_dpmi = crate::task::switching::get_current_task()
+            .read()
+            .dpmi_registers
+            .is_some();
+        if has_dpmi {
+            // Read the DPMI program's segment registers before they're lost.
+            // The GPF stub loaded kernel selectors into DS/ES, but FS/GS are
+            // still the DPMI values (the stub doesn't touch them).
+            // DS and ES were the DPMI selectors before the stub clobbered them —
+            // for now, enter_protected_mode stores them in the VMRegisters struct
+            // and we can retrieve them from there. However, the DPMI program may
+            // have changed them after entry, so we save what we can:
+            // FS and GS are still the DPMI program's values.
+            let (saved_fs, saved_gs): (u32, u32);
+            unsafe {
+                asm!("mov {:e}, fs", out(reg) saved_fs);
+                asm!("mov {:e}, gs", out(reg) saved_gs);
+            }
+            // DS and ES were clobbered to 0x10 by the stub. For flat-model DPMI
+            // programs (base 0), the original selectors can be recovered from the
+            // VMRegisters that enter_protected_mode populated. For now, we read
+            // them from the saved context as a best-effort.
+            let (saved_ds, saved_es) = {
+                let task_lock = crate::task::switching::get_current_task();
+                let task = task_lock.read();
+                let prev = task.dpmi_registers.as_ref().unwrap();
+                let vm_regs = unsafe { &*(prev.ebx as *const VMRegisters) };
+                (vm_regs.ds, vm_regs.es)
+            };
+
+            // Determine exit reason from the error code.
+            // When a software INT from ring 3 hits a DPL=0 IDT entry,
+            // the error code has bit 1 (IDT flag) set and bits [15:3] = vector number.
+            let err = *err_code;
+            let exit_reason = if err & 0x02 != 0 {
+                let int_num = (err >> 3) & 0xff;
+                (int_num << 16) | idos_api::compat::DPMI_EXIT_INT
+            } else {
+                (err << 16) | idos_api::compat::DPMI_EXIT_FAULT
+            };
+            exit_dpmi(
+                stack_frame, registers, exit_reason,
+                saved_ds, saved_es, saved_fs, saved_gs,
+            );
+        }
+    }
+
     if stack_frame.eip >= 0xc0000000 {
         crate::kprintln!("Kernel GPF");
     }

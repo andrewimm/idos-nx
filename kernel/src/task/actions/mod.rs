@@ -4,6 +4,7 @@
 
 pub mod handle;
 pub mod io;
+pub mod ldt;
 pub mod lifecycle;
 pub mod memory;
 pub mod sync;

@@ -1,5 +1,6 @@
 pub mod exec;
 pub mod io;
+pub mod ldt;
 pub mod memory;
 pub mod net;
 pub mod pci;

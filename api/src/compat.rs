@@ -2,6 +2,21 @@
 pub const VM86_EXIT_GPF: u32 = 0;
 pub const VM86_EXIT_DEBUG: u32 = 1;
 
+/// Exit reasons returned by enter_protected_mode syscall.
+/// For DPMI_EXIT_INT, the interrupt number is in bits [23:16].
+pub const DPMI_EXIT_INT: u32 = 2;
+pub const DPMI_EXIT_FAULT: u32 = 3;
+
+/// Parameters for modifying an LDT descriptor via syscall 0x09.
+/// Passed by pointer in ebx (selector) + ecx (pointer to this struct).
+#[repr(C)]
+pub struct LdtDescriptorParams {
+    pub base: u32,
+    pub limit: u32,
+    pub access: u8,
+    pub flags: u8,
+}
+
 /// IRQ mask for enter_8086 syscall — bit N = deliver IRQ N as a virtual interrupt
 pub const VM86_IRQ_TIMER: u32 = 1 << 0;
 pub const VM86_IRQ_KEYBOARD: u32 = 1 << 1;

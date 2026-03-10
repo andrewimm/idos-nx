@@ -124,6 +124,10 @@ fn log_syscall(registers: &FullSavedRegisters) {
         0x05 => "add args to task",
         0x06 => "load executable",
         0x07 => "enter 8086",
+        0x08 => "ldt allocate",
+        0x09 => "ldt modify",
+        0x0a => "ldt free",
+        0x0b => "enter protected mode",
         0x10 => "submit async io op",
         0x11 => "send message",
         0x12 => "driver io complete",
@@ -255,6 +259,33 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             let regs_ptr = registers.ebx as *mut VMRegisters;
             let irq_mask = registers.ecx;
             crate::task::actions::vm::enter_vm86_mode(registers, regs_ptr, irq_mask);
+        }
+
+        // LDT management
+        0x08 => {
+            // allocate LDT descriptor
+            registers.eax = actions::ldt::ldt_allocate();
+        }
+        0x09 => {
+            // modify LDT descriptor
+            let selector = registers.ebx;
+            let params_ptr = registers.ecx as *const idos_api::compat::LdtDescriptorParams;
+            registers.eax = actions::ldt::ldt_modify(selector, params_ptr);
+        }
+        0x0a => {
+            // free LDT descriptor
+            let selector = registers.ebx;
+            registers.eax = actions::ldt::ldt_free(selector);
+        }
+
+        0x0b => {
+            // enter DPMI protected mode
+            // Like enter_8086, this does not return normally. It switches to
+            // ring 3 protected mode using LDT selectors. When the DPMI code
+            // faults, the GPF handler restores this context and it appears
+            // as though the syscall returned with the exit reason in eax.
+            let regs_ptr = registers.ebx as *mut VMRegisters;
+            crate::task::actions::vm::enter_protected_mode(registers, regs_ptr);
         }
 
         // IO Actions

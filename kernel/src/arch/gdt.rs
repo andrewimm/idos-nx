@@ -58,6 +58,11 @@ impl GdtEntry {
         self.flags_and_limit_high &= 0xf0;
         self.flags_and_limit_high |= limit_high;
     }
+
+    /// Check if the Present bit is set in the access byte.
+    pub fn is_present(&self) -> bool {
+        self.access & (1 << 7) != 0
+    }
 }
 
 #[repr(C, packed)]
@@ -157,7 +162,7 @@ pub struct TssWithBitmap {
 }
 
 // Global Tables and Structures:
-pub static mut GDT: [GdtEntry; 8] = [
+pub static mut GDT: [GdtEntry; 9] = [
     // 0x00: Null entry
     GdtEntry::new(0, 0, 0, 0),
     // 0x08: Kernel code
@@ -217,6 +222,8 @@ pub static mut GDT: [GdtEntry; 8] = [
         GDT_ACCESS_PRESENT | GDT_ACCESS_RING_3 | GDT_ACCESS_SYSTEM_DESCRIPTOR | 0x09, // 0x09 = 32-bit TSS Available
         0,
     ),
+    // 0x40: LDT (populated per-task on context switch)
+    GdtEntry::new(0, 0, 0, 0),
 ];
 
 pub static mut TSS: TssWithBitmap = TssWithBitmap {
