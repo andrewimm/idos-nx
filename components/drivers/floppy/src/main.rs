@@ -4,6 +4,16 @@
 extern crate alloc;
 extern crate idos_sdk;
 
+// Trampoline for flat binary mode: jump to SDK's _start from offset 0
+core::arch::global_asm!(
+    r#"
+.section .entry, "ax"
+.global _flat_entry
+_flat_entry:
+    jmp _start
+"#
+);
+
 mod controller;
 mod dma;
 mod geometry;
@@ -367,16 +377,24 @@ struct OpenFile {
 
 #[no_mangle]
 pub extern "C" fn main() {
-    // Handle 0 = response pipe writer (transferred by kernel)
-    let response_writer = Handle::new(0);
-
-    let mut log = SysLogger::new("FDDEV");
-
-    // argv[0] = path, argv[1] = IRQ number
     let mut args = idos_sdk::env::args();
     let _path = args.next();
-    let irq_str = args.next().unwrap_or("6");
-    let irq = parse_u8(irq_str);
+    let irq_str = args.next();
+
+    let (irq, response_writer) = if let Some(irq_s) = irq_str {
+        // ELF mode: argv[1] = IRQ, Handle 0 = response_writer
+        (parse_u8(irq_s), Handle::new(0))
+    } else {
+        // Flat binary mode: Handle 0 = args_reader, Handle 1 = response_writer
+        use idos_api::io::sync::read_sync as flat_read;
+        let args_handle = Handle::new(0);
+        let mut irq_buf = [0u8; 1];
+        let _ = flat_read(args_handle, &mut irq_buf, 0);
+        let _ = close_sync(args_handle);
+        (irq_buf[0], Handle::new(1))
+    };
+
+    let mut log = SysLogger::new("FDDEV");
 
     let interrupt_handle = open_irq_handle(irq);
     let mut driver = FloppyDeviceDriver::new(interrupt_handle);

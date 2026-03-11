@@ -99,32 +99,60 @@ fn init_system() -> ! {
     logger.log("Installing ATA Drivers...\n");
     hardware::ata::install();
 
+    // Check if a block device driver was loaded by the bootloader (floppy boot)
+    let blkdrv_info = exec::get_blkdrv_boot_info();
+    let floppy_boot = blkdrv_info.0 != 0 && blkdrv_info.1 != 0;
+    exec::set_floppy_boot(floppy_boot);
+
+    if floppy_boot {
+        logger.log("Floppy boot: launching block device driver...\n");
+        io::filesystem::fatfs::launch_block_driver(blkdrv_info);
+        logger.log("Mounting A:\\ on FD1...\n");
+        io::filesystem::fatfs::mount_fat_fs_single("A", "FD1");
+    }
+
     logger.log("Mounting C:\\ ...\n");
     io::filesystem::fatfs::mount_fat_fs_single("C", "ATA1");
 
-    // Read config file now that C:\ is available
+    // Read config file now that filesystems are available
+    let config_path = if floppy_boot { "A:\\DRIVERS.CFG" } else { "C:\\DRIVERS.CFG" };
     logger.log("Reading DRIVERS.CFG...\n");
-    let directives = config::read_config("C:\\DRIVERS.CFG");
+    let directives = config::read_config(config_path);
+
+    let mut exec_path: Option<alloc::string::String> = None;
 
     if directives.is_empty() {
         logger.log("Warning: no directives found in DRIVERS.CFG, using defaults\n");
-        // Fallback: no directives found, skip optional drivers
-        //hardware::ethernet::dev::install_driver();
-        //net::start_net_stack();
         graphics::register_graphics_driver("C:\\GFX.ELF");
         console::init_console();
     } else {
         for directive in &directives {
-            execute_directive(&mut logger, directive);
+            if let config::Directive::Exec(path) = directive {
+                exec_path = Some(path.clone());
+            } else {
+                execute_directive(&mut logger, directive);
+            }
         }
     }
 
-    let con = task::actions::handle::create_file_handle();
-    task::actions::io::open_sync(con, "DEV:\\CON1", 0).unwrap();
+    if let Some(path) = exec_path {
+        // Direct exec mode: launch program without console manager
+        logger.log("Exec: ");
+        logger.log(path.as_str());
+        logger.log("\n");
+        drop(logger);
 
-    logger.log("\nSystem ready! Welcome to IDOS\n\n");
-    logger.flush_to_file(con);
-    console::console_ready();
+        let (_, child_task) = task::actions::handle::create_task();
+        task::actions::lifecycle::add_args(child_task, [path.as_str()]);
+        exec::exec_program(child_task, path.as_str()).unwrap();
+    } else {
+        let con = task::actions::handle::create_file_handle();
+        task::actions::io::open_sync(con, "DEV:\\CON1", 0).unwrap();
+
+        logger.log("\nSystem ready! Welcome to IDOS\n\n");
+        logger.flush_to_file(con);
+        console::console_ready();
+    }
 
     let wake_set = task::actions::sync::create_wake_set();
     loop {
@@ -277,6 +305,9 @@ fn execute_directive(logger: &mut log::BufferedLogger, directive: &config::Direc
         Directive::Timezone(offset) => {
             logger.log("Setting timezone offset\n");
             time::system::set_timezone_offset(*offset);
+        }
+        Directive::Exec(_) => {
+            // Handled separately in init_system, should not reach here
         }
     }
 }

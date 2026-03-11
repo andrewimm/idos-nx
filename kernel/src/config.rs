@@ -34,6 +34,8 @@ pub enum Directive {
     Net,
     /// Set timezone offset from UTC in minutes (e.g. -420 for UTC-7, 60 for UTC+1)
     Timezone(i32),
+    /// Execute a program directly (used by installer floppy)
+    Exec(String),
 }
 
 /// Read and parse `C:\DRIVERS.CFG`, returning a list of directives.
@@ -179,6 +181,13 @@ fn parse_config(text: &str) -> Vec<Directive> {
                         ));
                     }
                 }
+            }
+            "exec" => {
+                if parts.len() < 2 {
+                    LOGGER.log(format_args!("Config: 'exec' missing path: {}", line));
+                    continue;
+                }
+                directives.push(Directive::Exec(String::from(parts[1])));
             }
             _ => {
                 LOGGER.log(format_args!("Config: unknown directive: {}", line));

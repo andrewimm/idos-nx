@@ -82,13 +82,37 @@ const LOGGER: TaggedLogger = TaggedLogger::new("EXEC", 33);
 
 const ELF_MAGIC: [u8; 4] = [0x7f, 0x45, 0x4c, 0x46];
 
-/// Path to the ELF loader binary
-/// TODO: we're accumulating a lot of these, we should move them to a central
-/// configuration object
-const ELF_LOADER_PATH: &str = "C:\\ELFLOAD.ELF";
+/// Whether we booted from floppy (A:\) instead of hard disk (C:\).
+/// Set once during init, read by exec_program to find loader binaries.
+static FLOPPY_BOOT: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
 
-/// Path to the DOS compatibility layer binary
-const DOS_LOADER_PATH: &str = "C:\\DOSLAYER.ELF";
+pub fn set_floppy_boot(val: bool) {
+    FLOPPY_BOOT.store(val, core::sync::atomic::Ordering::Relaxed);
+}
+
+fn boot_drive_prefix() -> &'static str {
+    if FLOPPY_BOOT.load(core::sync::atomic::Ordering::Relaxed) {
+        "A:\\"
+    } else {
+        "C:\\"
+    }
+}
+
+fn elf_loader_path() -> &'static str {
+    if FLOPPY_BOOT.load(core::sync::atomic::Ordering::Relaxed) {
+        "A:\\ELFLOAD.ELF"
+    } else {
+        "C:\\ELFLOAD.ELF"
+    }
+}
+
+fn dos_loader_path() -> &'static str {
+    if FLOPPY_BOOT.load(core::sync::atomic::Ordering::Relaxed) {
+        "A:\\DOSLAYER.ELF"
+    } else {
+        "C:\\DOSLAYER.ELF"
+    }
+}
 
 /// Stack is placed at the top of user address space
 const STACK_TOP: u32 = 0xc000_0000;
@@ -197,9 +221,9 @@ pub fn exec_program(task_id: TaskID, path: &str) -> Result<(), ExecError> {
     // 2. Pick the loader based on format
     let is_mz = magic[..2] == [b'M', b'Z'] || magic[..2] == [b'Z', b'M'];
     let loader_path = if magic == ELF_MAGIC {
-        ELF_LOADER_PATH
+        elf_loader_path()
     } else if is_mz || path.to_ascii_uppercase().ends_with(".COM") {
-        DOS_LOADER_PATH
+        dos_loader_path()
     } else {
         LOGGER.log(format_args!("Unsupported executable format: {:?}", magic));
         return Err(ExecError::UnsupportedFormat);
@@ -233,7 +257,7 @@ pub fn exec_program(task_id: TaskID, path: &str) -> Result<(), ExecError> {
         task.stack_push_u32(0x20 | 3); // DS
         task.stack_push_u32(0x20 | 3); // SS
         task.stack_push_u32(STACK_TOP); // ESP
-        task.stack_push_u32(0); // EFLAGS
+        task.stack_push_u32(0x200); // EFLAGS (IF=1, enable hardware interrupts)
         task.stack_push_u32(0x18 | 3); // CS (user code segment)
         task.stack_push_u32(entry_point); // EIP — loader entry point
         task.stack_push_u32(0); // EDI
@@ -534,8 +558,12 @@ fn setup_stack(task_id: TaskID) -> Result<(), ExecError> {
 /// Layout: [u32 phys_addr] [u32 size_in_bytes]
 const FATDRV_BOOT_INFO_ADDR: u32 = 0x600;
 
+/// Physical address where the bootloader stores the block device driver boot info.
+/// Layout: [u32 phys_addr] [u32 size_in_bytes]
+const BLKDRV_BOOT_INFO_ADDR: u32 = 0x608;
+
 /// Virtual address the flat binary is linked at (must match fatdriver/link-script.ld).
-const FATDRV_LOAD_VADDR: u32 = 0x400000;
+const FLAT_BINARY_LOAD_VADDR: u32 = 0x400000;
 
 /// Read the FAT driver boot info written by the bootloader.
 /// Returns (physical_address, size_in_bytes), or (0, 0) if no driver was loaded.
@@ -543,6 +571,17 @@ pub fn get_fatdrv_boot_info() -> (u32, u32) {
     // The bootloader stores this at physical 0x600, which is identity-mapped
     // early in boot. After init_memory, it's accessible via 0xC0000000+ offset.
     let info_addr = (0xC0000000 + FATDRV_BOOT_INFO_ADDR) as *const u32;
+    unsafe {
+        let phys_addr = core::ptr::read_volatile(info_addr);
+        let size = core::ptr::read_volatile(info_addr.add(1));
+        (phys_addr, size)
+    }
+}
+
+/// Read the block device driver boot info written by the bootloader.
+/// Returns (physical_address, size_in_bytes), or (0, 0) if no driver was loaded.
+pub fn get_blkdrv_boot_info() -> (u32, u32) {
+    let info_addr = (0xC0000000 + BLKDRV_BOOT_INFO_ADDR) as *const u32;
     unsafe {
         let phys_addr = core::ptr::read_volatile(info_addr);
         let size = core::ptr::read_volatile(info_addr.add(1));
@@ -558,6 +597,7 @@ pub fn exec_flat_binary(
     task_id: TaskID,
     phys_addr: u32,
     file_size: u32,
+    name: &str,
 ) -> Result<(), ExecError> {
     // Verify the target task is in the expected state
     {
@@ -568,7 +608,7 @@ pub fn exec_flat_binary(
         }
     }
 
-    let load_vaddr = VirtualAddress::new(FATDRV_LOAD_VADDR);
+    let load_vaddr = VirtualAddress::new(FLAT_BINARY_LOAD_VADDR);
 
     // Round up to page-aligned size, with extra pages for BSS
     let total_size = (file_size + 0x1000 + 0xFFF) & !0xFFF;
@@ -620,7 +660,7 @@ pub fn exec_flat_binary(
         let task_lock = get_task(task_id).ok_or(ExecError::InternalError)?;
         let mut task = task_lock.write();
 
-        task.set_filename(&alloc::string::String::from("FATDRV"));
+        task.set_filename(&alloc::string::String::from(name));
 
         // Push interrupt frame onto kernel stack.
         // ESP is set to STACK_TOP - 4 so that [esp] lands within the mapped
@@ -632,9 +672,9 @@ pub fn exec_flat_binary(
         task.stack_push_u32(0x20 | 3); // DS
         task.stack_push_u32(0x20 | 3); // SS
         task.stack_push_u32(STACK_TOP - 4); // ESP
-        task.stack_push_u32(0); // EFLAGS
+        task.stack_push_u32(0x200); // EFLAGS (IF=1, enable hardware interrupts)
         task.stack_push_u32(0x18 | 3); // CS (user code segment)
-        task.stack_push_u32(FATDRV_LOAD_VADDR); // EIP — flat binary entry
+        task.stack_push_u32(FLAT_BINARY_LOAD_VADDR); // EIP — flat binary entry
         task.stack_push_u32(0); // EDI
         task.stack_push_u32(0); // ESI
         task.stack_push_u32(0); // EBP
@@ -648,8 +688,8 @@ pub fn exec_flat_binary(
     }
 
     LOGGER.log(format_args!(
-        "exec_flat_binary {:?}: ready, EIP={:#010X} size={}",
-        task_id, FATDRV_LOAD_VADDR, file_size
+        "exec_flat_binary {:?}: {} ready, EIP={:#010X} size={}",
+        task_id, name, FLAT_BINARY_LOAD_VADDR, file_size
     ));
 
     Ok(())

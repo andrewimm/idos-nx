@@ -69,6 +69,16 @@ pub fn share_sync(handle: Handle, transfer_to: u32) -> IoResult {
     io_sync(handle, ASYNC_OP_SHARE, transfer_to, 0, 0)
 }
 
+pub fn stat_sync(handle: Handle) -> Result<super::file::FileStatus, IoError> {
+    use crate::io::FILE_OP_STAT;
+
+    let mut status = super::file::FileStatus::new();
+    let ptr = &mut status as *mut super::file::FileStatus as u32;
+    let len = core::mem::size_of::<super::file::FileStatus>() as u32;
+    io_sync(handle, FILE_OP_STAT, ptr, len, 0)?;
+    Ok(status)
+}
+
 pub fn ioctl_sync(handle: Handle, ioctl: u32, arg: u32, arg_len: u32) -> IoResult {
     use crate::io::FILE_OP_IOCTL;
 

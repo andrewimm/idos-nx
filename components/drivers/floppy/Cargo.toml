@@ -3,6 +3,16 @@ name = "floppy"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = []
+idos = ["idos_api", "idos_sdk"]
+flat = []
+
 [dependencies]
-idos_api = { workspace = true }
-idos_sdk = { workspace = true }
+idos_api = { workspace = true, optional = true }
+idos_sdk = { workspace = true, optional = true }
+
+[[bin]]
+name = "floppy"
+path = "src/main.rs"
+required-features = ["idos"]

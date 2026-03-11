@@ -129,6 +129,59 @@ impl AsyncDriver for AtaDeviceDriver {
         Ok(bytes_read)
     }
 
+    fn write(&mut self, file_ref: DriverFileReference, buffer: &[u8], offset: u32) -> IoResult {
+        let select = self
+            .open_instances
+            .get(&*file_ref)
+            .cloned()
+            .ok_or(IoError::FileHandleInvalid)?;
+
+        // If the write is sector-aligned, we can DMA transfer directly.
+        if offset % SECTOR_SIZE as u32 == 0 && buffer.len() % SECTOR_SIZE == 0 {
+            let first_sector = offset / SECTOR_SIZE as u32;
+            let sectors_written = self
+                .channel
+                .write_virt(select, first_sector, buffer)
+                .map_err(|_| IoError::FileSystemError)?;
+            let bytes_written = sectors_written * SECTOR_SIZE as u32;
+            return Ok(bytes_written);
+        }
+
+        // Unaligned write: read-modify-write using an intermediate buffer
+        let mut bytes_written: u32 = 0;
+        let mut pio_buffer: [u8; 512] = [0; 512];
+
+        while bytes_written < buffer.len() as u32 {
+            let write_position: u32 = offset + bytes_written;
+            let sector_index: u32 = write_position / SECTOR_SIZE as u32;
+            let sector_offset: u32 = write_position % SECTOR_SIZE as u32;
+            let bytes_remaining_in_sector: u32 = SECTOR_SIZE as u32 - sector_offset;
+            let bytes_remaining_in_buffer: u32 = buffer.len() as u32 - bytes_written;
+            let bytes_to_copy = bytes_remaining_in_sector.min(bytes_remaining_in_buffer);
+
+            // If not writing a full sector, read the existing sector first
+            if sector_offset != 0 || bytes_to_copy < SECTOR_SIZE as u32 {
+                self.channel
+                    .read_virt(select, sector_index, &mut pio_buffer)
+                    .map_err(|_| IoError::FileSystemError)?;
+            }
+
+            for i in 0..bytes_to_copy {
+                let from = (bytes_written + i) as usize;
+                let to = (sector_offset + i) as usize;
+                pio_buffer[to] = buffer[from];
+            }
+
+            self.channel
+                .write_virt(select, sector_index, &pio_buffer)
+                .map_err(|_| IoError::FileSystemError)?;
+
+            bytes_written += bytes_to_copy;
+        }
+
+        Ok(bytes_written)
+    }
+
     fn create_mapping(&mut self, path: &str) -> IoResult<DriverMappingToken> {
         let attached_index = match path.parse::<usize>() {
             Ok(i) => i - 1,

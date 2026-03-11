@@ -14,12 +14,24 @@ use crate::elf::{ElfHeader, SectionHeader};
 static mut KERNEL_MEMORY_END: u32 = 0;
 static mut KERNEL_ENTRY_LOCATION: u32 = 0;
 
+/// Floppy geometry saved from BPB before it gets clobbered
+static mut SAVED_SECTORS_PER_TRACK: u16 = 0;
+static mut SAVED_HEAD_COUNT: u16 = 0;
+
 /// Physical address where the FAT driver flat binary is loaded
 const FATDRV_LOAD_PHYS: u32 = 0x20000;
 /// Address where boot info about the FAT driver is stored (within first 0x1000
 /// bytes, which the kernel reserves).
 /// Layout: [u32 phys_addr] [u32 size_in_bytes]
 const FATDRV_BOOT_INFO: u32 = 0x600;
+
+/// Physical address where the block device driver flat binary is loaded.
+/// Must not overlap with FATDRV at 0x20000 (which can be ~65KB, ending ~0x31000).
+/// 0x40000 gives FATDRV a full 128KB of headroom.
+const BLKDRV_LOAD_PHYS: u32 = 0x40000;
+/// Address where boot info about the block device driver is stored.
+/// Layout: [u32 phys_addr] [u32 size_in_bytes]
+const BLKDRV_BOOT_INFO: u32 = 0x608;
 
 /// Entry point for BOOTBIN, the IDOS bootloader
 /// The bootloader is launched by the MBR code, and is responsible for running
@@ -30,6 +42,14 @@ const FATDRV_BOOT_INFO: u32 = 0x600;
 #[no_mangle]
 #[link_section = ".entry"]
 pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
+    // Save BPB geometry before it can be clobbered
+    {
+        let spt = core::ptr::read_volatile(0x7C18 as *const u16);
+        let hc = core::ptr::read_volatile(0x7C1A as *const u16);
+        core::ptr::write_volatile(&raw mut SAVED_SECTORS_PER_TRACK, spt);
+        core::ptr::write_volatile(&raw mut SAVED_HEAD_COUNT, hc);
+    }
+
     // Enable A20 line to make all memory accessible
     // The "Fast A20" gate can be tested and enabled via port 0x92 on the PS/2 controller
     asm!(
@@ -332,6 +352,68 @@ pub unsafe extern "C" fn _start(fat_metadata: *const disk::FatMetadata) -> ! {
                 video::VideoWriter,
                 "FATDRV loaded at {:#X}, {} bytes\r\n",
                 FATDRV_LOAD_PHYS, file_size
+            )
+            .unwrap();
+        }
+    }
+
+    // Load the block device driver flat binary (BLKDRV.BIN) into memory.
+    // This is optional — only present on the install floppy.
+    {
+        let blkdrv_info = match disk::find_root_dir_file("BLKDRV  BIN") {
+            Some(pair) => pair,
+            None => {
+                // Store zero size to indicate no driver was loaded
+                core::ptr::write_volatile(BLKDRV_BOOT_INFO as *mut u32, 0);
+                core::ptr::write_volatile((BLKDRV_BOOT_INFO + 4) as *mut u32, 0);
+                (0, 0) // dummy, won't be used
+            }
+        };
+
+        if blkdrv_info.1 > 0 {
+            let (first_cluster, file_size) = blkdrv_info;
+            video::print_string("Loading BLKDRV.BIN...\r\n");
+
+            let mut blkdrv_bytes_copied: u32 = 0;
+            let mut blkdrv_cluster = first_cluster;
+
+            while blkdrv_cluster < 0xFF8 {
+                let run_start = blkdrv_cluster;
+                let mut run_len: u16 = 1;
+                let mut next = disk::fat12_next(blkdrv_cluster);
+                while next == blkdrv_cluster + run_len && run_len < max_clusters_per_copy {
+                    run_len += 1;
+                    next = disk::fat12_next(run_start + run_len - 1);
+                }
+
+                let lba = root_data_sector + (run_start - 2) * sectors_per_cluster;
+                let sector_count = run_len * sectors_per_cluster;
+
+                disk::read_sectors(disk_number, lba, 0x800, 0, sector_count);
+                let copy_size = sector_count as u32 * 512;
+
+                {
+                    let src = 0x8000 as *const u8;
+                    let dst = (BLKDRV_LOAD_PHYS + blkdrv_bytes_copied) as *mut u8;
+                    let to_copy = if blkdrv_bytes_copied + copy_size > file_size {
+                        file_size - blkdrv_bytes_copied
+                    } else {
+                        copy_size
+                    };
+                    core::ptr::copy_nonoverlapping(src, dst, to_copy as usize);
+                }
+
+                blkdrv_bytes_copied += copy_size;
+                blkdrv_cluster = next;
+            }
+
+            core::ptr::write_volatile(BLKDRV_BOOT_INFO as *mut u32, BLKDRV_LOAD_PHYS);
+            core::ptr::write_volatile((BLKDRV_BOOT_INFO + 4) as *mut u32, file_size);
+
+            write!(
+                video::VideoWriter,
+                "BLKDRV loaded at {:#X}, {} bytes\r\n",
+                BLKDRV_LOAD_PHYS, file_size
             )
             .unwrap();
         }

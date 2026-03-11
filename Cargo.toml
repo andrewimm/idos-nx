@@ -16,6 +16,7 @@ members = [
   "components/programs/gamedemo",
   "components/programs/gfx",
   "components/programs/gopher",
+  "components/programs/install",
   "components/programs/netcat",
   "components/programs/tonegen",
   "kernel",

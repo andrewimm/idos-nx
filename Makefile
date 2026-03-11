@@ -1,11 +1,13 @@
 diskimage := build/bootdisk.img
 userdata := build/datadisk.img
 bootsector := build/mbr.bin
+floppy_bootsector := build/floppy_mbr.bin
 bootbin := build/boot.bin
 kernel := build/kernel.bin
 
 colordemo := target/i386-idos/release/colordemo
 command := target/i386-idos/release/command
+install_elf := target/i386-idos/release/install
 diskchk := target/i386-idos/release/diskchk
 doslayer := target/i386-idos/release/doslayer
 elfload := target/i386-idos/release/elfload
@@ -14,6 +16,7 @@ fatdrv := build/fatdrv.bin
 gfx := target/i386-idos/release/gfx
 e1000 := target/i386-idos/release/e1000
 floppy := target/i386-idos/release/floppy
+floppydrv := build/floppydrv.bin
 sb16 := target/i386-idos/release/sb16
 netcat := target/i386-idos/release/netcat
 gopher := target/i386-idos/release/gopher
@@ -44,6 +47,7 @@ src_fatdrv := $(shell find components/drivers/fatdriver/src -name '*.rs') compon
 src_e1000 := $(shell find components/drivers/e1000/src -name '*.rs') components/drivers/e1000/Cargo.toml $(src_shared)
 src_floppy := $(shell find components/drivers/floppy/src -name '*.rs') components/drivers/floppy/Cargo.toml $(src_shared)
 src_sb16 := $(shell find components/drivers/sb16/src -name '*.rs') components/drivers/sb16/Cargo.toml $(src_shared)
+src_install := $(shell find components/programs/install/src -name '*.rs') components/programs/install/Cargo.toml $(src_shared)
 
 qemu_flags := -m 64M -drive format=raw,file=$(diskimage) -serial stdio \
 	-fda $(userdata) -device floppy,unit=1,drive= \
@@ -51,7 +55,10 @@ qemu_flags := -m 64M -drive format=raw,file=$(diskimage) -serial stdio \
 	-audiodev sdl,id=snd0 -device sb16,audiodev=snd0,irq=5 \
 	-display sdl
 
-.PHONY: all clean run runlogs libc
+installdisk := build/install.img
+installhd := build/install_hd.img
+
+.PHONY: all clean run runlogs libc install
 
 all: bootdisk
 
@@ -105,6 +112,10 @@ $(bootsector): $(src_bootmbr)
 	@cd bootloader/mbr && \
 	cargo build --release -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-mbr.json
 	@objcopy -I elf32-i386 -O binary target/i386-mbr/release/idos-mbr $(bootsector)
+
+$(floppy_bootsector): bootloader/floppy-mbr/floppy_mbr.s
+	@mkdir -p $(shell dirname $@)
+	@nasm -f bin -o $(floppy_bootsector) bootloader/floppy-mbr/floppy_mbr.s
 
 $(bootbin): $(src_bootbin)
 	@mkdir -p $(shell dirname $@)
@@ -163,9 +174,19 @@ $(e1000): $(src_e1000)
 	@cd components/drivers/e1000 && \
 	cargo build $(idos_build_flags)
 
+floppy_flat_elf := target/i386-idos-flat/i386-idos/release/floppy
+
+# Flat binary build uses a separate --target-dir to avoid contaminating the
+# normal ELF output.
+$(floppydrv): $(src_floppy) components/drivers/floppy/link-script.ld
+	@cd components/drivers/floppy && \
+	cargo build --features idos,flat $(idos_build_flags) --target-dir ../../../target/i386-idos-flat
+	@mkdir -p $(shell dirname $@)
+	@objcopy -I elf32-i386 -O binary $(floppy_flat_elf) $(floppydrv)
+
 $(floppy): $(src_floppy)
 	@cd components/drivers/floppy && \
-	cargo build $(idos_build_flags)
+	cargo build --features idos $(idos_build_flags)
 
 $(sb16): $(src_sb16)
 	@cd components/drivers/sb16 && \
@@ -182,6 +203,48 @@ $(netcat): $(src_netcat)
 $(gopher): $(src_gopher)
 	@cd components/programs/gopher && \
 	cargo build $(idos_build_flags)
+
+$(install_elf): $(src_install)
+	@cd components/programs/install && \
+	cargo build $(idos_build_flags)
+
+# Install floppy: 1.44 MB FAT12 with kernel, all programs, and installer
+$(installdisk): $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000) $(floppy) $(floppydrv) $(sb16) $(netcat) $(gopher) $(tonegen) $(install_elf) $(floppy_bootsector) $(bootsector) $(bootbin) $(kernel)
+	@mkdir -p $(shell dirname $@)
+	@mkfs.msdos -F 12 -C $(installdisk) 1440
+	@dd if=$(floppy_bootsector) of=$(installdisk) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc 2>/dev/null
+	@mcopy -D o -i $(installdisk) $(bootbin) ::BOOT.BIN
+	@mcopy -D o -i $(installdisk) $(kernel) ::KERNEL.BIN
+	@mcopy -D o -i $(installdisk) $(fatdrv) ::FATDRV.BIN
+	@mcopy -D o -i $(installdisk) $(floppydrv) ::BLKDRV.BIN
+	@mcopy -D o -i $(installdisk) resources/INSTALL.CFG ::DRIVERS.CFG
+	@mcopy -D o -i $(installdisk) $(command) ::COMMAND.ELF
+	@mcopy -D o -i $(installdisk) $(doslayer) ::DOSLAYER.ELF
+	@mcopy -D o -i $(installdisk) $(elfload) ::ELFLOAD.ELF
+	@mcopy -D o -i $(installdisk) $(diskchk) ::DISKCHK.ELF
+	@mcopy -D o -i $(installdisk) $(gfx) ::GFX.ELF
+	@mcopy -D o -i $(installdisk) $(e1000) ::E1000.ELF
+	@mcopy -D o -i $(installdisk) $(floppy) ::FLOPPY.ELF
+	@mcopy -D o -i $(installdisk) $(sb16) ::SB16.ELF
+	@mcopy -D o -i $(installdisk) $(netcat) ::NETCAT.ELF
+	@mcopy -D o -i $(installdisk) $(gopher) ::GOPHER.ELF
+	@mcopy -D o -i $(installdisk) $(tonegen) ::TONEGEN.ELF
+	@mcopy -D o -i $(installdisk) resources/ter-i14n.psf ::TERM14.PSF
+	@mcopy -D o -i $(installdisk) $(bootsector) ::MBR.BIN
+	@mcopy -D o -i $(installdisk) $(install_elf) ::INSTALL.ELF
+
+# Empty 8 MB hard disk for install target
+$(installhd):
+	@mkdir -p $(shell dirname $@)
+	@dd if=/dev/zero of=$(installhd) bs=512 count=16384 2>/dev/null
+
+install: $(installdisk) $(installhd)
+	@SDL_VIDEO_DRIVER=x11 qemu-system-i386 -m 64M \
+		-drive format=raw,file=$(installhd) \
+		-fda $(installdisk) -boot a \
+		-serial stdio \
+		-device isa-debug-exit,iobase=0xf4,iosize=4 \
+		-display sdl
 
 logview:
 	cargo build -p logview --release

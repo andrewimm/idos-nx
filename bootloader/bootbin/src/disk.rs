@@ -133,6 +133,69 @@ pub fn fat12_next(cluster: u16) -> u16 {
 }
 
 pub fn read_sectors(disk_number: u8, lba: u16, dest_segment: u16, dest_offset: u16, count: u16) {
+    if disk_number < 0x80 {
+        // Floppy: use CHS reads (INT 13h AH=02h)
+        read_sectors_chs(disk_number, lba, dest_segment, dest_offset, count);
+    } else {
+        // Hard disk: use LBA extensions (INT 13h AH=42h)
+        read_sectors_lba(disk_number, lba, dest_segment, dest_offset, count);
+    }
+}
+
+fn read_sectors_chs(disk_number: u8, lba: u16, dest_segment: u16, dest_offset: u16, count: u16) {
+    let spt = unsafe { crate::SAVED_SECTORS_PER_TRACK };
+    let heads = unsafe { crate::SAVED_HEAD_COUNT };
+
+    let mut cur_lba = lba;
+    let mut cur_offset = dest_offset;
+    let mut remaining = count;
+
+    while remaining > 0 {
+        let sector = (cur_lba % spt) + 1;
+        let tmp = cur_lba / spt;
+        let head = tmp % heads;
+        let cylinder = tmp / heads;
+
+        let cl: u8 = (sector as u8 & 0x3F) | (((cylinder >> 8) as u8) << 6);
+        let ch: u8 = cylinder as u8;
+        let dh: u8 = head as u8;
+        let dx: u16 = ((dh as u16) << 8) | (disk_number as u16);
+        let cx: u16 = ((ch as u16) << 8) | (cl as u16);
+
+        // Use a combined value to smuggle dest_segment through AX
+        // before setting up the INT 13h call
+        let error: u16;
+        unsafe {
+            asm!(
+                "push es",
+                "push bx",       // save cur_offset
+                "mov es, ax",    // ES = dest_segment (passed in AX)
+                "pop bx",        // BX = cur_offset
+                "mov ax, 0x0201",
+                "int 0x13",
+                "jc 2f",
+                "xor ax, ax",
+                "2:",
+                "pop es",
+                inout("ax") dest_segment => error,
+                in("bx") cur_offset,
+                in("cx") cx,
+                in("dx") dx,
+            );
+        }
+
+        if error & 0xFF00 != 0 {
+            crate::video::print_string("Disk Read Error\r\n");
+            unsafe { asm!("cli", "hlt", options(noreturn)); }
+        }
+
+        cur_lba += 1;
+        cur_offset += 512;
+        remaining -= 1;
+    }
+}
+
+fn read_sectors_lba(disk_number: u8, lba: u16, dest_segment: u16, dest_offset: u16, count: u16) {
     let packet = DiskAccessPacket {
         packet_size: 16,
         always_zero: 0,

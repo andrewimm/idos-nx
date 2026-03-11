@@ -347,6 +347,29 @@ impl AtaChannel {
         Ok(buffer_length as u32)
     }
 
+    pub fn write_virt(
+        &self,
+        drive: DriveSelect,
+        first_sector: u32,
+        buffer: &[u8],
+    ) -> Result<u32, ()> {
+        if buffer.len() % SECTOR_SIZE != 0 {
+            super::LOGGER.log(format_args!(
+                "ATA WRITE: Buffer must be divisible by sector size ({})",
+                SECTOR_SIZE
+            ));
+            return Err(());
+        }
+        match self.bus_master_port {
+            Some(_port) => {
+                return self.write_dma(drive, first_sector, buffer);
+            }
+            None => {
+                return self.write_pio(drive, first_sector, buffer);
+            }
+        }
+    }
+
     fn read_dma(
         &self,
         drive: DriveSelect,
@@ -361,6 +384,22 @@ impl AtaChannel {
         let dma_length = buffer.len();
 
         self.dma_transfer(drive, first_sector, dma_phys, dma_length, false)
+    }
+
+    fn write_dma(
+        &self,
+        drive: DriveSelect,
+        first_sector: u32,
+        buffer: &[u8],
+    ) -> Result<u32, ()> {
+        unsafe {
+            core::ptr::read_volatile(buffer.as_ptr());
+        }
+        let dma_phys =
+            get_current_physical_address(VirtualAddress::new(buffer.as_ptr() as u32)).unwrap();
+        let dma_length = buffer.len();
+
+        self.dma_transfer(drive, first_sector, dma_phys, dma_length, true)
     }
 
     fn read_pio(
@@ -399,6 +438,47 @@ impl AtaChannel {
                 let data = Port::new(self.base_port).read_u16();
                 buffer[read_start + i * 2 + 0] = data as u8;
                 buffer[read_start + i * 2 + 1] = (data >> 8) as u8;
+            }
+        }
+
+        Ok(sectors as u32)
+    }
+
+    fn write_pio(
+        &self,
+        drive: DriveSelect,
+        first_sector: u32,
+        buffer: &[u8],
+    ) -> Result<u32, ()> {
+        if first_sector > 0x00ffffff {
+            super::LOGGER.log(format_args!("PIO transfer with >24bits not supported yet"));
+            return Err(());
+        }
+
+        let sectors = (buffer.len() + SECTOR_SIZE - 1) / SECTOR_SIZE;
+
+        if sectors > 256 {
+            super::LOGGER.log(format_args!(
+                "PIO can only transfer up to 256 sectors at a time"
+            ));
+            return Err(());
+        }
+
+        Port::new(self.base_port + 6).write_u8(0xe0 | drive as u8);
+        Port::new(self.base_port + 2).write_u8(if sectors >= 256 { 0 } else { sectors as u8 });
+        Port::new(self.base_port + 3).write_u8(first_sector as u8);
+        Port::new(self.base_port + 4).write_u8((first_sector >> 8) as u8);
+        Port::new(self.base_port + 5).write_u8((first_sector >> 16) as u8);
+
+        Port::new(self.base_port + 7).write_u8(AtaCommand::WriteSectors as u8);
+
+        for sector in 0..sectors {
+            let write_start = sector * SECTOR_SIZE;
+            self.wait_for_update()?;
+            for i in 0..256 {
+                let word = buffer[write_start + i * 2] as u16
+                    | (buffer[write_start + i * 2 + 1] as u16) << 8;
+                Port::new(self.base_port).write_u16(word);
             }
         }
 
