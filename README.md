@@ -217,6 +217,21 @@ qemu-system-i386 -m 64M \
 
 That's it. You're in DOS. Sort of.
 
+## Navigating CONMAN
+
+CONMAN (Console Manager) is the coolest desktop environment this side of Y2K.
+
+It's a tiling manager, with the ability to pop terminals into floating mode,
+where you can drag them around. There are buttons on the windows, but you'll
+also want to know a few key commands:
+
+```
+ALT+Enter = Open new console
+ALT+Space = Toggle float/tile
+ALT+TAB   = Switch between consoles
+ALT+Q     = Close active console
+```
+
 ## Building
 
 Requires Rust nightly, `mtools`, `objcopy`, `nasm`, `make`. Runs in QEMU.
@@ -246,4 +261,3 @@ NX is the **N**E**X**T generation kernel, after the original real mode IMM-DOS.
 It shares no code with that OS, and represents a technological leap forward in
 capabilities and user experience. Any similarities to other two-letter kernels
 starting with "N" are purely coincidental.
-
