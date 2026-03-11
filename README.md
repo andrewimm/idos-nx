@@ -191,10 +191,36 @@ memory. MS created an EMM spec too, for programs to ask for more memory. That'd
 be cool. Maybe I'll just add more Gopher browsing features. The roadmap is
 "whatever seems fun on a Saturday afternoon."
 
+## Try It
+
+Grab `install.img` from the [latest release](https://github.com/anthropics/idos-nx/releases).
+This is a bootable 1.44MB floppy image that installs IDOS to a hard disk. You
+just need QEMU.
+
+```sh
+# Create an empty 8MB hard disk
+dd if=/dev/zero of=idos_hd.img bs=512 count=16384
+
+# Boot the installer floppy
+qemu-system-i386 -m 64M \
+  -drive format=raw,file=idos_hd.img \
+  -fda install.img -boot a \
+  -serial stdio -display sdl
+
+# Follow the prompts. When it says "remove the floppy and reboot":
+# Close QEMU, then boot from the hard disk
+qemu-system-i386 -m 64M \
+  -drive format=raw,file=idos_hd.img \
+  -serial stdio -display sdl \
+  -audiodev sdl,id=snd0 -device sb16,audiodev=snd0,irq=5
+```
+
+That's it. You're in DOS. Sort of.
+
 ## Building
 
-Requires Rust nightly, `mtools`, `objcopy`, `make`. Runs in QEMU. Don't try on
-real hardware that you actually care about.
+Requires Rust nightly, `mtools`, `objcopy`, `nasm`, `make`. Runs in QEMU.
+Don't try on real hardware that you actually care about.
 
 ```sh
 make
@@ -203,6 +229,10 @@ make run
 # or if you want fancy log filtering
 
 make runlogs
+
+# build the install floppy and test the install flow
+
+make install
 ```
 
 ## Status
