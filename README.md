@@ -193,7 +193,7 @@ be cool. Maybe I'll just add more Gopher browsing features. The roadmap is
 
 ## Try It
 
-Grab `install.img` from the [latest release](https://github.com/anthropics/idos-nx/releases).
+Grab `install.img` from the [latest release](https://github.com/andrewimm/idos-nx/releases).
 This is a bootable 1.44MB floppy image that installs IDOS to a hard disk. You
 just need QEMU.
 
