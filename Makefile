@@ -22,8 +22,8 @@ netcat := target/i386-idos/release/netcat
 gopher := target/i386-idos/release/gopher
 tonegen := target/i386-idos/release/tonegen
 
-kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
-idos_build_flags := -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
+kernel_build_flags := -Zjson-target-spec --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
+idos_build_flags := -Zjson-target-spec -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
 
 # Per-crate source tracking — shared libs that most crates depend on
 src_api := $(shell find api/src -name '*.rs') api/Cargo.toml
@@ -110,7 +110,7 @@ bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000)
 $(bootsector): $(src_bootmbr)
 	@mkdir -p $(shell dirname $@)
 	@cd bootloader/mbr && \
-	cargo build --release -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-mbr.json
+	cargo build --release -Zjson-target-spec -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-mbr.json
 	@objcopy -I elf32-i386 -O binary target/i386-mbr/release/idos-mbr $(bootsector)
 
 $(floppy_bootsector): bootloader/floppy-mbr/floppy_mbr.s
@@ -120,7 +120,7 @@ $(floppy_bootsector): bootloader/floppy-mbr/floppy_mbr.s
 $(bootbin): $(src_bootbin)
 	@mkdir -p $(shell dirname $@)
 	@cd bootloader/bootbin && \
-	cargo build --release -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-bootbin.json
+	cargo build --release -Zjson-target-spec -Zbuild-std=core -Zbuild-std-features=compiler-builtins-mem --target i386-bootbin.json
 	@objcopy -I elf32-i386 -O binary target/i386-bootbin/release/idos-bootbin $(bootbin)
 
 $(kernel): $(src_kernel)

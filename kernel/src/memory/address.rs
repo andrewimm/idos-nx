@@ -1,6 +1,5 @@
 use core::{
-    ops::{Add, BitAnd, Range, RangeInclusive, Sub},
-    range::{Bound, RangeBounds},
+    ops::{Add, BitAnd, Range, RangeInclusive, Sub, Bound, RangeBounds},
 };
 
 /// Physical and Virtual addresses have a lot of common behaviors that should be
