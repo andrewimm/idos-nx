@@ -19,14 +19,26 @@ pub fn get_inner_wake_set(set_id: Handle) -> Option<Arc<WakeSet>> {
     }
 }
 
-pub fn block_on_wake_set(set_id: Handle, timeout: Option<u32>) {
+pub fn block_on_wake_set(set_id: Handle, timeout: Option<u32>) -> u32 {
     let wake_set_found = {
         let task_lock = get_current_task();
         let task_guard = task_lock.read();
         match task_guard.wake_sets.get(set_id) {
             Some(set) => set.clone(),
-            None => return,
+            None => return 0xffff_ffff,
         }
     };
-    wake_set_found.wait(timeout);
+    wake_set_found.wait(timeout)
+}
+
+pub fn drain_wake_set(set_id: Handle, timeout: Option<u32>, buffer: &mut [u32]) -> usize {
+    let wake_set_found = {
+        let task_lock = get_current_task();
+        let task_guard = task_lock.read();
+        match task_guard.wake_sets.get(set_id) {
+            Some(set) => set.clone(),
+            None => return 0,
+        }
+    };
+    wake_set_found.wait_batch(timeout, buffer)
 }

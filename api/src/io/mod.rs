@@ -87,6 +87,13 @@ pub fn read_message_op(message: &mut Message) -> AsyncOp {
     }
 }
 
+#[repr(C)]
+pub struct WakeBatchParams {
+    pub buffer_ptr: u32,
+    pub buffer_len: u32,
+    pub timeout: u32,
+}
+
 pub fn write_op(buffer: &[u8], offset: u32) -> AsyncOp {
     let buffer_ptr = buffer.as_ptr() as u32;
     let buffer_len = buffer.len() as u32;

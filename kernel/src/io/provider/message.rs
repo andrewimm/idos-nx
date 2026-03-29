@@ -82,6 +82,7 @@ impl IOProvider for MessageIOProvider {
         op: &AsyncOp,
         args: [u32; 3],
         wake_set: Option<Handle>,
+        io_handle: u32,
     ) -> AsyncOpID {
         // convert the virtual address of the message pointer to a physical
         // address
@@ -96,7 +97,7 @@ impl IOProvider for MessageIOProvider {
 
         let id = self.id_gen.next_id();
         let mut unmapped =
-            UnmappedAsyncOp::from_op(op, args, wake_set.map(|handle| (get_current_id(), handle)));
+            UnmappedAsyncOp::from_op(op, args, wake_set.map(|handle| (get_current_id(), handle)), io_handle);
         unmapped.args[0] = message_phys.as_u32();
 
         self.pending_ops.write().insert(id, unmapped);

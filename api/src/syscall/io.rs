@@ -24,6 +24,23 @@ pub fn block_on_wake_set(handle: Handle, timeout: Option<u32>) -> u32 {
     syscall(0x16, handle.as_u32(), timeout_value, 0)
 }
 
+/// Blocks until at least one IO handle is ready on the wake set, then
+/// drains all ready handles into the provided buffer.
+/// Returns the number of handles written to the buffer.
+pub fn drain_wake_set(handle: Handle, timeout: Option<u32>, buffer: &mut [u32]) -> u32 {
+    let params = crate::io::WakeBatchParams {
+        buffer_ptr: buffer.as_ptr() as u32,
+        buffer_len: buffer.len() as u32,
+        timeout: timeout.unwrap_or(0xffff_ffff),
+    };
+    syscall(
+        0x17,
+        handle.as_u32(),
+        &params as *const crate::io::WakeBatchParams as u32,
+        0,
+    )
+}
+
 pub fn register_fs(name: &str) -> u32 {
     super::syscall(0x50, name.as_ptr() as u32, name.len() as u32, 0)
 }

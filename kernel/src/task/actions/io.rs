@@ -76,7 +76,7 @@ pub fn send_io_op(handle: Handle, op: &AsyncOp, wake_set: Option<Handle>) -> Res
         (io_instance, io.io_type.clone())
     };
 
-    io_type.op_request(io_instance, op, args, wake_set);
+    io_type.op_request(io_instance, op, args, wake_set, *handle as u32);
 
     Ok(())
 }

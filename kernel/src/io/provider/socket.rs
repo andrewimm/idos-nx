@@ -69,10 +69,11 @@ impl IOProvider for SocketIOProvider {
         op: &AsyncOp,
         args: [u32; 3],
         wake_set: Option<Handle>,
+        io_handle: u32,
     ) -> AsyncOpID {
         let id = self.id_gen.next_id();
         let unmapped =
-            UnmappedAsyncOp::from_op(op, args, wake_set.map(|handle| (get_current_id(), handle)));
+            UnmappedAsyncOp::from_op(op, args, wake_set.map(|handle| (get_current_id(), handle)), io_handle);
         self.pending_ops.write().insert(id, unmapped);
 
         match self.run_op(provider_index, id) {

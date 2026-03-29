@@ -38,9 +38,10 @@ impl IOType {
         op: &AsyncOp,
         args: [u32; 3],
         wake_set: Option<Handle>,
+        io_handle: u32,
     ) -> AsyncOpID {
         let provider = self.inner();
-        provider.add_op(index, op, args, wake_set)
+        provider.add_op(index, op, args, wake_set, io_handle)
     }
 
     pub fn set_task(&self, task: TaskID) {

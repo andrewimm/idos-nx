@@ -53,7 +53,7 @@ pub fn register_network_device(name: &str, mac: [u8; 6]) {
 
     let wake_set = WAKE_SET.read().clone();
     if let Some(waker) = wake_set {
-        waker.wake();
+        waker.wake(0xffff_ffff);
     }
 }
 
@@ -62,7 +62,7 @@ pub fn get_ip() {
 
     let wake_set = WAKE_SET.read().clone();
     if let Some(waker) = wake_set {
-        waker.wake();
+        waker.wake(0xffff_ffff);
     }
 }
 
@@ -73,7 +73,7 @@ pub fn get_mac_for_ip(ip: Ipv4Address) {
 
     let wake_set = WAKE_SET.read().clone();
     if let Some(waker) = wake_set {
-        waker.wake();
+        waker.wake(0xffff_ffff);
     }
 }
 
@@ -84,7 +84,7 @@ pub fn net_open_tcp(local_port: SocketPort, destination: String, remote_port: So
 
     let wake_set = WAKE_SET.read().clone();
     if let Some(waker) = wake_set {
-        waker.wake();
+        waker.wake(0xffff_ffff);
     }
 }
 
@@ -97,7 +97,7 @@ pub fn net_respond(destination: Ipv4Address, payload: Vec<u8>) {
 
     let wake_set = WAKE_SET.read().clone();
     if let Some(waker) = wake_set {
-        waker.wake();
+        waker.wake(0xffff_ffff);
     }
 }
 

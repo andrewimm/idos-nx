@@ -36,7 +36,7 @@ pub fn register_console_manager(wake_set: Handle) -> Result<VirtualAddress, ()> 
 
 pub fn wake_console_manager() {
     if let Some((_, wake_set)) = CONSOLE_MANAGER.read().as_ref() {
-        wake_set.wake();
+        wake_set.wake(0xffff_ffff);
     }
 }
 

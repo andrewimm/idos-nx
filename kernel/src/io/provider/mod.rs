@@ -49,6 +49,7 @@ pub trait IOProvider {
         op: &AsyncOp,
         args: [u32; 3],
         wake_set: Option<Handle>,
+        io_handle: u32,
     ) -> AsyncOpID;
 
     fn get_op(&self, id: AsyncOpID) -> Option<UnmappedAsyncOp>;
@@ -154,10 +155,11 @@ pub struct UnmappedAsyncOp {
     pub return_value_address: PhysicalAddress,
     pub args: [u32; 3],
     pub wake_set: Option<(TaskID, Handle)>,
+    pub io_handle: u32,
 }
 
 impl UnmappedAsyncOp {
-    pub fn from_op(op: &AsyncOp, args: [u32; 3], wake_set: Option<(TaskID, Handle)>) -> Self {
+    pub fn from_op(op: &AsyncOp, args: [u32; 3], wake_set: Option<(TaskID, Handle)>, io_handle: u32) -> Self {
         let signal_vaddr = VirtualAddress::new(op.signal.as_ptr() as u32);
         let return_value_vaddr = VirtualAddress::new(op.return_value.as_ptr() as u32);
         let signal_paddr =
@@ -170,6 +172,7 @@ impl UnmappedAsyncOp {
             return_value_address: return_value_paddr,
             args,
             wake_set,
+            io_handle,
         }
     }
 
@@ -200,7 +203,7 @@ impl UnmappedAsyncOp {
             let wake_set_found = get_task(task_id)
                 .and_then(|task_lock| task_lock.read().wake_sets.get(ws_handle).cloned());
             if let Some(wake_set) = wake_set_found {
-                wake_set.wake();
+                wake_set.wake(self.io_handle);
             }
         }
     }

@@ -1,6 +1,6 @@
 use core::arch::global_asm;
 
-use idos_api::{compat::VMRegisters, io::AsyncOp, ipc::Message};
+use idos_api::{compat::VMRegisters, io::{AsyncOp, WakeBatchParams}, ipc::Message};
 
 use crate::{
     io::handle::Handle,
@@ -135,6 +135,7 @@ fn log_syscall(registers: &FullSavedRegisters) {
         0x14 => "futex wake",
         0x15 => "create wake set",
         0x16 => "block on wake set",
+        0x17 => "drain wake set",
         0x20 => "create task",
         0x21 => "open message queue",
         0x22 => "open irq handle",
@@ -352,9 +353,26 @@ pub extern "C" fn _syscall_inner(registers: &mut FullSavedRegisters) {
             let handle = Handle::new(registers.ebx as usize);
             let timeout = match registers.ecx {
                 0xffff_ffff => None,
-                edx => Some(edx),
+                t => Some(t),
             };
-            actions::sync::block_on_wake_set(handle, timeout);
+            registers.eax = actions::sync::block_on_wake_set(handle, timeout);
+        }
+        0x17 => {
+            // drain wake set
+            let handle = Handle::new(registers.ebx as usize);
+            let params_ptr = registers.ecx as *const WakeBatchParams;
+            let params = unsafe { &*params_ptr };
+            let timeout = match params.timeout {
+                0xffff_ffff => None,
+                t => Some(t),
+            };
+            let buffer = unsafe {
+                core::slice::from_raw_parts_mut(
+                    params.buffer_ptr as *mut u32,
+                    params.buffer_len as usize,
+                )
+            };
+            registers.eax = actions::sync::drain_wake_set(handle, timeout, buffer) as u32;
         }
 
         // handle actions
