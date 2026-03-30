@@ -12,7 +12,7 @@ use idos_api::{
         AsyncOp, Handle, ASYNC_OP_READ,
     },
     syscall::{
-        io::{append_io_op, block_on_wake_set, create_wake_set},
+        io::{append_io_op, create_wake_set, drain_wake_set},
         net::create_tcp_handle,
     },
 };
@@ -58,17 +58,57 @@ pub extern "C" fn main() {
     );
     append_io_op(listener, &accept_op, Some(wake_set));
 
+    let mut ready = [0u32; MAX_CONNECTIONS];
+
     loop {
-        let woken = block_on_wake_set(wake_set, None);
+        let count = drain_wake_set(wake_set, None, &mut ready) as usize;
 
-        if woken == listener_handle_val {
-            if !accept_op.is_complete() {
-                continue;
-            }
+        for i in 0..count {
+            let woken = ready[i];
 
-            let ret = accept_op.return_value.load(Ordering::SeqCst);
-            if ret & 0x80000000 != 0 {
-                // accept error, try again
+            if woken == listener_handle_val {
+                if !accept_op.is_complete() {
+                    continue;
+                }
+
+                let ret = accept_op.return_value.load(Ordering::SeqCst);
+                if ret & 0x80000000 != 0 {
+                    // accept error, try again
+                    accept_op = AsyncOp::new(
+                        ASYNC_OP_READ,
+                        accept_buf.as_mut_ptr() as u32,
+                        accept_buf.len() as u32,
+                        0,
+                    );
+                    append_io_op(listener, &accept_op, Some(wake_set));
+                    continue;
+                }
+
+                let conn_handle = Handle::new(ret);
+                connection_count += 1;
+
+                // Find a free slot
+                if let Some(slot) = connections.iter_mut().find(|s| s.is_none()) {
+                    *slot = Some(Connection {
+                        handle: conn_handle,
+                        buf: [0u8; 512],
+                        read_op: AsyncOp::new(ASYNC_OP_READ, 0, 0, 0),
+                        number: connection_count,
+                    });
+                    let conn = slot.as_mut().unwrap();
+                    conn.read_op = AsyncOp::new(
+                        ASYNC_OP_READ,
+                        conn.buf.as_mut_ptr() as u32,
+                        conn.buf.len() as u32,
+                        0,
+                    );
+                    append_io_op(conn_handle, &conn.read_op, Some(wake_set));
+                } else {
+                    let _ = write_sync(conn_handle, b"HTTP/1.0 503 Service Unavailable\r\n\r\n", 0);
+                    let _ = close_sync(conn_handle);
+                }
+
+                // Re-issue accept
                 accept_op = AsyncOp::new(
                     ASYNC_OP_READ,
                     accept_buf.as_mut_ptr() as u32,
@@ -76,71 +116,30 @@ pub extern "C" fn main() {
                     0,
                 );
                 append_io_op(listener, &accept_op, Some(wake_set));
-                continue;
-            }
-
-            let conn_handle = Handle::new(ret);
-            connection_count += 1;
-
-            // Find a free slot
-            if let Some(slot) = connections.iter_mut().find(|s| s.is_none()) {
-                let mut conn = Connection {
-                    handle: conn_handle,
-                    buf: [0u8; 512],
-                    read_op: AsyncOp::new(ASYNC_OP_READ, 0, 0, 0), // placeholder
-                    number: connection_count,
-                };
-                // Set up the read op pointing at the connection's buffer.
-                // Must be done after conn is placed so the buffer address
-                // is stable — but we're about to move conn into the slot,
-                // so we set it up after the move.
-                *slot = Some(conn);
-                let conn = slot.as_mut().unwrap();
-                conn.read_op = AsyncOp::new(
-                    ASYNC_OP_READ,
-                    conn.buf.as_mut_ptr() as u32,
-                    conn.buf.len() as u32,
-                    0,
-                );
-                append_io_op(conn_handle, &conn.read_op, Some(wake_set));
             } else {
-                // No free slots, reject
-                let _ = write_sync(conn_handle, b"HTTP/1.0 503 Service Unavailable\r\n\r\n", 0);
-                let _ = close_sync(conn_handle);
-            }
+                // A connection handle woke — find it and respond
+                let slot_idx = connections.iter().position(|s| {
+                    s.as_ref().map_or(false, |c| c.handle.as_u32() == woken)
+                });
 
-            // Re-issue accept
-            accept_op = AsyncOp::new(
-                ASYNC_OP_READ,
-                accept_buf.as_mut_ptr() as u32,
-                accept_buf.len() as u32,
-                0,
-            );
-            append_io_op(listener, &accept_op, Some(wake_set));
-        } else {
-            // A connection handle woke — find it and respond
-            let slot_idx = connections.iter().position(|s| {
-                s.as_ref().map_or(false, |c| c.handle.as_u32() == woken)
-            });
+                if let Some(idx) = slot_idx {
+                    let conn = connections[idx].as_ref().unwrap();
+                    let conn_handle = conn.handle;
+                    let conn_number = conn.number;
 
-            if let Some(idx) = slot_idx {
-                let conn = connections[idx].as_ref().unwrap();
-                let conn_handle = conn.handle;
-                let conn_number = conn.number;
+                    let mut resp = [0u8; 128];
+                    let len = fmt_to_buf(
+                        &mut resp,
+                        format_args!(
+                            "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nConnection #{}\n",
+                            conn_number,
+                        ),
+                    );
+                    let _ = write_sync(conn_handle, &resp[..len], 0);
+                    let _ = close_sync(conn_handle);
 
-                let mut resp = [0u8; 128];
-                let len = fmt_to_buf(
-                    &mut resp,
-                    format_args!(
-                        "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nConnection #{}\n",
-                        conn_number,
-                    ),
-                );
-                let _ = write_sync(conn_handle, &resp[..len], 0);
-                let _ = close_sync(conn_handle);
-
-                // Free the slot
-                connections[idx] = None;
+                    connections[idx] = None;
+                }
             }
         }
     }

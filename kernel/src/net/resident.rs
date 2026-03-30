@@ -218,9 +218,12 @@ pub fn net_stack_resident() -> ! {
             executor.poll_tasks();
         }
 
-        // Only block if nothing was processed — there may be more packets
-        // or requests queued that need immediate attention.
-        if !did_work {
+        // If work was done, yield to let other tasks run (e.g. the e1000
+        // driver to deliver more packets) but loop back immediately.
+        // If no work was done, block until the wake set is signaled.
+        if did_work {
+            crate::task::actions::yield_coop();
+        } else {
             block_on_wake_set(wake_set, None);
         }
     }
