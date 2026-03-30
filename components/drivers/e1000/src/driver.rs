@@ -3,7 +3,7 @@ use idos_api::syscall::{exec::yield_coop, memory::map_dma_memory};
 use crate::controller::E1000Controller;
 
 pub const BUFFER_SIZE: usize = 1024;
-pub const RX_DESC_COUNT: usize = 8;
+pub const RX_DESC_COUNT: usize = 16;
 pub const TX_DESC_COUNT: usize = 8;
 
 const REG_CTRL: u16 = 0x00;

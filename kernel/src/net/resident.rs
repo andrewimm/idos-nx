@@ -133,8 +133,10 @@ pub fn net_stack_resident() -> ! {
         //  - Register network device by name + MAC
         //  - Socket accept / send / receive / close
         //  - IP lookup (async because DHCP may not have been established yet)
+        let mut did_work = false;
         if let Some(mut queue) = NET_STACK_REQUESTS.try_lock() {
             while let Some(req) = queue.pop_front() {
+                did_work = true;
                 match req {
                     NetRequest::RegisterDevice(name, mac) => {
                         LOGGER.log(format_args!("Register Device {}", name));
@@ -211,11 +213,16 @@ pub fn net_stack_resident() -> ! {
             };
             if let Some(event) = read_event {
                 executor.notify_event(&event);
+                did_work = true;
             }
             executor.poll_tasks();
         }
 
-        block_on_wake_set(wake_set, None);
+        // Only block if nothing was processed — there may be more packets
+        // or requests queued that need immediate attention.
+        if !did_work {
+            block_on_wake_set(wake_set, None);
+        }
     }
 }
 

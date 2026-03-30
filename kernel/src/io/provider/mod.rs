@@ -13,7 +13,10 @@ use crate::{
         virt::scratch::UnmappedPage,
     },
     sync::futex::futex_wake_inner,
-    task::{id::TaskID, map::get_task, paging::get_current_physical_address, state::Task},
+    task::{
+        id::TaskID, map::get_task, paging::get_current_physical_address, state::Task,
+        switching::get_current_task,
+    },
 };
 
 use super::{
@@ -29,6 +32,19 @@ pub mod irq;
 pub mod message;
 pub mod socket;
 pub mod task;
+
+/// Signal a wake set when an IO operation completes synchronously.
+/// This must be called from the task that owns the wake set.
+/// Since it's synchronous, you should be in the correct memory address space.
+pub fn signal_wake_set_sync(wake_set: Option<Handle>, io_handle: u32) {
+    if let Some(ws_handle) = wake_set {
+        let task_lock = get_current_task();
+        let task_guard = task_lock.read();
+        if let Some(ws) = task_guard.wake_sets.get(ws_handle) {
+            ws.wake(io_handle);
+        }
+    }
+}
 
 #[allow(unused_variables)]
 pub trait IOProvider {
@@ -159,7 +175,12 @@ pub struct UnmappedAsyncOp {
 }
 
 impl UnmappedAsyncOp {
-    pub fn from_op(op: &AsyncOp, args: [u32; 3], wake_set: Option<(TaskID, Handle)>, io_handle: u32) -> Self {
+    pub fn from_op(
+        op: &AsyncOp,
+        args: [u32; 3],
+        wake_set: Option<(TaskID, Handle)>,
+        io_handle: u32,
+    ) -> Self {
         let signal_vaddr = VirtualAddress::new(op.signal.as_ptr() as u32);
         let return_value_vaddr = VirtualAddress::new(op.return_value.as_ptr() as u32);
         let signal_paddr =

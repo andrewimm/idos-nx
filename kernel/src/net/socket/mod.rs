@@ -55,7 +55,7 @@ use super::{
         ipv4::Ipv4Address,
         tcp::{connection::TcpConnection, header::TcpHeader},
     },
-    resident::net_open_tcp,
+    resident::{net_open_tcp, net_respond},
 };
 
 #[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
@@ -245,7 +245,12 @@ pub fn socket_io_read(
     };
     match socket_type {
         SocketType::Udp(listener) => listener.read(buffer, callback),
-        SocketType::TcpListener(listener) => listener.accept(buffer, callback),
+        SocketType::TcpListener(listener) => {
+            if let Some((new_conn_id, new_conn)) = listener.accept(buffer, callback) {
+                socket_map.insert(new_conn_id, SocketType::TcpConnection(new_conn));
+            }
+            None
+        }
         SocketType::TcpConnection(connection) => connection.read(buffer, callback),
     }
 }
@@ -296,7 +301,22 @@ pub fn socket_io_close(socket_id: SocketId) {
         }
         SocketType::TcpConnection(mut connection) => {
             connection.close();
-            ACTIVE_CONNECTIONS.write().remove(&connection.local_port());
+            // Clean up the listener's connection table so the stale entry
+            // doesn't intercept packets for new connections on the same port.
+            let local_port = connection.local_port();
+            let active = ACTIVE_CONNECTIONS.read();
+            if let Some(&listener_id) = active.get(&local_port) {
+                if listener_id != socket_id {
+                    // This is a child connection — remove from the listener
+                    if let Some(SocketType::TcpListener(listener)) = socket_map.get_mut(&listener_id) {
+                        listener.connections.remove(connection.remote_address(), connection.remote_port());
+                    }
+                } else {
+                    // This connection owns the port (outbound) — remove binding
+                    drop(active);
+                    ACTIVE_CONNECTIONS.write().remove(&local_port);
+                }
+            }
             return; // Already removed from socket_map above
         }
     }
@@ -356,6 +376,22 @@ pub fn handle_tcp_packet(
                     // the new connection needs to be passed back, since we're
                     // holding the socket map lock
                     socket_map.insert(new_conn_id, SocketType::TcpConnection(new_conn));
+                } else if !tcp_header.is_syn() && !tcp_header.is_rst() {
+                    // Non-SYN packet for an unknown connection — send RST
+                    let remote_port = SocketPort::new(u16::from_be(tcp_header.source_port));
+                    let rst = TcpHeader::create_packet(
+                        local_addr,
+                        SocketPort::new(local_port),
+                        remote_addr,
+                        remote_port,
+                        u32::from_be(tcp_header.ack_number),
+                        u32::from_be(tcp_header.sequence_number) + data.len() as u32 + if tcp_header.is_fin() { 1 } else { 0 },
+                        TcpHeader::FLAG_RST | TcpHeader::FLAG_ACK,
+                        &[],
+                    );
+                    drop(socket_map);
+                    net_respond(remote_addr, rst);
+                    return;
                 }
             }
             SocketType::TcpConnection(connection) => {

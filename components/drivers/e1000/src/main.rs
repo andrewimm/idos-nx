@@ -12,13 +12,14 @@ use core::sync::atomic::AtomicU32;
 use controller::E1000Controller;
 use driver::EthernetDriver;
 use idos_api::{
-    io::{
-        read_message_op,
-        sync::{read_sync, write_sync, close_sync},
-        Handle, Message, AsyncOp, ASYNC_OP_READ,
-    },
     io::driver::DriverCommand,
     io::error::{IoError, IoResult},
+    io::{
+        read_message_op,
+        sync::{close_sync, read_sync, write_sync},
+        AsyncOp, Handle, Message, ASYNC_OP_READ,
+    },
+    syscall::pci::PciDeviceQuery,
     syscall::{
         io::{
             append_io_op, block_on_wake_set, create_message_queue_handle, create_wake_set,
@@ -26,13 +27,14 @@ use idos_api::{
         },
         memory::map_memory,
     },
-    syscall::pci::PciDeviceQuery,
 };
+use idos_sdk::log::SysLogger;
 
 struct EthernetDevice {
     driver: EthernetDriver,
     next_instance: AtomicU32,
     pending_read: Option<(*mut u8, usize, u32)>,
+    log: SysLogger,
 }
 
 impl EthernetDevice {
@@ -41,6 +43,7 @@ impl EthernetDevice {
             driver,
             next_instance: AtomicU32::new(1),
             pending_read: None,
+            log: SysLogger::new("E1000"),
         }
     }
 
@@ -83,13 +86,23 @@ impl EthernetDevice {
         let read_len = rx_buffer.len().min(buffer.len());
         buffer[..read_len].copy_from_slice(&rx_buffer[..read_len]);
         self.driver.mark_current_rx_read();
+        release_shared_buffer(buffer_ptr as u32, buffer_len);
         Some(Ok(read_len as u32))
     }
 
     fn write(&mut self, buffer_ptr: *const u8, buffer_len: usize) -> IoResult {
         let buffer = unsafe { core::slice::from_raw_parts(buffer_ptr, buffer_len) };
-        Ok(self.driver.tx(buffer) as u32)
+        let result = self.driver.tx(buffer) as u32;
+        release_shared_buffer(buffer_ptr as u32, buffer_len);
+        Ok(result)
     }
+}
+
+fn release_shared_buffer(addr: u32, len: usize) {
+    let page_start = addr & 0xfffff000;
+    let page_end = (addr + len as u32 + 0xfff) & 0xfffff000;
+    let size = page_end - page_start;
+    let _ = idos_api::syscall::memory::unmap_memory(page_start, size);
 }
 
 fn send_response(request_id: u32, result: IoResult) {
@@ -110,6 +123,7 @@ pub extern "C" fn main() {
         )
     };
     let _ = read_sync(args_reader, query_bytes, 0);
+    let _ = close_sync(args_reader);
 
     let bar0 = query.bar[0];
     let irq = query.irq;
@@ -165,8 +179,7 @@ pub extern "C" fn main() {
 
             let _ = write_sync(interrupt_handle, &[], 0);
 
-            interrupt_read =
-                AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
+            interrupt_read = AsyncOp::new(ASYNC_OP_READ, interrupt_ready.as_mut_ptr() as u32, 1, 0);
             append_io_op(interrupt_handle, &interrupt_read, Some(wake_set));
         } else if message_read.is_complete() {
             match driver_impl.handle_request(incoming_message) {

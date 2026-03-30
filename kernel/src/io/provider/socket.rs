@@ -82,6 +82,7 @@ impl IOProvider for SocketIOProvider {
                 let return_value = self.transform_result(op.op_code, result);
                 op.return_value.store(return_value, Ordering::SeqCst);
                 op.signal.store(1, Ordering::SeqCst);
+                super::signal_wake_set_sync(wake_set, io_handle);
             }
             None => (),
         }

@@ -218,7 +218,7 @@ impl ListenerConnections {
 pub struct TcpListener {
     local_port: SocketPort,
     pub connections: ListenerConnections,
-    pending_syn: VecDeque<(Ipv4Address, SocketPort)>,
+    pending_syn: VecDeque<(Ipv4Address, Ipv4Address, SocketPort, u32)>, // (local_addr, remote_addr, remote_port, seq)
     pending_accept: VecDeque<AsyncCallback>,
 }
 
@@ -246,7 +246,7 @@ impl TcpListener {
                 if tcp_header.is_syn() {
                     // If the packet is a SYN, we queue it for later processing
                     if self.pending_accept.is_empty() {
-                        self.pending_syn.push_back((remote_addr, remote_port));
+                        self.pending_syn.push_back((local_addr, remote_addr, remote_port, u32::from_be(tcp_header.sequence_number)));
                     } else {
                         // If we have a pending accept, we can immediately process the SYN
                         let callback = self.pending_accept.pop_front().unwrap();
@@ -305,17 +305,16 @@ impl TcpListener {
     }
 
     /// Accept a new connection on this TCP listener.
-    /// Incoming SYN packets are queued. An accept call will complete the
-    /// handshake. Regardless of whether a connection has been initiated before
-    /// this method is called, it will always be an async process and will
-    /// never immediately return an `IoResult>.
-    pub fn accept(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {
+    /// If a SYN has already been queued, immediately begin the handshake
+    /// and return the new connection. Otherwise, queue the accept callback
+    /// for when a SYN arrives later.
+    pub fn accept(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<(SocketId, TcpConnection)> {
         if self.pending_syn.is_empty() {
             self.pending_accept.push_back(callback);
             return None;
         }
-        unimplemented!();
-        None
+        let (local_addr, remote_addr, remote_port, seq) = self.pending_syn.pop_front().unwrap();
+        Some(self.init_connection(local_addr, remote_addr, remote_port, seq, callback))
     }
 }
 

@@ -133,7 +133,15 @@ impl TcpConnection {
                 self.local_address = local_addr;
                 self.remote_address = remote_addr;
                 self.last_sequence_sent += 1;
-                self.last_sequence_received = u32::from_be(header.sequence_number) + 1;
+                if let TcpAction::ConnectAck = action {
+                    // SYN-ACK received: the remote's SYN consumed a sequence
+                    // number, so next expected byte is ISN + 1
+                    self.last_sequence_received = u32::from_be(header.sequence_number) + 1;
+                } else {
+                    // Pure ACK completing handshake: doesn't consume a sequence
+                    // number, next data byte is at this sequence number
+                    self.last_sequence_received = u32::from_be(header.sequence_number);
+                }
                 if let Some((callback, should_create_provider)) = self.on_connect.take() {
                     if should_create_provider {
                         let provider = SocketIOProvider::create_tcp();
@@ -422,6 +430,14 @@ impl TcpConnection {
 
     pub fn local_port(&self) -> SocketPort {
         self.local_port
+    }
+
+    pub fn remote_address(&self) -> Ipv4Address {
+        self.remote_address
+    }
+
+    pub fn remote_port(&self) -> SocketPort {
+        self.remote_port
     }
 
     pub fn read(&mut self, buffer: &mut [u8], callback: AsyncCallback) -> Option<IoResult> {

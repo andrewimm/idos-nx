@@ -21,6 +21,7 @@ sb16 := target/i386-idos/release/sb16
 netcat := target/i386-idos/release/netcat
 gopher := target/i386-idos/release/gopher
 tonegen := target/i386-idos/release/tonegen
+httpd := target/i386-idos/release/httpd
 
 kernel_build_flags := --release -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target i386-kernel.json
 idos_build_flags := -Zbuild-std=core,alloc -Zbuild-std-features=compiler-builtins-mem --target ../../i386-idos.json --release
@@ -43,6 +44,7 @@ src_gfx := $(shell find components/programs/gfx/src -name '*.rs') components/pro
 src_tonegen := $(shell find components/programs/tonegen/src -name '*.rs') components/programs/tonegen/Cargo.toml $(src_shared)
 src_netcat := $(shell find components/programs/netcat/src -name '*.rs') components/programs/netcat/Cargo.toml $(src_shared)
 src_gopher := $(shell find components/programs/gopher/src -name '*.rs') components/programs/gopher/Cargo.toml $(src_shared)
+src_httpd := $(shell find components/programs/httpd/src -name '*.rs') components/programs/httpd/Cargo.toml $(src_shared)
 src_fatdrv := $(shell find components/drivers/fatdriver/src -name '*.rs') components/drivers/fatdriver/Cargo.toml $(src_api)
 src_e1000 := $(shell find components/drivers/e1000/src -name '*.rs') components/drivers/e1000/Cargo.toml $(src_shared)
 src_floppy := $(shell find components/drivers/floppy/src -name '*.rs') components/drivers/floppy/Cargo.toml $(src_shared)
@@ -88,7 +90,7 @@ $(userdata): $(colordemo)
 	@mcopy -D o -i $(userdata) userdata/static/*.* ::
 	@mcopy -D o -i $(userdata) $(colordemo) ::COLORS.ELF
 
-bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000) $(floppy) $(sb16) $(netcat) $(gopher) $(tonegen) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
+bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000) $(floppy) $(sb16) $(netcat) $(gopher) $(tonegen) $(httpd) $(diskimage) $(userdata) $(bootsector) $(bootbin) $(kernel)
 	@dd if=$(bootsector) of=$(diskimage) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc
 	@mcopy -D o -i $(diskimage) $(bootbin) ::BOOT.BIN
 	@mcopy -D o -i $(diskimage) $(kernel) ::KERNEL.BIN
@@ -104,6 +106,7 @@ bootdisk: $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000)
 	@mcopy -D o -i $(diskimage) $(netcat) ::NETCAT.ELF
 	@mcopy -D o -i $(diskimage) $(gopher) ::GOPHER.ELF
 	@mcopy -D o -i $(diskimage) $(tonegen) ::TONEGEN.ELF
+	@mcopy -D o -i $(diskimage) $(httpd) ::HTTPD.ELF
 	@mcopy -D o -i $(diskimage) resources/ter-i14n.psf ::TERM14.PSF
 	@mcopy -D o -i $(diskimage) resources/DRIVERS.CFG ::DRIVERS.CFG
 
@@ -204,12 +207,16 @@ $(gopher): $(src_gopher)
 	@cd components/programs/gopher && \
 	cargo build $(idos_build_flags)
 
+$(httpd): $(src_httpd)
+	@cd components/programs/httpd && \
+	cargo build $(idos_build_flags)
+
 $(install_elf): $(src_install)
 	@cd components/programs/install && \
 	cargo build $(idos_build_flags)
 
 # Install floppy: 1.44 MB FAT12 with kernel, all programs, and installer
-$(installdisk): $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000) $(floppy) $(floppydrv) $(sb16) $(netcat) $(gopher) $(tonegen) $(install_elf) $(floppy_bootsector) $(bootsector) $(bootbin) $(kernel)
+$(installdisk): $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(e1000) $(floppy) $(floppydrv) $(sb16) $(netcat) $(gopher) $(tonegen) $(httpd) $(install_elf) $(floppy_bootsector) $(bootsector) $(bootbin) $(kernel)
 	@mkdir -p $(shell dirname $@)
 	@mkfs.msdos -F 12 -C $(installdisk) 1440
 	@dd if=$(floppy_bootsector) of=$(installdisk) bs=450 count=1 seek=62 skip=62 iflag=skip_bytes oflag=seek_bytes conv=notrunc 2>/dev/null
@@ -229,6 +236,7 @@ $(installdisk): $(command) $(diskchk) $(doslayer) $(elfload) $(fatdrv) $(gfx) $(
 	@mcopy -D o -i $(installdisk) $(netcat) ::NETCAT.ELF
 	@mcopy -D o -i $(installdisk) $(gopher) ::GOPHER.ELF
 	@mcopy -D o -i $(installdisk) $(tonegen) ::TONEGEN.ELF
+	@mcopy -D o -i $(installdisk) $(httpd) ::HTTPD.ELF
 	@mcopy -D o -i $(installdisk) resources/ter-i14n.psf ::TERM14.PSF
 	@mcopy -D o -i $(installdisk) $(bootsector) ::MBR.BIN
 	@mcopy -D o -i $(installdisk) $(install_elf) ::INSTALL.ELF

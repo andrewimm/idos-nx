@@ -206,8 +206,9 @@ impl NetDevice {
                 // if it's an IP packet, it may be UDP or TCP and needs to
                 // be handled by the appropriate socket
                 EthernetFrameHeader::ETHERTYPE_IP => self.handle_ip_packet(frame.src_mac, offset),
-                _ => {
-                    super::resident::LOGGER.log(format_args!("Unexpected ETHERTYPE"));
+                ethertype => {
+                    super::resident::LOGGER
+                        .log(format_args!("Unexpected ETHERTYPE {:#X}", ethertype,));
                     None
                 }
             }
