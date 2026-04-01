@@ -11,7 +11,7 @@ set(CMAKE_SYSROOT "${IDOS_SYSROOT}")
 
 # Compiler flags
 set(CMAKE_C_FLAGS_INIT
-    "-m32 -march=i386 -ffreestanding -nostdlib -nostartfiles -fno-stack-protector -fno-exceptions -mno-sse -mno-mmx"
+    "-m32 -march=i386 -ffreestanding -nostdlib -nostartfiles -fno-stack-protector -fno-exceptions -mno-sse -mno-mmx -D__idos__=1"
 )
 
 # Use our sysroot for headers
