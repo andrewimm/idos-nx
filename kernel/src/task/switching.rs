@@ -6,12 +6,9 @@ use core::arch::{asm, global_asm};
 use core::sync::atomic::{AtomicU32, Ordering};
 use spin::RwLock;
 
-use super::id::{AtomicTaskID, TaskID};
+use super::id::TaskID;
 use super::map::get_task;
 use super::state::{RunState, Task};
-
-/// All kernel code referring to the "current" task will use this TaskID
-static CURRENT_ID: AtomicTaskID = AtomicTaskID::new(0);
 
 static LAST_SWITCH: AtomicU32 = AtomicU32::new(0);
 static LAST_SWITCH_DELTA: AtomicU32 = AtomicU32::new(0);
@@ -30,7 +27,7 @@ pub fn init(page_directory: PhysicalAddress) -> VirtualAddress {
 }
 
 pub fn get_current_id() -> TaskID {
-    CURRENT_ID.load(core::sync::atomic::Ordering::SeqCst)
+    super::scheduling::get_current_task_id()
 }
 
 pub fn get_current_task() -> Arc<RwLock<Task>> {
@@ -232,13 +229,10 @@ pub fn switch_to(id: TaskID) {
     {
         let next = next_task_lock.read();
         let scheduler = super::scheduling::get_cpu_scheduler();
-        crate::arch::ldt::load_task_ldt(
-            &mut scheduler.gdt,
-            next.ldt.as_deref(),
-        );
+        crate::arch::ldt::load_task_ldt(&mut scheduler.gdt, next.ldt.as_deref());
     }
 
-    let _ = CURRENT_ID.swap(id, core::sync::atomic::Ordering::SeqCst);
+    super::scheduling::get_cpu_scheduler().set_current_task(id);
 
     // Save outgoing task's FPU state, restore incoming task's
     unsafe {

@@ -1,7 +1,6 @@
-//! Scheduling of tasks has been enhanced to support multi-core CPUs.
-//! Each CPU has its own run queue and handles scheduling of eligible tasks.
-//! In addition, all cores can pick up async tasklets, which are also added to
-//! their queues.
+//! Task scheduling with a single global work queue shared across all CPUs.
+//! Each CPU has its own CPUScheduler for per-core state (current task, GDT,
+//! LAPIC, tick counting), but all runnable tasks live in one global queue.
 
 use core::arch::asm;
 use core::sync::atomic::{AtomicU8, Ordering};
@@ -26,6 +25,10 @@ use super::{
     switching::switch_to,
 };
 
+/// All cores pull tasks from this queue. At 8 cores or less, we should avoid
+/// too much lock contention
+static GLOBAL_WORK_QUEUE: Mutex<VecDeque<WorkItem>> = Mutex::new(VecDeque::new());
+
 /// This struct is instantiated once per CPU core, and manages data necessary to
 /// run and switch tasks on that core.
 #[repr(C)]
@@ -34,7 +37,6 @@ pub struct CPUScheduler {
     cpu_index: usize,
     current_task: AtomicTaskID,
     idle_task: TaskID,
-    pub work_queue: Mutex<VecDeque<WorkItem>>,
 
     pub gdt: [GdtEntry; 9],
 
@@ -50,9 +52,8 @@ impl CPUScheduler {
         Self {
             linear_address,
             cpu_index,
-            current_task: AtomicTaskID::new(0),
+            current_task: AtomicTaskID::new(idle_task.into()),
             idle_task,
-            work_queue: Mutex::new(VecDeque::new()),
             gdt,
 
             has_lapic: false,
@@ -76,12 +77,8 @@ impl CPUScheduler {
         self.idle_task
     }
 
-    pub fn get_next_work_item(&self) -> Option<WorkItem> {
-        self.work_queue.lock().pop_front()
-    }
-
-    pub fn reenqueue_work_item(&self, item: WorkItem) {
-        self.work_queue.lock().push_back(item);
+    pub fn set_current_task(&self, id: TaskID) -> TaskID {
+        self.current_task.swap(id, Ordering::SeqCst)
     }
 
     /// Called every timer tick (10ms). Returns true if the current task's
@@ -179,16 +176,23 @@ pub fn get_lapic() -> LocalAPIC {
     }
 }
 
-/// Put a task back on any work queue, making it eligible for execution again.
-pub fn reenqueue_task(id: TaskID) {
-    //crate::kprintln!("SCHEDULER: re-enqueue task {:?}", id);
-    let scheduler = get_cpu_scheduler();
-    scheduler.reenqueue_work_item(WorkItem::Task(id));
+/// Get the current task ID for the CPU that calls this function.
+pub fn get_current_task_id() -> TaskID {
+    get_cpu_scheduler().get_current_task()
 }
 
-/// If the current task is still running, put it on the back of the CPU's work
+/// Put a task on the global work queue, making it eligible for execution again.
+pub fn reenqueue_task(id: TaskID) {
+    GLOBAL_WORK_QUEUE.lock().push_back(WorkItem::Task(id));
+}
+
+/// If the current task is still running, put it on the back of the global work
 /// queue. Then, pop the first item off of the work queue. If there is no
 /// runnable task, switch to the current CPU's idle task.
+///
+/// Currently only the BSP (cpu_index == 0) dequeues tasks. APs fall through
+/// to their idle task immediately. This will be relaxed once the kernel's
+/// critical sections are made SMP-safe.
 pub fn switch() {
     let scheduler = get_cpu_scheduler();
     let current_id = scheduler.current_task.load(Ordering::SeqCst);
@@ -199,37 +203,35 @@ pub fn switch() {
         let current_task = get_task(current_id);
         if let Some(task) = current_task {
             if task.read().can_resume() {
-                scheduler.reenqueue_work_item(WorkItem::Task(current_id));
+                reenqueue_task(current_id);
             }
         }
     }
 
-    let switch_to_id = loop {
-        // Pop the first item off the queue, if one exists.
-        // It's not guaranteed that enqueued tasks are runnable, since their
-        // state may have changed. If the popped task is not runnable, discard
-        // the ID and fetch another one.
-        match scheduler.get_next_work_item() {
-            Some(WorkItem::Task(id)) => {
-                if let Some(task_lock) = get_task(id) {
-                    if task_lock.read().can_resume() {
-                        break id;
+    // Only the BSP dequeues tasks for now
+    let switch_to_id = if scheduler.cpu_index == 0 {
+        loop {
+            match GLOBAL_WORK_QUEUE.lock().pop_front() {
+                Some(WorkItem::Task(id)) => {
+                    if let Some(task_lock) = get_task(id) {
+                        if task_lock.read().can_resume() {
+                            break id;
+                        }
                     }
                 }
-            }
-            Some(WorkItem::Tasklet(_)) => panic!("Tasklet isn't supported"),
-            None => {
-                // if there's nothing in the queue, switch to the idle task
-                break scheduler.idle_task;
+                Some(WorkItem::Tasklet(_)) => panic!("Tasklet isn't supported"),
+                None => {
+                    break scheduler.idle_task;
+                }
             }
         }
+    } else {
+        scheduler.idle_task
     };
 
     if current_id == switch_to_id {
         return;
     }
-
-    scheduler.current_task.swap(switch_to_id, Ordering::SeqCst);
 
     switch_to(switch_to_id);
 }
