@@ -26,10 +26,7 @@ static FUTEX_WATCH_LIST: RwLock<BTreeMap<PhysicalAddress, VecDeque<TaskID>>> =
 /// the current Task waits until being woken by `futex_wake`.
 /// In order for this to complete atomically, it must stop interrupts.
 pub fn futex_wait(address: VirtualAddress, value: u32, timeout: Option<u32>) {
-    // TODO: disable interrupts; critical section.
-    {
-        futex_wait_inner(address, value, timeout);
-    }
+    futex_wait_inner(address, value, timeout);
     yield_coop();
 }
 
@@ -47,6 +44,10 @@ fn futex_wait_inner(address: VirtualAddress, value: u32, timeout: Option<u32>) {
     };
     let current_task_id = get_current_id();
 
+    // Hold the watch list lock across both the insertion and the state
+    // change to Blocked. This prevents a concurrent futex_wake_inner()
+    // from seeing the task in the list before it is fully blocked,
+    // which would cause a lost wakeup.
     {
         let mut watch_list = FUTEX_WATCH_LIST.write();
         match watch_list.get_mut(&paddr) {
@@ -57,11 +58,8 @@ fn futex_wait_inner(address: VirtualAddress, value: u32, timeout: Option<u32>) {
                 watch_list.insert(paddr, set);
             }
         }
+        get_current_task().write().futex_wait(timeout);
     }
-
-    // All accesses to this structure must be in critical sections to avoid
-    // deadlocks. Maybe we can clean this up in the future.
-    get_current_task().write().futex_wait(timeout);
 }
 
 /// Wakes up to `count` number of Tasks that may be blocked by previous calls to

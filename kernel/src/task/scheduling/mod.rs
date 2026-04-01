@@ -189,10 +189,6 @@ pub fn reenqueue_task(id: TaskID) {
 /// If the current task is still running, put it on the back of the global work
 /// queue. Then, pop the first item off of the work queue. If there is no
 /// runnable task, switch to the current CPU's idle task.
-///
-/// Currently only the BSP (cpu_index == 0) dequeues tasks. APs fall through
-/// to their idle task immediately. This will be relaxed once the kernel's
-/// critical sections are made SMP-safe.
 pub fn switch() {
     let scheduler = get_cpu_scheduler();
     let current_id = scheduler.current_task.load(Ordering::SeqCst);
@@ -208,25 +204,20 @@ pub fn switch() {
         }
     }
 
-    // Only the BSP dequeues tasks for now
-    let switch_to_id = if scheduler.cpu_index == 0 {
-        loop {
-            match GLOBAL_WORK_QUEUE.lock().pop_front() {
-                Some(WorkItem::Task(id)) => {
-                    if let Some(task_lock) = get_task(id) {
-                        if task_lock.read().can_resume() {
-                            break id;
-                        }
+    let switch_to_id = loop {
+        match GLOBAL_WORK_QUEUE.lock().pop_front() {
+            Some(WorkItem::Task(id)) => {
+                if let Some(task_lock) = get_task(id) {
+                    if task_lock.read().can_resume() {
+                        break id;
                     }
                 }
-                Some(WorkItem::Tasklet(_)) => panic!("Tasklet isn't supported"),
-                None => {
-                    break scheduler.idle_task;
-                }
+            }
+            Some(WorkItem::Tasklet(_)) => panic!("Tasklet isn't supported"),
+            None => {
+                break scheduler.idle_task;
             }
         }
-    } else {
-        scheduler.idle_task
     };
 
     if current_id == switch_to_id {

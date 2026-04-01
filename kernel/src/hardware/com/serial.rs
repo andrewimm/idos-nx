@@ -185,10 +185,18 @@ impl core::fmt::Write for BufferedSerialPort {
 }
 
 // ---------------------------------------------------------------------------
-// Global storage: up to 2 COM ports, indexed 0 (COM1) and 1 (COM2)
+// Global storage: up to 4 COM ports, each wrapped in a Mutex so that
+// concurrent cores produce non-interleaved output.
 // ---------------------------------------------------------------------------
 
-static mut COM_PORTS: [Option<BufferedSerialPort>; 4] = [None, None, None, None];
+use spin::Mutex;
+
+static COM_PORTS: [Mutex<Option<BufferedSerialPort>>; 4] = [
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+    Mutex::new(None),
+];
 
 /// Initialize a COM port and register it in the global table.
 /// Must be called before any `with_port` access for this index.
@@ -196,21 +204,19 @@ pub fn init_port(index: usize, base_port: u16) {
     assert!(index < 4);
     let port = SerialPort::new(base_port);
     port.init();
-    unsafe {
-        COM_PORTS[index] = Some(BufferedSerialPort::new(port));
-    }
+    *COM_PORTS[index].lock() = Some(BufferedSerialPort::new(port));
 }
 
 /// Access a buffered COM port by index. Returns None if the port has not been
-/// initialized. Safe to call from kernel context (no preemption).
+/// initialized. The Mutex ensures each print completes atomically.
 pub fn with_port<F, R>(index: usize, f: F) -> Option<R>
 where
     F: FnOnce(&mut BufferedSerialPort) -> R,
 {
-    unsafe { COM_PORTS[index].as_mut().map(f) }
+    COM_PORTS[index].lock().as_mut().map(f)
 }
 
 /// Returns true if the given port index has been initialized.
 pub fn port_exists(index: usize) -> bool {
-    unsafe { COM_PORTS.get(index).is_some_and(|p| p.is_some()) }
+    COM_PORTS.get(index).is_some_and(|p| p.lock().is_some())
 }

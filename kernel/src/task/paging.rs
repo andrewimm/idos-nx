@@ -1,4 +1,5 @@
 use idos_api::io::error::IoError;
+use spin::Mutex;
 
 use super::id::TaskID;
 use super::map::get_task;
@@ -15,6 +16,11 @@ use crate::memory::virt::invalidate_page;
 use crate::memory::virt::page_entry::PageTableEntry;
 use crate::memory::virt::page_table::PageTable;
 use crate::memory::virt::scratch::UnmappedPage;
+
+/// Protects kernel-space page directory entries (indices 0x300..0x3ff) which are
+/// shared across all address spaces. Must be held when reading or modifying
+/// kernel page table structure.
+static KERNEL_PAGETABLE_LOCK: Mutex<()> = Mutex::new(());
 
 /// PermissionFlags are used by kernel or user code to request the extra
 /// permission bits applied to paged memory
@@ -172,8 +178,13 @@ pub fn create_page_directory() -> PhysicalAddress {
         for i in 0..0x300 {
             *(new_dir.get_mut(i)) = PageTableEntry::new();
         }
-        for i in 0x300..0x400 {
-            *(new_dir.get_mut(i)) = *(current_dir.get(i));
+        // Hold the lock while copying kernel-space entries so we get a
+        // consistent snapshot
+        {
+            let _lock = KERNEL_PAGETABLE_LOCK.lock();
+            for i in 0x300..0x400 {
+                *(new_dir.get_mut(i)) = *(current_dir.get(i));
+            }
         }
         // Maintain the self-mapping property of the topmost entry!
         new_dir.get_mut(0x3ff).set_address(addr);
@@ -202,8 +213,17 @@ pub fn current_pagedir_map_explicit(
     flags: PermissionFlags,
 ) {
     super::LOGGER.log(format_args!("Pagedir: map {:?} to {:?}", vaddr, paddr));
-    let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
     let dir_index = vaddr.get_page_directory_index();
+
+    // Kernel-space entries (>= 0x300) are shared across all address spaces,
+    // so we must serialize modifications.
+    let _lock = if dir_index >= 768 {
+        Some(KERNEL_PAGETABLE_LOCK.lock())
+    } else {
+        None
+    };
+
+    let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
     let table_index = vaddr.get_page_table_index();
 
     let entry = current_dir.get_mut(dir_index);
@@ -244,8 +264,15 @@ pub fn current_pagedir_map_explicit(
 
 pub fn current_pagedir_unmap(vaddr: VirtualAddress) -> Option<AllocatedFrame> {
     super::LOGGER.log(format_args!("Unmapping {:?}", vaddr));
-    let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
     let dir_index = vaddr.get_page_directory_index();
+
+    let _lock = if dir_index >= 768 {
+        Some(KERNEL_PAGETABLE_LOCK.lock())
+    } else {
+        None
+    };
+
+    let current_dir = PageTable::at_address(VirtualAddress::new(0xfffff000));
     let table_index = vaddr.get_page_table_index();
 
     let entry = current_dir.get(dir_index);

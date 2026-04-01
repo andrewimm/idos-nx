@@ -80,12 +80,12 @@ impl TaggedLogger {
     }
 
     pub fn log(&self, args: fmt::Arguments) {
-        kprint!(
-            "\x1b[{}m{}\x1b[0m: ",
-            self.color,
-            core::str::from_utf8(&self.tag).unwrap(),
-        );
-        _kprint(args);
-        kprint!("\n");
+        use crate::hardware::com::serial::with_port;
+        let tag = core::str::from_utf8(&self.tag).unwrap();
+        with_port(0, |port| {
+            let _ = write!(port, "\x1b[{}m{}\x1b[0m: ", self.color, tag);
+            let _ = port.write_fmt(args);
+            let _ = port.write_str("\n");
+        });
     }
 }
