@@ -310,26 +310,29 @@ impl Task {
         self.state = RunState::Blocked(timeout, BlockType::Futex);
     }
 
-    pub fn futex_wake(&mut self) {
+    pub fn futex_wake(&mut self) -> bool {
         match self.state {
             RunState::Blocked(_, BlockType::Futex) => {
                 self.state = RunState::Running;
+                true
             }
-            _ => (),
+            _ => false,
         }
     }
 
     pub fn begin_file_mapping_request(&mut self) {
         if let RunState::Running = self.state {
+            if self.last_map_result.is_some() {
+                return; // result already arrived, don't block
+            }
             self.state = RunState::Blocked(None, BlockType::FileMapping);
-            self.last_map_result = None;
         }
     }
 
     pub fn resolve_file_mapping_request(&mut self, result: IoResult) -> bool {
+        self.last_map_result = Some(result);
         if let RunState::Blocked(_, BlockType::FileMapping) = self.state {
             self.state = RunState::Running;
-            self.last_map_result = Some(result);
             true
         } else {
             false

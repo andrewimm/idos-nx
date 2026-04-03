@@ -1,5 +1,5 @@
 use crate::port::Port;
-use idos_api::syscall::exec::yield_coop;
+use idos_api::syscall::{exec::yield_coop, time::sleep_ms};
 
 /// SB16 DSP register offsets from the base I/O address
 const DSP_RESET: u16 = 0x06;
@@ -31,32 +31,31 @@ impl Dsp {
     /// Reset the DSP. Returns true if a Sound Blaster was detected.
     pub fn reset(&self) -> bool {
         self.port(DSP_RESET).write_u8(1);
-        // Wait ~3 microseconds (the DSP needs at least 3µs)
-        for _ in 0..100 {
-            yield_coop();
-        }
+        // Wait ~3 microseconds (the DSP needs at least 3µs).
+        // sleep_ms(1) gives us one timer tick (~10ms), more than enough.
+        sleep_ms(1);
         self.port(DSP_RESET).write_u8(0);
 
         // Wait for ready byte (0xAA) on the read port
-        for _ in 0..1000 {
+        for _ in 0..100 {
             if self.port(DSP_READ_STATUS).read_u8() & 0x80 != 0 {
                 if self.port(DSP_READ).read_u8() == 0xAA {
                     return true;
                 }
             }
-            yield_coop();
+            sleep_ms(1);
         }
         false
     }
 
     fn write_command(&self, value: u8) {
         // Wait until the DSP is ready to accept a command
-        for _ in 0..1000 {
+        for _ in 0..100 {
             if self.port(DSP_WRITE).read_u8() & 0x80 == 0 {
                 self.port(DSP_WRITE).write_u8(value);
                 return;
             }
-            yield_coop();
+            sleep_ms(1);
         }
     }
 
@@ -68,11 +67,11 @@ impl Dsp {
     }
 
     fn read_data(&self) -> u8 {
-        for _ in 0..1000 {
+        for _ in 0..100 {
             if self.port(DSP_READ_STATUS).read_u8() & 0x80 != 0 {
                 return self.port(DSP_READ).read_u8();
             }
-            yield_coop();
+            sleep_ms(1);
         }
         0
     }

@@ -55,7 +55,8 @@ qemu_flags := -m 64M -drive format=raw,file=$(diskimage) -serial stdio \
 	-fda $(userdata) -device floppy,unit=1,drive= \
 	-device isa-debug-exit,iobase=0xf4,iosize=4 \
 	-audiodev sdl,id=snd0 -device sb16,audiodev=snd0,irq=5 \
-	-display sdl
+	-display sdl \
+	-smp cpus=2,cores=2
 
 installdisk := build/install.img
 installhd := build/install_hd.img

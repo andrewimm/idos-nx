@@ -223,7 +223,7 @@ pub fn switch_to(id: TaskID) {
     };
     let next_task_state = next_task_lock.read().state;
 
-    crate::arch::gdt::set_tss_stack_pointer(stack_top as u32);
+    super::scheduling::get_cpu_scheduler().set_tss_stack_pointer(stack_top as u32);
 
     // Load the next task's LDT (or clear it if the task has none)
     {

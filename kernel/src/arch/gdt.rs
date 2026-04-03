@@ -161,6 +161,28 @@ pub struct TssWithBitmap {
     pub bitmap: [u8; 128],
 }
 
+impl TssWithBitmap {
+    pub const fn new() -> Self {
+        Self {
+            tss: TaskStateSegment {
+                prev_tss: 0, esp0: 0, ss0: 0, esp1: 0, ss1: 0, esp2: 0, ss2: 0,
+                cr3: 0, eip: 0, eflags: 0, eax: 0, ecx: 0, edx: 0, ebx: 0,
+                esp: 0, ebp: 0, esi: 0, edi: 0, es: 0, cs: 0, ss: 0, ds: 0,
+                fs: 0, gs: 0, ldt: 0, trap: 0, iomap_base: 0,
+            },
+            bitmap: [0; 128],
+        }
+    }
+
+    /// Point a GDT entry at this TSS and initialize it.
+    pub fn init(&mut self, gdt_entry: &mut GdtEntry) {
+        self.tss.ss0 = 0x10;
+        self.bitmap[127] = 0xff;
+        gdt_entry.set_base(self as *mut Self as u32);
+        gdt_entry.set_limit(core::mem::size_of::<TssWithBitmap>() as u32 - 1);
+    }
+}
+
 // Global Tables and Structures:
 pub static mut GDT: [GdtEntry; 9] = [
     // 0x00: Null entry

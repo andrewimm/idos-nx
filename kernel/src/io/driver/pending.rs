@@ -71,8 +71,10 @@ pub fn request_complete(request_id: u32, return_value: IoResult) {
         DriverIoAction::CreateFileMapping { .. }
         | DriverIoAction::RemoveFileMapping { .. }
         | DriverIoAction::PageInFileMapping { .. } => {
-            task_lock.write().resolve_file_mapping_request(return_value);
-            reenqueue_task(request.source_task);
+            let was_blocked = task_lock.write().resolve_file_mapping_request(return_value);
+            if was_blocked {
+                reenqueue_task(request.source_task);
+            }
             return;
         }
         _ => (),

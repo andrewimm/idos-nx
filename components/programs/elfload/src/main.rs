@@ -137,13 +137,17 @@ fn map_load_segment(exec_path: &str, ph: &ProgramHeader) {
     // Map the file-backed portion
     if mapped_size > 0 {
         let flags = if writable { 0 } else { MMAP_SHARED };
-        let _ = map_file(
+        if map_file(
             Some(vaddr_aligned),
             mapped_size,
             exec_path,
             file_offset_aligned,
             flags,
-        );
+        )
+        .is_err()
+        {
+            panic!("map_file failed");
+        }
     }
 
     // If memory_size > file_size, we need to zero-fill BSS.

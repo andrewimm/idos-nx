@@ -85,8 +85,9 @@ pub fn futex_wake_inner(paddr: PhysicalAddress, count: u32) {
             while to_wake > 0 && !set.is_empty() {
                 if let Some(wake_id) = set.pop_front() {
                     if let Some(task) = get_task(wake_id) {
-                        task.write().futex_wake();
-                        crate::task::scheduling::reenqueue_task(wake_id);
+                        if task.write().futex_wake() {
+                            crate::task::scheduling::reenqueue_task(wake_id);
+                        }
                     }
                 }
                 to_wake -= 1;
@@ -110,9 +111,9 @@ mod tests {
     use crate::task::actions::io::read_struct_sync;
     use crate::task::actions::lifecycle::terminate;
     use crate::task::actions::send_message;
-    use idos_api::ipc::Message;
     use alloc::boxed::Box;
     use core::sync::atomic::AtomicU32;
+    use idos_api::ipc::Message;
 
     #[test_case]
     fn simple_futex() {

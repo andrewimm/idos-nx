@@ -33,12 +33,12 @@ impl WakeSet {
             0,
             timeout,
         );
-        // TODO: make this critical section
-        let prev = self.wake_signal.fetch_sub(1, Ordering::SeqCst);
-        if prev == 0 {
-            self.wake_signal.store(0, Ordering::SeqCst);
-        }
-        self.ready_queue.lock().pop_front().unwrap_or(0xffff_ffff)
+        let mut queue = self.ready_queue.lock();
+        let result = queue.pop_front().unwrap_or(0xffff_ffff);
+        // Reset the signal to match the remaining queue length so that
+        // the next futex_wait blocks if there's nothing left.
+        self.wake_signal.store(queue.len() as u32, Ordering::SeqCst);
+        result
     }
 
     // Warning: Don't call this if you're holding the current task lock
@@ -54,11 +54,7 @@ impl WakeSet {
         for i in 0..count {
             buffer[i] = queue.pop_front().unwrap();
         }
-        // Reset the signal counter to match what we drained
-        let prev = self.wake_signal.fetch_sub(count as u32, Ordering::SeqCst);
-        if (prev as usize) < count {
-            self.wake_signal.store(0, Ordering::SeqCst);
-        }
+        self.wake_signal.store(queue.len() as u32, Ordering::SeqCst);
         count
     }
 }

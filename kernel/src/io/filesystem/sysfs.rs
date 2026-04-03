@@ -85,16 +85,30 @@ impl SysFS {
     }
 
     fn generate_cpu_content() -> String {
-        let (user_ticks, kernel_ticks, idle_ticks) = crate::time::system::get_cpu_ticks();
-        let total = user_ticks + kernel_ticks + idle_ticks;
-        let ms_per_tick = crate::time::system::MS_PER_TICK as u32;
-        alloc::format!(
-            "CPU Usage:\nUser Time: {} ms\nKernel Time: {} ms\nIdle Time: {} ms\nTotal Ticks: {}",
-            user_ticks * ms_per_tick,
-            kernel_ticks * ms_per_tick,
-            idle_ticks * ms_per_tick,
-            total,
-        )
+        use alloc::fmt::Write;
+        let ms = crate::time::system::MS_PER_TICK as u32;
+        let per_cpu = crate::task::scheduling::get_all_cpu_ticks();
+        let mut out = alloc::string::String::new();
+        let mut total_user: u32 = 0;
+        let mut total_kernel: u32 = 0;
+        let mut total_idle: u32 = 0;
+        for &(cpu, user, kernel, idle) in &per_cpu {
+            let _ = write!(
+                out,
+                "CPU {}:  user {} ms  kernel {} ms  idle {} ms\n",
+                cpu, user * ms, kernel * ms, idle * ms,
+            );
+            total_user += user;
+            total_kernel += kernel;
+            total_idle += idle;
+        }
+        let total = total_user + total_kernel + total_idle;
+        let _ = write!(
+            out,
+            "Total:  user {} ms  kernel {} ms  idle {} ms  ({} ticks)",
+            total_user * ms, total_kernel * ms, total_idle * ms, total,
+        );
+        out
     }
 
     fn generate_drives_content() -> String {
