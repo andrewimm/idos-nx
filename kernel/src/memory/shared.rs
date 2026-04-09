@@ -36,6 +36,9 @@ static SHARED_MEMORY_REFCOUNT: Mutex<RefCountMap<PhysicalAddress>> = Mutex::new(
 /// Share an area of memory with another task. This is used for all IPC memory
 /// sharing. It is also leveraged for zero-copy IO for drivers.
 pub fn share_buffer(task: TaskID, vaddr: VirtualAddress, byte_size: usize) -> VirtualAddress {
+    if byte_size == 0 {
+        return vaddr;
+    }
     let total_pages = {
         let start = vaddr.prev_page_barrier();
         let end = (vaddr + byte_size as u32).next_page_barrier();
@@ -85,6 +88,9 @@ pub fn share_string(task_id: TaskID, s: &str) -> VirtualAddress {
 }
 
 pub fn release_buffer(vaddr: VirtualAddress, byte_size: usize) {
+    if byte_size == 0 {
+        return;
+    }
     let cur_task = get_current_id();
     super::LOGGER.log(format_args!(
         "SHARE: Release buffer as {:?} for {:?}",

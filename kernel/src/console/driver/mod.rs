@@ -250,7 +250,8 @@ impl ConsoleManager {
                 if arg_len < termios::PALETTE_SIZE {
                     return Err(IoError::InvalidArgument);
                 }
-                let buf = unsafe { core::slice::from_raw_parts_mut(arg_ptr, termios::PALETTE_SIZE) };
+                let buf =
+                    unsafe { core::slice::from_raw_parts_mut(arg_ptr, termios::PALETTE_SIZE) };
                 console.terminal.get_palette_rgb(buf);
                 Ok(1)
             }
@@ -267,7 +268,9 @@ impl ConsoleManager {
                 let buf = unsafe { core::slice::from_raw_parts(arg_ptr, len) };
                 console.title.clear();
                 for &b in buf {
-                    if b == 0 { break; }
+                    if b == 0 {
+                        break;
+                    }
                     console.title.push(b as char);
                 }
                 console.dirty = true;

@@ -879,12 +879,11 @@ fn type_file_inner(env: &mut Environment, arg: &String) -> Result<(), ()> {
                 return Err(());
             }
         };
-        read_offset += len as u32;
-        env.write(&buffer[..len]);
-
         if len == 0 {
             break;
         }
+        read_offset += len as u32;
+        env.write(&buffer[..len]);
     }
 
     let _ = close_sync(handle).map_err(|_| ())?;
